@@ -1,0 +1,13 @@
+FROM python:3.12.11-slim AS runtime
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+WORKDIR /app
+COPY README.md LICENSE ./
+COPY backend ./backend
+RUN python -m pip install --no-cache-dir ./backend
+
+EXPOSE 8001
+CMD ["sh", "-c", "cd /app/backend && alembic upgrade head && uvicorn koalabattle.api.main:app --host 0.0.0.0 --port 8001"]

@@ -1,0 +1,54 @@
+[build-system]
+requires = ["hatchling==1.27.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "koalabattle"
+version = "0.4.0"
+description = "Event-sourced AI battle production suite"
+readme = "../README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+dependencies = [
+  "aiosqlite==0.21.0",
+  "alembic==1.16.5",
+  "anthropic==0.119.0",
+  "fastapi==0.139.2",
+  "google-genai==2.13.0",
+  "openai==2.46.0",
+  "orjson==3.11.1",
+  "poke-env==0.15.0",
+  "pydantic==2.13.4",
+  "pydantic-settings==2.10.1",
+  "sqlalchemy[asyncio]==2.0.51",
+  "uvicorn[standard]==0.35.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "httpx==0.28.1",
+  "mypy==1.17.1",
+  "pytest==8.4.1",
+  "pytest-asyncio==1.1.0",
+  "ruff==0.12.8",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["koalabattle"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+markers = ["integration: requires a running local Pokemon Showdown server"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ASYNC"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]

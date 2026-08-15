@@ -1,0 +1,458 @@
+from __future__ import annotations
+
+import asyncio
+from urllib.error import URLError
+from urllib.request import urlopen
+from uuid import UUID
+
+from koalabattle.agents import (
+    Agent,
+    ApiAgent,
+    ManualAgent,
+    ManualDecisionBroker,
+    MatchCostBudget,
+    RandomAgent,
+)
+from koalabattle.agents.providers import (
+    AnthropicProvider,
+    DeepSeekProvider,
+    FakeProvider,
+    GeminiProvider,
+    LLMProvider,
+    OpenAICompatibleProvider,
+    OpenAIProvider,
+    ProviderModel,
+)
+from koalabattle.config import Settings
+from koalabattle.core.models import (
+    AgentConfiguration,
+    AgentDecision,
+    AgentLifecycleState,
+    AgentRequest,
+    AgentType,
+    GenericMatchResult,
+    GenericResultStatus,
+    MatchArchive,
+    MatchConfig,
+    MatchStatus,
+    MatchSummary,
+    PlayerConfig,
+    ProviderKind,
+    Side,
+)
+from koalabattle.core.pricing import PricingTable
+from koalabattle.engines.base import EngineEventSink
+from koalabattle.engines.showdown import ShowdownBattleEngine
+from koalabattle.orchestration.runtime import MatchSupervisor, RealtimeHub
+from koalabattle.storage import BattleRepository
+from koalabattle.tournaments.models import CreateTournament, TournamentArchive, TournamentStatus
+from koalabattle.tournaments.repository import TournamentRepository
+
+
+class BattleService:
+    def __init__(
+        self,
+        repository: BattleRepository,
+        settings: Settings,
+        tournament_repository: TournamentRepository | None = None,
+    ) -> None:
+        self.repository = repository
+        self.settings = settings
+        self.tournaments = tournament_repository or TournamentRepository(repository.database)
+        self.hub = RealtimeHub()
+        self.pricing = PricingTable(settings.pricing_table_json, settings.pricing_version)
+        self.supervisor = MatchSupervisor(
+            repository,
+            self.hub,
+            self._engine_factory,
+            self._build_agents,
+            concurrency_limit=settings.max_concurrent_matches,
+            eligible=self._eligible_for_start,
+            on_start=self._match_starting,
+            on_terminal=self._match_terminal,
+        )
+
+    async def start(self) -> tuple[UUID, ...]:
+        interrupted = await self.supervisor.start()
+        await self.schedule_tournaments()
+        return interrupted
+
+    def _engine_factory(self) -> ShowdownBattleEngine:
+        return ShowdownBattleEngine(
+            self.settings.showdown_websocket_url,
+            self.settings.showdown_auth_url,
+        )
+
+    async def create_match(
+        self,
+        config: MatchConfig,
+        *,
+        tournament_id: UUID | None = None,
+        series_id: UUID | None = None,
+    ) -> MatchArchive:
+        self._validate_provider_configuration(config)
+        return await self.supervisor.create_match(
+            config,
+            engine_version=self._engine_factory().version,
+            showdown_version=self.settings.showdown_version,
+            poke_env_version="0.15.0",
+            tournament_id=tournament_id,
+            series_id=series_id,
+        )
+
+    def _build_agents(
+        self,
+        config: MatchConfig,
+        sink: EngineEventSink,
+        manual_broker: ManualDecisionBroker,
+    ) -> dict[Side, Agent]:
+        agents: dict[Side, Agent] = {}
+        match_budget = MatchCostBudget(config.limits.maximum_total_cost)
+
+        async def state_callback(
+            side: Side,
+            state: AgentLifecycleState,
+            turn: int,
+            payload: dict[str, object],
+        ) -> None:
+            await sink.emit(
+                "agent_state",
+                turn,
+                {"side": side.value, "state": state.value, **payload},
+            )
+
+        for index, player in enumerate(config.players):
+            seed = None if config.random_seed is None else config.random_seed + index
+            if player.agent_type is AgentType.RANDOM:
+                agents[player.side] = RandomAgent(seed)
+            elif player.agent_type is AgentType.MANUAL:
+                agents[player.side] = ManualAgent(manual_broker)
+            else:
+                agents[player.side] = ApiAgent(
+                    self._provider_for(player),
+                    player.model or "",
+                    player.configuration,
+                    state_callback=state_callback,
+                    pricing=self.pricing,
+                    manual_fallback=ManualAgent(manual_broker),
+                    match_budget=match_budget,
+                    seed=seed,
+                )
+        return agents
+
+    def _validate_provider_configuration(self, config: MatchConfig) -> None:
+        for player in config.players:
+            if player.agent_type is AgentType.API:
+                self._provider_for(player)
+
+    def _provider_for(self, player: PlayerConfig) -> LLMProvider:
+        if player.provider is None:
+            raise ValueError("API agent provider is missing")
+        kind = ProviderKind(player.provider)
+        if kind is ProviderKind.OPENAI:
+            return OpenAIProvider(self._required_key(kind, self.settings.openai_api_key))
+        if kind is ProviderKind.GEMINI:
+            return GeminiProvider(self._required_key(kind, self.settings.gemini_api_key))
+        if kind is ProviderKind.ANTHROPIC:
+            return AnthropicProvider(self._required_key(kind, self.settings.anthropic_api_key))
+        if kind is ProviderKind.DEEPSEEK:
+            return DeepSeekProvider(self._required_key(kind, self.settings.deepseek_api_key))
+        if kind is ProviderKind.OPENAI_COMPATIBLE:
+            assert player.configuration.base_url is not None
+            return OpenAICompatibleProvider(
+                player.configuration.base_url,
+                self.settings.openai_compatible_api_key,
+            )
+        if not self.settings.enable_fake_provider:
+            raise ValueError("Fake provider is disabled; set KOALABATTLE_ENABLE_FAKE_PROVIDER=true")
+        return FakeProvider(player.configuration.fake_scenario)
+
+    @staticmethod
+    def _required_key(kind: ProviderKind, value: str | None) -> str:
+        if not value:
+            variable = f"KOALABATTLE_{kind.value.upper()}_API_KEY"
+            raise ValueError(f"{kind.value} is not configured; set {variable}")
+        return value
+
+    def provider_status(self) -> tuple[dict[str, object], ...]:
+        configured = {
+            ProviderKind.OPENAI: bool(self.settings.openai_api_key),
+            ProviderKind.GEMINI: bool(self.settings.gemini_api_key),
+            ProviderKind.ANTHROPIC: bool(self.settings.anthropic_api_key),
+            ProviderKind.DEEPSEEK: bool(self.settings.deepseek_api_key),
+            ProviderKind.OPENAI_COMPATIBLE: True,
+            ProviderKind.FAKE: self.settings.enable_fake_provider,
+        }
+        capabilities = {
+            ProviderKind.OPENAI: OpenAIProvider.capabilities,
+            ProviderKind.GEMINI: GeminiProvider.capabilities,
+            ProviderKind.ANTHROPIC: AnthropicProvider.capabilities,
+            ProviderKind.DEEPSEEK: DeepSeekProvider.capabilities,
+            ProviderKind.OPENAI_COMPATIBLE: OpenAICompatibleProvider.capabilities,
+            ProviderKind.FAKE: FakeProvider.capabilities,
+        }
+        return tuple(
+            {
+                "id": kind.value,
+                "configured": configured[kind],
+                "capabilities": capabilities[kind].model_dump(mode="json"),
+            }
+            for kind in ProviderKind
+        )
+
+    async def list_provider_models(
+        self, provider: ProviderKind, base_url: str | None = None
+    ) -> tuple[ProviderModel, ...]:
+        configuration = AgentConfiguration(base_url=base_url)
+        player = PlayerConfig(
+            side=Side.P1,
+            display_name="Model discovery",
+            agent_type=AgentType.API,
+            provider=provider.value,
+            model="discovery-placeholder",
+            configuration=configuration,
+        )
+        return await self._provider_for(player).list_models()
+
+    async def pending_for_match(self, match_id: UUID) -> tuple[AgentRequest, ...]:
+        return await self.supervisor.pending_for_match(match_id)
+
+    async def validate_manual_decision(self, request_id: UUID, raw_response: str) -> AgentDecision:
+        session, pending = await self.supervisor.find_pending(request_id)
+        parsed = await session.manual_broker.validate(request_id, raw_response)
+        return AgentDecision(
+            request_id=pending.request_id,
+            match_id=pending.match_id,
+            side=pending.side,
+            turn=pending.turn,
+            decision_sequence=pending.decision_sequence,
+            action=parsed.action,
+            commentary=parsed.commentary,
+            provider="manual",
+            model="web-chat",
+        )
+
+    async def submit_manual_decision(self, request_id: UUID, raw_response: str) -> None:
+        session, _ = await self.supervisor.find_pending(request_id)
+        await session.submit_manual_decision(request_id, raw_response)
+
+    async def pause_match(self, match_id: UUID) -> None:
+        await self.supervisor.pause_match(match_id)
+
+    async def resume_match(self, match_id: UUID) -> None:
+        await self.supervisor.resume_match(match_id)
+
+    async def cancel_match(self, match_id: UUID) -> None:
+        await self.supervisor.cancel_match(match_id)
+
+    async def create_tournament(self, payload: CreateTournament) -> TournamentArchive:
+        if payload.max_concurrent_matches > self.settings.max_concurrent_matches:
+            payload = payload.model_copy(
+                update={"max_concurrent_matches": self.settings.max_concurrent_matches}
+            )
+        for participant in payload.participants:
+            validation_config = MatchConfig(
+                players=(
+                    PlayerConfig(
+                        side=Side.P1,
+                        display_name=participant.display_name,
+                        agent_type=participant.agent.agent_type,
+                        provider=participant.agent.provider,
+                        model=participant.agent.model,
+                        configuration=participant.agent.configuration,
+                    ),
+                    PlayerConfig(
+                        side=Side.P2,
+                        display_name="Validation",
+                        agent_type=AgentType.RANDOM,
+                    ),
+                )
+            )
+            self._validate_provider_configuration(validation_config)
+        return await self.tournaments.create(payload)
+
+    async def start_tournament(self, tournament_id: UUID) -> TournamentArchive:
+        archive = await self.tournaments.start(tournament_id)
+        await self.schedule_tournaments(tournament_id)
+        await self.hub.publish_overview(
+            {"kind": "tournament_started", "tournament_id": str(tournament_id)}
+        )
+        return await self.tournaments.get(tournament_id) or archive
+
+    async def pause_tournament(self, tournament_id: UUID) -> None:
+        await self.tournaments.set_status(tournament_id, TournamentStatus.PAUSED)
+        self.supervisor._wake.set()  # noqa: SLF001
+
+    async def resume_tournament(self, tournament_id: UUID) -> None:
+        await self.tournaments.set_status(tournament_id, TournamentStatus.RUNNING)
+        await self.schedule_tournaments(tournament_id)
+        self.supervisor._wake.set()  # noqa: SLF001
+
+    async def cancel_tournament(self, tournament_id: UUID) -> None:
+        await self.tournaments.set_status(tournament_id, TournamentStatus.CANCELLED)
+        matches = await self.repository.list_matches(limit=250, tournament_id=tournament_id)
+        for match in matches:
+            if match.status not in {
+                MatchStatus.COMPLETED,
+                MatchStatus.CANCELLED,
+                MatchStatus.FAILED,
+                MatchStatus.INTERRUPTED,
+            }:
+                await self.cancel_match(match.id)
+
+    async def schedule_tournaments(self, tournament_id: UUID | None = None) -> None:
+        for series_id in await self.tournaments.ready_series(tournament_id):
+            await self.schedule_series(series_id)
+
+    async def schedule_series(self, series_id: UUID) -> MatchArchive:
+        tournament_id, template, participant_a, participant_b, game_number = (
+            await self.tournaments.series_execution(series_id)
+        )
+        if not await self.tournaments.budget_allows_start(tournament_id):
+            raise ValueError("tournament cost limit reached")
+        if template.engine != "pokemon-showdown":
+            raise ValueError(f"engine {template.engine!r} is not installed")
+        try:
+            config = MatchConfig(
+                name=(
+                    f"{participant_a.display_name} vs {participant_b.display_name} - "
+                    f"Game {game_number}"
+                ),
+                format=template.format,
+                generation=template.generation,
+                players=(
+                    PlayerConfig(
+                        side=Side.P1,
+                        display_name=participant_a.display_name,
+                        agent_type=participant_a.agent.agent_type,
+                        provider=participant_a.agent.provider,
+                        model=participant_a.agent.model,
+                        configuration=participant_a.agent.configuration,
+                    ),
+                    PlayerConfig(
+                        side=Side.P2,
+                        display_name=participant_b.display_name,
+                        agent_type=participant_b.agent.agent_type,
+                        provider=participant_b.agent.provider,
+                        model=participant_b.agent.model,
+                        configuration=participant_b.agent.configuration,
+                    ),
+                ),
+                random_seed=template.engine_configuration.get("random_seed"),
+                fair_prompt_mode=template.fair_prompt_mode,
+                limits=template.limits,
+            )
+            self._validate_provider_configuration(config)
+            await self.tournaments.mark_series_queued(series_id)
+            return await self.create_match(
+                config,
+                tournament_id=tournament_id,
+                series_id=series_id,
+            )
+        except Exception:
+            await self.tournaments.set_status(tournament_id, TournamentStatus.FAILED)
+            raise
+
+    async def _eligible_for_start(self, summary: MatchSummary) -> bool:
+        if summary.tournament_id is None:
+            return True
+        tournament = await self.tournaments.get(summary.tournament_id)
+        if tournament is None or tournament.status is not TournamentStatus.RUNNING:
+            return False
+        if not await self.tournaments.budget_allows_start(summary.tournament_id):
+            return False
+        active_for_tournament = sum(
+            1
+            for session in self.supervisor.sessions.values()
+            if session.archive.tournament_id == summary.tournament_id
+        )
+        return active_for_tournament < tournament.max_concurrent_matches
+
+    async def _match_starting(self, summary: MatchSummary) -> None:
+        if summary.series_id is not None:
+            await self.tournaments.mark_series_running(summary.series_id)
+
+    async def _match_terminal(self, match_id: UUID, archive: MatchArchive) -> None:
+        if archive.tournament_id is None or archive.series_id is None:
+            return
+        _, _, participant_a, participant_b, _ = await self.tournaments.series_execution(
+            archive.series_id
+        )
+        if archive.status is MatchStatus.COMPLETED:
+            if archive.winner is Side.P1:
+                result = GenericMatchResult(
+                    status=GenericResultStatus.COMPLETED,
+                    winner_participant_id=participant_a.id,
+                    score_metadata={"turns": archive.turns},
+                )
+            elif archive.winner is Side.P2:
+                result = GenericMatchResult(
+                    status=GenericResultStatus.COMPLETED,
+                    winner_participant_id=participant_b.id,
+                    score_metadata={"turns": archive.turns},
+                )
+            else:
+                result = GenericMatchResult(
+                    status=GenericResultStatus.DRAW,
+                    draw=True,
+                    score_metadata={"turns": archive.turns},
+                )
+        elif archive.status is MatchStatus.CANCELLED:
+            result = GenericMatchResult(
+                status=GenericResultStatus.CANCELLED,
+                reason=archive.error or "match cancelled",
+            )
+        else:
+            result = GenericMatchResult(
+                status=GenericResultStatus.FAILED,
+                reason=archive.error or archive.status.value,
+            )
+        tournament_id = await self.tournaments.record_match_result(match_id, result)
+        if tournament_id is not None:
+            await self.schedule_tournaments(tournament_id)
+            await self.hub.publish_overview(
+                {"kind": "tournament_updated", "tournament_id": str(tournament_id)}
+            )
+
+    async def admin_overview(self) -> dict[str, object]:
+        counts = await self.repository.match_counts()
+        tournaments = await self.tournaments.list(limit=100)
+        return {
+            "active_matches": sum(
+                counts.get(status, 0)
+                for status in (
+                    MatchStatus.STARTING,
+                    MatchStatus.RUNNING,
+                    MatchStatus.WAITING,
+                    MatchStatus.PAUSED,
+                )
+            ),
+            "queued_matches": counts.get(MatchStatus.QUEUED, 0),
+            "concurrency_limit": self.settings.max_concurrent_matches,
+            "active_tournaments": sum(
+                item.status in {TournamentStatus.RUNNING, TournamentStatus.PAUSED}
+                for item in tournaments
+            ),
+            "provider_failures": counts.get(MatchStatus.FAILED, 0),
+            "showdown": await self._showdown_health(),
+            "backend": {"status": "ok", "version": "0.4.0"},
+        }
+
+    async def _showdown_health(self) -> dict[str, object]:
+        url = self.settings.showdown_websocket_url.replace("ws://", "http://").replace(
+            "wss://", "https://"
+        )
+        url = url.split("/showdown/websocket", 1)[0]
+
+        def probe() -> bool:
+            try:
+                with urlopen(url, timeout=1.5) as response:  # noqa: S310
+                    return 200 <= int(response.status) < 500
+            except (OSError, URLError):
+                return False
+
+        healthy = await asyncio.to_thread(probe)
+        return {"status": "healthy" if healthy else "unavailable", "url": url}
+
+    async def close(self) -> None:
+        await self.supervisor.close()
