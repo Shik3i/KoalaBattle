@@ -15,7 +15,7 @@ production-control UI.
 Pokemon Showdown -> poke-env -> ShowdownBattleEngine
                                   |
                                   v
-Agent <- AgentRequest <- normalized BattleState / BattleAction
+Agent <- AgentRequest <- AgentContextSnapshot / PlayerKnowledgeState / BattleAction
                                   |
                                   +-> immutable BattleEvent -> SQLite
                                                            -> WebSocket clients
@@ -35,6 +35,12 @@ The adapter uses two pinned private compatibility surfaces—protocol handling a
 log extraction—to preserve raw evidence. They are contained in the adapter and covered by
 the real-server integration test. A future direct `BattleStream` adapter can implement the
 same `BattleEngine` interface.
+
+Each `_KoalaPlayer` owns one knowledge reducer and one bounded Strategy Memory value. The
+reducer consumes only that player's poke-env view and survives turns, never matches. Prompt
+rendering and provider adapters depend on versioned domain models, not poke-env. The separate
+team-validator HTTP service uses the same pinned Showdown image and official library APIs;
+team legality does not leak into the Python domain.
 
 ## Multi-match orchestration and loops
 
@@ -56,6 +62,11 @@ constraint; insertion is serialized per match. Completed event rows are never up
 `state_snapshot` events give replay a stable checkpoint, while semantic events retain
 animation and inspection detail. Raw protocol logs remain archival evidence, not replay
 input.
+
+Summary queries use `config_json` and grouped cost rows without loading event/decision
+relationships. Full archives explicitly eager-load those relationships. Queue position and
+tournament claims use short immediate/conditional transactions; one start lock owns dispatcher
+creation. See [Performance](PERFORMANCE.md).
 
 ## Presentation
 
@@ -82,3 +93,40 @@ routes remain local operator surfaces; watch and overlay payloads never reuse fu
 The asset API is a separate local boundary. It canonicalizes species identifiers, resolves
 only files below `KOALABATTLE_ASSET_ROOT`, and returns 404 when media is absent. The
 renderer then draws a built-in CSS placeholder. No asset path is stored in battle events.
+
+## Production projection
+
+Production is a separate projection above the immutable archive:
+
+```text
+MatchArchive -> ProductionProfile -> ProductionTimeline
+                                      | captions
+                                      | speech cache/queue
+                                      | SFX/music cues
+                                      ` director state
+```
+
+`BattleRenderer` remains visual and contains no provider or audio logic. The browser
+`ProductionAudioEngine` is the sole mixer/scheduler owner. A production rebuild reads stored
+events and public commentary only; it never updates the archive and never recalls an LLM.
+Multiple production IDs can therefore provide different output timing and voices for one match.
+
+## Video exports
+
+```text
+Battle (immutable events)
+  -> Production (fixed logical clock and presentation decisions)
+    -> VideoExportJob (preset, backend, range, progress)
+      -> OBSRecorderExporter      -> realtime OBS recording
+      -> OfflineRendererExporter -> renderAt(t) -> PNG pipe -> FFmpeg -> FFprobe
+```
+
+`ProductionService` receives repository post-commit hooks. It appends only the new event's
+cues and finalizes result/outro/audio without blocking battle execution. `VideoExportService`
+owns the bounded persistent queue; exporters do not enter match/tournament orchestration.
+
+Offline frames use the same `BattleRenderer`, reducer, themes, layouts, local sprite endpoint,
+and caption overlay as live/replay/OBS. At logical time `t`, only event sequences whose visual
+cue has started are reduced. Winner, future moves, future commentary, hidden teams, and later
+series data therefore cannot enter an early frame. CSS animation state is paused at the
+logical cue offset; browser wall-clock time does not control frame sampling.

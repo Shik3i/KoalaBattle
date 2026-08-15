@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from collections import defaultdict
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from uuid import UUID
 
 from pydantic import BaseModel
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, text
 from sqlalchemy.orm import selectinload
 
 from koalabattle.core.models import (
@@ -27,6 +29,8 @@ from koalabattle.orchestration.lifecycle import ACTIVE_MATCH_STATUSES, validate_
 
 from .database import Database
 
+LOGGER = logging.getLogger(__name__)
+
 
 def _json(value: object) -> str:
     if isinstance(value, BaseModel):
@@ -38,6 +42,22 @@ class BattleRepository:
     def __init__(self, database: Database) -> None:
         self.database = database
         self._event_locks: defaultdict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
+        self._production_event_hook: Callable[[BattleEvent], Awaitable[None]] | None = None
+        self._production_completion_hook: Callable[[UUID], Awaitable[None]] | None = None
+
+    def set_production_hooks(
+        self,
+        *,
+        event: Callable[[BattleEvent], Awaitable[None]],
+        completion: Callable[[UUID], Awaitable[None]],
+    ) -> None:
+        self._production_event_hook = event
+        self._production_completion_hook = completion
+
+    def release_event_lock(self, match_id: UUID) -> None:
+        lock = self._event_locks.get(str(match_id))
+        if lock is not None and not lock.locked():
+            self._event_locks.pop(str(match_id), None)
 
     async def create_match(
         self,
@@ -78,6 +98,18 @@ class BattleRepository:
                 provider=player.provider,
                 model=player.model,
                 configuration_json=_json(player.configuration),
+                team_json=(
+                    _json(
+                        {
+                            "source": player.team_source.value,
+                            "snapshot_id": str(player.team_snapshot_id),
+                            "normalized_export": player.team_export,
+                            "packed_team": player.team_packed,
+                        }
+                    )
+                    if player.team_snapshot_id
+                    else None
+                ),
             )
             for player in config.players
         ]
@@ -102,6 +134,7 @@ class BattleRepository:
 
     async def enqueue_match(self, match_id: UUID) -> int:
         async with self.database.sessions() as session:
+            await session.execute(text("BEGIN IMMEDIATE"))
             row = await session.get(MatchRow, str(match_id))
             if row is None:
                 raise KeyError(str(match_id))
@@ -169,7 +202,12 @@ class BattleRepository:
                 await session.flush()
                 stored = stored.model_copy(update={"id": row.id})
                 await session.commit()
-                return stored
+            if self._production_event_hook is not None:
+                try:
+                    await self._production_event_hook(stored)
+                except Exception:
+                    LOGGER.exception("Could not extend production for event %s", stored.id)
+            return stored
 
     async def record_decision(
         self,
@@ -188,6 +226,7 @@ class BattleRepository:
         parsed = {
             "action": decision.action,
             "commentary": decision.commentary,
+            "strategy_memory": decision.strategy_memory,
         }
         row = AgentDecisionRow(
             match_id=str(request.match_id),
@@ -225,6 +264,22 @@ class BattleRepository:
             pricing_version=decision.estimated_cost.pricing_version,
             error_category=decision.error_category.value if decision.error_category else None,
             error_detail=decision.error_detail,
+            knowledge_json=_json(request.knowledge) if request.knowledge is not None else None,
+            context_json=_json(request.context) if request.context is not None else None,
+            context_metrics_json=(
+                _json(request.context_metrics) if request.context_metrics is not None else None
+            ),
+            prompt_profile_id=request.prompt_profile_id.value,
+            prompt_profile_version=request.prompt_profile_version,
+            context_schema_version=request.context_schema_version,
+            knowledge_schema_version=request.knowledge_schema_version,
+            history_policy_version=request.history_policy_version,
+            memory_policy=request.memory_policy.value,
+            memory_policy_version=request.memory_policy_version,
+            strategy_memory_before=(
+                request.context.strategy_memory if request.context is not None else None
+            ),
+            strategy_memory_after=decision.strategy_memory,
             schema_version=decision.schema_version,
         )
         async with self.database.sessions() as session:
@@ -261,6 +316,11 @@ class BattleRepository:
             row.raw_showdown_log = raw_showdown_log
             row.updated_at = datetime.now(UTC)
             await session.commit()
+        if self._production_completion_hook is not None:
+            try:
+                await self._production_completion_hook(match_id)
+            except Exception:
+                LOGGER.exception("Could not start production finalization for %s", match_id)
 
     async def fail_match(self, match_id: UUID, error: str) -> None:
         async with self.database.sessions() as session:

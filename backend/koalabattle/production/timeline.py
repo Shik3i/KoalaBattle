@@ -1,0 +1,279 @@
+from __future__ import annotations
+
+import re
+from datetime import UTC, datetime
+from uuid import UUID, uuid4
+
+from koalabattle.core.models import BattleEvent, MatchArchive, MatchStatus
+
+from .models import (
+    CaptionSegment,
+    DirectorState,
+    ProductionCue,
+    ProductionProfile,
+    ProductionStatus,
+    ProductionTimeline,
+    Track,
+)
+
+_EVENT_DURATIONS = {
+    "move_used": 520,
+    "move_missed": 420,
+    "damage": 420,
+    "healing": 460,
+    "critical_hit": 520,
+    "status_applied": 420,
+    "status_removed": 360,
+    "pokemon_switched": 620,
+    "pokemon_fainted": 760,
+    "agent_decision": 340,
+    "turn_started": 240,
+    "state_snapshot": 100,
+    "battle_finished": 900,
+}
+_SFX_EVENTS = {
+    "move_used": "action",
+    "move_missed": "miss",
+    "damage": "impact",
+    "healing": "heal",
+    "critical_hit": "critical",
+    "status_applied": "status",
+    "pokemon_switched": "switch",
+    "pokemon_fainted": "faint",
+    "battle_finished": "result",
+}
+_TERMINAL = {
+    MatchStatus.COMPLETED,
+    MatchStatus.CANCELLED,
+    MatchStatus.FAILED,
+    MatchStatus.INTERRUPTED,
+}
+
+
+def public_commentary(text: object, maximum: int) -> str:
+    if not isinstance(text, str):
+        return ""
+    return " ".join(text.split())[:maximum].rstrip()
+
+
+def segment_caption(text: str, *, maximum: int, duration_ms: int) -> tuple[CaptionSegment, ...]:
+    words = text.split()
+    if not words:
+        return ()
+    chunks: list[str] = []
+    current = ""
+    for word in words:
+        candidate = f"{current} {word}".strip()
+        if current and len(candidate) > maximum:
+            chunks.append(current)
+            current = word
+        else:
+            current = candidate
+        if current.endswith((".", "!", "?")) and len(current) >= maximum // 2:
+            chunks.append(current)
+            current = ""
+    if current:
+        chunks.append(current)
+    weights = [max(1, len(re.sub(r"\s+", "", chunk))) for chunk in chunks]
+    total = sum(weights)
+    cursor = 0
+    segments: list[CaptionSegment] = []
+    for index, (chunk, weight) in enumerate(zip(chunks, weights, strict=True)):
+        end = (
+            duration_ms
+            if index == len(chunks) - 1
+            else cursor + round(duration_ms * weight / total)
+        )
+        end = max(cursor + 1, end)
+        segments.append(CaptionSegment(text=chunk, start_ms=cursor, end_ms=end))
+        cursor = end
+    return tuple(segments)
+
+
+def cues_for_event(
+    event: BattleEvent, profile: ProductionProfile, *, start_ms: int
+) -> tuple[tuple[ProductionCue, ...], int]:
+    """Create only cues owned by one persisted event; IDs make retries idempotent."""
+    duration = _EVENT_DURATIONS.get(event.event_type, 120)
+    base = f"event-{event.sequence}"
+    cues = [
+        ProductionCue(
+            id=f"{base}-visual",
+            track=Track.VISUAL,
+            kind=event.event_type,
+            start_ms=start_ms,
+            duration_ms=duration,
+            event_sequence=event.sequence,
+            turn=event.turn,
+        )
+    ]
+    if profile.sfx_enabled and event.event_type in _SFX_EVENTS:
+        cues.append(
+            ProductionCue(
+                id=f"{base}-sfx",
+                track=Track.SFX,
+                kind=_SFX_EVENTS[event.event_type],
+                start_ms=start_ms,
+                duration_ms=min(duration, 500),
+                event_sequence=event.sequence,
+                turn=event.turn,
+                payload={"sound_pack": "generic-default"},
+            )
+        )
+    if event.event_type == "agent_decision":
+        side = event.payload.get("side")
+        commentary = public_commentary(
+            event.payload.get("commentary"), profile.commentary_max_characters
+        )
+        if commentary and side in {"p1", "p2"}:
+            estimated = max(650, min(12_000, len(commentary) * 55))
+            cues.append(
+                ProductionCue(
+                    id=f"{base}-commentary",
+                    track=Track.COMMENTARY,
+                    kind="public-agent-commentary",
+                    start_ms=start_ms,
+                    duration_ms=estimated,
+                    event_sequence=event.sequence,
+                    turn=event.turn,
+                    side=side,
+                    payload={"text": commentary},
+                )
+            )
+            if profile.captions_enabled:
+                cues.append(
+                    ProductionCue(
+                        id=f"{base}-captions",
+                        track=Track.CAPTIONS,
+                        kind="agent-commentary",
+                        start_ms=start_ms,
+                        duration_ms=estimated,
+                        event_sequence=event.sequence,
+                        turn=event.turn,
+                        side=side,
+                        payload={
+                            "segments": [
+                                segment.model_dump(mode="json")
+                                for segment in segment_caption(
+                                    commentary,
+                                    maximum=profile.caption_max_characters,
+                                    duration_ms=estimated,
+                                )
+                            ]
+                        },
+                    )
+                )
+            if profile.wait_for_speech:
+                duration = max(duration, estimated)
+    return tuple(cues), duration
+
+
+def final_cues(archive: MatchArchive, *, start_ms: int) -> tuple[ProductionCue, ...]:
+    return (
+        ProductionCue(
+            id="director-result",
+            track=Track.DIRECTOR,
+            kind="result",
+            start_ms=start_ms,
+            duration_ms=1800,
+            payload={
+                "winner": archive.winner.value if archive.winner else None,
+                "turns": archive.turns,
+                "status": archive.status.value,
+            },
+        ),
+        ProductionCue(
+            id="director-outro",
+            track=Track.DIRECTOR,
+            kind="outro",
+            start_ms=start_ms + 1800,
+            duration_ms=600,
+        ),
+    )
+
+
+def retime_for_audio(
+    cues: tuple[ProductionCue, ...], profile: ProductionProfile
+) -> tuple[tuple[ProductionCue, ...], int]:
+    """Normalize the final clock after real cached speech durations are known."""
+    result: list[ProductionCue] = []
+    intro = next((cue for cue in cues if cue.id == "director-intro"), None)
+    cursor = 0
+    if intro is not None:
+        result.append(intro.model_copy(update={"start_ms": 0}))
+        cursor = intro.duration_ms
+    sequences = sorted({cue.event_sequence for cue in cues if cue.event_sequence is not None})
+    for sequence in sequences:
+        group = [cue for cue in cues if cue.event_sequence == sequence]
+        visual_duration = max(
+            (cue.duration_ms for cue in group if cue.track is Track.VISUAL), default=0
+        )
+        duration = (
+            max((cue.duration_ms for cue in group), default=visual_duration)
+            if profile.wait_for_speech
+            else visual_duration
+        )
+        result.extend(cue.model_copy(update={"start_ms": cursor}) for cue in group)
+        cursor += duration + profile.event_gap_ms
+    result_cue = next((cue for cue in cues if cue.id == "director-result"), None)
+    outro = next((cue for cue in cues if cue.id == "director-outro"), None)
+    if result_cue is not None:
+        result.append(result_cue.model_copy(update={"start_ms": cursor}))
+        cursor += result_cue.duration_ms
+    if outro is not None:
+        result.append(outro.model_copy(update={"start_ms": cursor}))
+        cursor += outro.duration_ms
+    known = {cue.id for cue in result}
+    result.extend(cue for cue in cues if cue.id not in known)
+    return tuple(sorted(result, key=lambda cue: (cue.start_ms, cue.track.value, cue.id))), cursor
+
+
+def build_timeline(
+    archive: MatchArchive,
+    profile: ProductionProfile,
+    *,
+    production_id: UUID | None = None,
+    revision: int = 1,
+    voices: dict[str, str] | None = None,
+) -> ProductionTimeline:
+    now = datetime.now(UTC)
+    cues: list[ProductionCue] = []
+    cursor = 0
+    if profile.intro_enabled:
+        cues.append(
+            ProductionCue(
+                id="director-intro",
+                track=Track.DIRECTOR,
+                kind="match-intro",
+                start_ms=0,
+                duration_ms=2200,
+                payload={
+                    "players": [player.display_name for player in archive.config.players],
+                    "format": archive.config.format,
+                },
+            )
+        )
+        cursor = 2200
+    for event in archive.events:
+        event_cues, duration = cues_for_event(event, profile, start_ms=cursor)
+        cues.extend(event_cues)
+        cursor += duration + profile.event_gap_ms
+    terminal = archive.status in _TERMINAL
+    if terminal:
+        cues.extend(final_cues(archive, start_ms=cursor))
+        cursor += 2400
+    final_state = DirectorState.RESULT if archive.winner is not None else DirectorState.ENDED
+    return ProductionTimeline(
+        id=production_id or uuid4(),
+        match_id=archive.id,
+        profile=profile,
+        revision=revision,
+        status=ProductionStatus.FINALIZED if terminal else ProductionStatus.LIVE,
+        director_state=DirectorState.PRE_SHOW if profile.intro_enabled else final_state,
+        cues=tuple(sorted(cues, key=lambda cue: (cue.start_ms, cue.track.value, cue.id))),
+        voice_assignments=voices or {"p1": "system-p1", "p2": "system-p2"},
+        duration_ms=cursor,
+        finalized_at=now if terminal else None,
+        created_at=now,
+        updated_at=now,
+    )

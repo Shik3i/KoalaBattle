@@ -2,8 +2,13 @@
 
 KoalaBattle is an open-source, self-hosted AI-vs-AI battle production suite. It runs
 independent matches concurrently, records immutable replay/audit data, and provides match,
-tournament, watch, control, and OBS interfaces. The first engine is Pokémon Showdown Gen 9
-Random Battle; the tournament core consumes generic participants and results.
+tournament, watch, control, and OBS interfaces. Pokémon Showdown supports Gen 9 Random
+Battle and validated fixed-team Gen 9 OU; the tournament core consumes generic participants
+and results.
+
+Phase 7 adds incrementally finalized production timelines, persistent video export jobs,
+realtime OBS recording, and deterministic headless offline rendering. Only stored events,
+local assets, and cached audio are used; rendering never reruns Showdown or battle LLMs.
 
 Supported agents: Random, Manual Web Chat, OpenAI, Gemini, Anthropic, DeepSeek, and generic
 OpenAI-compatible providers. Manual Web Chat needs no API key.
@@ -23,19 +28,35 @@ docker compose up --build
 Open <http://localhost:3000>; API docs: <http://localhost:8001/docs>. If port 3000 is in
 use, set `KOALABATTLE_FRONTEND_PORT=3001` in `.env`.
 
-The stack contains the SvelteKit UI, FastAPI backend, SQLite, and a local Pokémon Showdown
-server. Showdown is pinned to `b22742debfdce6e640193384f5731b9030f9cb6e`; the backend pins
+The stack contains the SvelteKit UI, FastAPI backend, SQLite, zero-cost local `espeak-ng`, a
+local Pokémon Showdown server,
+and an isolated Showdown team-validator service. Showdown is pinned to
+`b22742debfdce6e640193384f5731b9030f9cb6e`; the backend pins
 `poke-env==0.15.0`. Pins keep the private protocol bridge reproducible and are upgraded only
 with the real-server integration gate.
+
+Optional reproducible offline renderer (Chromium, Playwright, FFmpeg):
+
+```bash
+docker compose --profile renderer up --build
+```
 
 ## First run
 
 1. Open `/new` for a standalone match or `/tournaments/new` for the ten-step tournament
    wizard.
-2. Use `/admin` to inspect capacity, queued/running/waiting matches, Showdown health, costs,
+2. Open `/teams` to import or explicitly generate a legal Gen 9 OU team snapshot. Random
+   Battle requires no team setup.
+3. Use `/admin` to inspect capacity, queued/running/waiting matches, Showdown health, costs,
    and active tournaments.
-3. Use `/watch/:matchId` for a spectator-safe view and `/matches/:matchId/control` for local
+4. Use `/watch/:matchId` for a spectator-safe view and `/matches/:matchId/control` for local
    production control.
+
+Every Manual/API turn receives a fresh, versioned player-scoped knowledge/context snapshot.
+Prompts do not depend on provider chat history. Strategy Memory is a bounded replacement note,
+not hidden reasoning. Local controls expose decision context inspection; watch/OBS payloads do
+not expose prompts, raw responses, context snapshots, or fixed opponent teams. See
+[Agent context](docs/AGENT_CONTEXT.md) and [Team building](docs/TEAM_BUILDING.md).
 
 Global concurrency defaults to two active matches. Additional work remains durably queued.
 Tournament templates, presets, participants, series, results, costs, and bracket dependencies
@@ -75,12 +96,39 @@ Match source: `/overlay/:matchId`. Tournament source: `/overlay/tournament/:tour
 Both are read-only and support transparent browser-source layouts. Presets and query options:
 [OBS guide](docs/OBS.md).
 
+Audio follows browser autoplay policy: open the source once and choose **Enable audio**. A
+production timeline must exist for that match. Cached speech stays available without the
+original provider; captions remain available when speech or media is missing. See
+[Production](docs/PRODUCTION.md), [Audio](docs/AUDIO.md), [TTS](docs/TTS.md), and
+[Captions](docs/CAPTIONS.md).
+
+## Video export
+
+- Live streaming: OBS Browser Source.
+- Realtime recording: automated OBS WebSocket v5 recorder; a ten-minute production takes
+  about ten minutes to record.
+- Fast/batch production: deterministic Offline Renderer; no OBS or visible desktop required.
+
+Open a replay, choose/create a finalized Production, then use **Render & recording jobs**.
+Generated MP4/SRT/JSON files stay in ignored `data/videos/`. Install host renderer support
+with `.venv/bin/pip install -e './backend[renderer]'`; an existing compatible Chrome/Chromium
+and FFmpeg/FFprobe must be available. CLI example:
+
+```bash
+.venv/bin/python -m koalabattle.video.cli render match MATCH_ID --preset youtube-1080p60 --wait
+```
+
+Details: [Video export](docs/VIDEO_EXPORT.md),
+[Offline renderer](docs/OFFLINE_RENDERER.md), and
+[OBS recording](docs/OBS_RECORDING.md).
+
 ## Persistent data and backups
 
 `data/koalabattle.db` contains match/tournament history, events, decisions, templates, and
-presets. `data/assets/` contains optional media; `data/vendor/` contains its installer
-manifest. Stop writers or use SQLite's backup API before copying the database; back up all
-three paths if local media must be reproducible. Replays are derived from stored events and
+presets. `data/assets/` contains optional media; `data/audio/` contains generated speech;
+`data/vendor/` contains its installer manifest; `data/videos/` contains generated video,
+captions, and manifests. Stop writers or use SQLite's backup API before copying the database;
+back up these paths if local media must be reproducible. Replays are derived from stored events and
 have no separate required file store.
 
 ## Development and checks
@@ -109,6 +157,8 @@ Details: [Development](docs/DEVELOPMENT.md). Documentation index: [docs/README.m
 - `backend/koalabattle/engines/showdown`: the only `poke-env` boundary
 - `backend/koalabattle/storage`: SQLite match archive and ordering guarantees
 - `backend/koalabattle/replay`: pure recorded-event reducer
+- `backend/koalabattle/production`: profiles, timelines, speech cache/queue, and director
+- `backend/koalabattle/video`: export jobs, queue, OBS/offline exporters, validation, storage
 - `frontend`: SvelteKit admin, control, watch, replay, tournament, and OBS UI
 - `scripts/setup_assets.py`: explicit third-party asset installer/status tool
 - `showdown`: reproducibly pinned local engine image

@@ -44,6 +44,11 @@ class ManualDecisionBroker:
                 decision_sequence=request.decision_sequence,
                 action=response.action,
                 commentary=response.commentary,
+                strategy_memory=(
+                    response.strategy_memory
+                    if request.memory_policy.value == "strategy-note"
+                    else None
+                ),
                 raw_response=raw,
                 provider_metadata={"agent": "manual"},
                 latency_ms=round((perf_counter() - pending.started_at) * 1000),

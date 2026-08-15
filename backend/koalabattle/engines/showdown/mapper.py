@@ -31,6 +31,14 @@ _PUBLIC_COMMANDS = {
     "-status",
     "-curestatus",
     "-weather",
+    "-fieldstart",
+    "-fieldend",
+    "-sidestart",
+    "-sideend",
+    "-item",
+    "-enditem",
+    "-ability",
+    "-terastallize",
     "faint",
     "win",
     "tie",
@@ -54,6 +62,8 @@ def _move_state(move: Move) -> MoveState:
         type=_enum_name(getattr(move, "type", None)),
         power=getattr(move, "base_power", None),
         accuracy=accuracy,
+        current_pp=getattr(move, "current_pp", None),
+        max_pp=getattr(move, "max_pp", None),
     )
 
 
@@ -62,14 +72,24 @@ def _pokemon_state(identifier: str, pokemon: Pokemon, *, revealed: bool = True) 
         value for value in (_enum_name(item) for item in getattr(pokemon, "types", [])) if value
     )
     moves = tuple(_move_state(move) for _, move in sorted(getattr(pokemon, "moves", {}).items()))
+    boosts = {str(key): int(value) for key, value in sorted(getattr(pokemon, "boosts", {}).items())}
+    effects = tuple(sorted(_enum_name(item) or "unknown" for item in pokemon.effects))
     return PokemonState(
         id=identifier,
         name=pokemon.name,
         species=pokemon.species,
         level=getattr(pokemon, "level", None),
+        current_hp=getattr(pokemon, "current_hp", None),
+        max_hp=getattr(pokemon, "max_hp", None),
         hp_fraction=max(0.0, min(1.0, float(pokemon.current_hp_fraction))),
         status=_enum_name(pokemon.status),
         types=types,
+        item=getattr(pokemon, "item", None) or None,
+        ability=getattr(pokemon, "ability", None) or None,
+        tera_type=_enum_name(getattr(pokemon, "tera_type", None)),
+        terastallized=bool(getattr(pokemon, "is_terastallized", False)),
+        boosts=boosts,
+        effects=effects,
         active=bool(pokemon.active),
         fainted=bool(pokemon.fainted),
         revealed=revealed,
@@ -160,12 +180,20 @@ def battle_state(
             display_name=display_names[side],
             active=own_active,
             team=own_team,
+            side_conditions=tuple(
+                sorted(_enum_name(item) or "unknown" for item in battle.side_conditions)
+            ),
+            can_terastallize=bool(battle.can_tera),
+            terastallization_used=not bool(battle.can_tera),
         ),
         opponent=BattleSide(
             side=opponent_side,
             display_name=display_names[opponent_side],
             active=opponent_active,
             team=opponent_team,
+            side_conditions=tuple(
+                sorted(_enum_name(item) or "unknown" for item in battle.opponent_side_conditions)
+            ),
         ),
         weather=tuple(sorted(_enum_name(item) or "unknown" for item in battle.weather)),
         fields=tuple(sorted(_enum_name(item) or "unknown" for item in battle.fields)),

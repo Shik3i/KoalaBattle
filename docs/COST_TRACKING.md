@@ -18,3 +18,7 @@ produce `available=false`; KoalaBattle never invents a value.
 Player and match cost limits prevent later provider calls once recorded estimated spend
 reaches the configured threshold. A response that crosses a threshold is retained and
 executed, then the configured fallback applies on that player's next decision.
+
+Team-build audits separately aggregate provider-reported usage across the initial generation
+and all repair calls. Pricing remains unavailable unless the operator's versioned table covers
+that provider/model; unknown costs are never inferred.

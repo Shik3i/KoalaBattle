@@ -40,6 +40,7 @@ async def test_two_random_matches_use_independent_showdown_rooms(tmp_path) -> No
     await database.create_schema()
     repository = BattleRepository(database)
     service = BattleService(repository, settings)
+
     def config(index: int) -> MatchConfig:
         return MatchConfig(
             name=f"Concurrent room {index}",

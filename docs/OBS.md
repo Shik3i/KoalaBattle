@@ -38,3 +38,17 @@ parameters:
 No API keys or secrets belong in overlay URLs. Match and tournament overlays use sanitized,
 read-only APIs and cannot pause/cancel work or submit manual decisions. Transparent mode
 removes renderer and page backgrounds; regular KoalaBattle use does not require OBS.
+
+## Production audio and captions
+
+Match overlays load the newest stored production for that match, if one exists. Captions run
+without audio. OBS Chromium still enforces autoplay rules: interact with the source once and
+choose **Enable audio**, then configure OBS to control audio through the browser source. Do not
+open two audible clients for one production; the operator-selected authoritative client owns
+playback, while all other sources remain muted visual clients.
+
+Each overlay creates and destroys its own mixer. Cache keys and timelines are match-scoped, so
+simultaneous browser sources cannot share an active audio element or scheduler. Tournament
+bracket overlay state remains separate from match audio; use the active match overlay as a
+nested OBS source for commentary and captions. Recommended QA sizes remain 1920×1080 and
+1080×1920.

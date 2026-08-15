@@ -14,10 +14,10 @@ from poke_env.player.battle_order import ForfeitBattleOrder
 from koalabattle.agents import AgentForfeitError
 from koalabattle.agents.base import Agent
 from koalabattle.core.models import AgentRequest, BattleResult, Side
-from koalabattle.core.prompt import build_agent_prompt
 from koalabattle.engines.base import BattleEngineContext, EngineOutcome
 from koalabattle.events.protocol import normalize_showdown_message
 
+from .context import PokemonShowdownContextProvider
 from .mapper import action_to_order, battle_state, find_action, legal_actions
 
 LOGGER = logging.getLogger(__name__)
@@ -50,6 +50,8 @@ class _KoalaPlayer(Player):
         self.current_turn = 0
         self.limit_forfeit = False
         self.provider_forfeit = False
+        self.context_provider = PokemonShowdownContextProvider()
+        self.strategy_memory: str | None = None
         username = f"Koala{side.value.upper()}{str(context.match_id)[:7]}"
         super().__init__(
             account_configuration=AccountConfiguration(username, None),
@@ -57,6 +59,9 @@ class _KoalaPlayer(Player):
             max_concurrent_battles=1,
             save_replays=False,
             server_configuration=server_configuration,
+            team=next(
+                player.team_packed for player in context.config.players if player.side is side
+            ),
         )
 
     @property
@@ -86,7 +91,14 @@ class _KoalaPlayer(Player):
             side=self.side,
             display_names=self._display_names,
         )
-        prompt = build_agent_prompt(state, actions, self.side)
+        knowledge, context_snapshot, prompt, context_metrics = self.context_provider.build(
+            state,
+            actions,
+            prompt_profile=self.context.config.prompt_profile,
+            context_profile=self.context.config.context_profile,
+            memory_policy=self.context.config.memory_policy,
+            strategy_memory=self.strategy_memory,
+        )
         request = AgentRequest(
             request_id=uuid4(),
             match_id=self.context.match_id,
@@ -96,6 +108,16 @@ class _KoalaPlayer(Player):
             state=state,
             legal_actions=actions,
             prompt=prompt,
+            knowledge=knowledge,
+            context=context_snapshot,
+            context_metrics=context_metrics,
+            prompt_profile_id=self.context.config.prompt_profile,
+            prompt_profile_version=context_snapshot.prompt_profile_version,
+            context_schema_version=context_snapshot.schema_version,
+            knowledge_schema_version=knowledge.schema_version,
+            history_policy_version=context_snapshot.history_policy_version,
+            memory_policy=self.context.config.memory_policy,
+            memory_policy_version=context_snapshot.memory_policy_version,
         )
         await _bridge(
             self.app_loop,
@@ -117,6 +139,10 @@ class _KoalaPlayer(Player):
             )
             return ForfeitBattleOrder()
         selected = find_action(decision.action, actions)
+        if self.context.config.memory_policy.value == "strategy-note":
+            self.strategy_memory = decision.strategy_memory or self.strategy_memory
+        else:
+            self.strategy_memory = None
         await _bridge(self.app_loop, self.context.sink.record_decision(request, decision))
         await _bridge(
             self.app_loop,

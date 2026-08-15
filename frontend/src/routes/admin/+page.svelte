@@ -55,7 +55,7 @@
 
 <div class="page-head director-head">
   <div><span class="eyebrow">Game director</span><h1>Control center</h1></div>
-  <div class="head-actions"><a class="button secondary" href="/tournaments/new">New tournament</a><a class="button" href="/new">New match</a></div>
+  <div class="head-actions"><a class="button secondary" href="/admin/prompts">Prompt playground</a><a class="button secondary" href="/tournaments/new">New tournament</a><a class="button" href="/new">New match</a></div>
 </div>
 
 {#if overview}

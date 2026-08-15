@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any, Literal
+from urllib.parse import urlsplit
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -38,6 +39,36 @@ class FallbackPolicy(StrEnum):
     RANDOM = "random"
     MANUAL = "manual"
     FORFEIT = "forfeit"
+
+
+class PromptProfileId(StrEnum):
+    STANDARD_COMPETITIVE = "standard-competitive"
+    BENCHMARK_FAIR = "benchmark-fair"
+
+
+class ContextProfileId(StrEnum):
+    STANDARD = "pokemon-standard"
+    COMPACT = "pokemon-compact"
+
+
+class MemoryPolicyId(StrEnum):
+    DISABLED = "disabled"
+    STRATEGY_NOTE = "strategy-note"
+
+
+class TeamSource(StrEnum):
+    SHOWDOWN_RANDOM = "showdown-random"
+    IMPORTED = "imported"
+    AGENT_GENERATED = "agent-generated"
+    PRESET = "preset"
+
+
+class TeamPolicy(StrEnum):
+    SHOWDOWN_RANDOM = "showdown-random"
+    FIXED = "fixed"
+    FRESH_PER_MATCH = "fresh-per-match"
+    FRESH_PER_SERIES = "fresh-per-series"
+    FIXED_PER_TOURNAMENT = "fixed-per-tournament"
 
 
 class ProviderErrorCategory(StrEnum):
@@ -156,8 +187,24 @@ class AgentConfiguration(FrozenModel):
         if value is None:
             return None
         normalized = value.rstrip("/")
-        if not normalized.startswith(("http://", "https://")) or "@" in normalized:
-            raise ValueError("base_url must be an http(s) URL without embedded credentials")
+        try:
+            parsed = urlsplit(normalized)
+            _ = parsed.port
+        except ValueError as error:
+            raise ValueError("base_url is not a valid URL") from error
+        if (
+            parsed.scheme not in {"http", "https"}
+            or not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.query
+            or parsed.fragment
+            or any(character.isspace() or ord(character) < 32 for character in normalized)
+            or "%" in parsed.hostname
+        ):
+            raise ValueError(
+                "base_url must be an http(s) URL without credentials, query, or fragment"
+            )
         return normalized
 
 
@@ -173,6 +220,8 @@ class MoveState(FrozenModel):
     type: str | None = None
     power: int | None = None
     accuracy: float | int | None = None
+    current_pp: int | None = Field(default=None, ge=0)
+    max_pp: int | None = Field(default=None, ge=0)
     disabled: bool = False
 
 
@@ -182,9 +231,17 @@ class PokemonState(FrozenModel):
     name: str
     species: str
     level: int | None = None
+    current_hp: int | float | None = Field(default=None, ge=0)
+    max_hp: int | float | None = Field(default=None, ge=0)
     hp_fraction: float = Field(ge=0, le=1)
     status: str | None = None
     types: tuple[str, ...] = ()
+    item: str | None = None
+    ability: str | None = None
+    tera_type: str | None = None
+    terastallized: bool = False
+    boosts: dict[str, int] = Field(default_factory=dict)
+    effects: tuple[str, ...] = ()
     active: bool = False
     fainted: bool = False
     revealed: bool = True
@@ -197,6 +254,70 @@ class BattleSide(FrozenModel):
     display_name: str
     active: PokemonState | None = None
     team: tuple[PokemonState, ...] = ()
+    side_conditions: tuple[str, ...] = ()
+    can_terastallize: bool = False
+    terastallization_used: bool = False
+
+
+class KnownPokemon(FrozenModel):
+    """Player-visible knowledge. It intentionally has no slots for unrevealed data."""
+
+    schema_version: str = "1.0"
+    id: str
+    species: str
+    display_name: str
+    hp_fraction: float | None = Field(default=None, ge=0, le=1)
+    status: str | None = None
+    active: bool = False
+    fainted: bool = False
+    revealed_moves: tuple[MoveState, ...] = ()
+    revealed_item: str | None = None
+    revealed_ability: str | None = None
+    revealed_tera_type: str | None = None
+    types: tuple[str, ...] = ()
+
+
+class PlayerKnowledgeState(FrozenModel):
+    schema_version: str = "1.0"
+    match_id: UUID
+    side: Side
+    turn: int = Field(ge=0)
+    own_side: BattleSide
+    opponent_active: KnownPokemon | None = None
+    known_opponent: tuple[KnownPokemon, ...] = ()
+    weather: tuple[str, ...] = ()
+    fields: tuple[str, ...] = ()
+
+
+class ContextMetrics(FrozenModel):
+    rendered_characters: int = Field(ge=0)
+    estimated_tokens: int = Field(ge=0)
+    estimate_method: Literal["characters-divided-by-four"] = "characters-divided-by-four"
+    history_event_count: int = Field(ge=0)
+    knowledge_entries: int = Field(ge=0)
+    context_profile_version: str
+    history_policy_version: str
+
+
+class AgentContextSnapshot(FrozenModel):
+    schema_version: str = "1.0"
+    match_id: UUID
+    format: str
+    generation: int
+    turn: int = Field(ge=0)
+    side: Side
+    knowledge: PlayerKnowledgeState
+    recent_events: tuple[str, ...] = ()
+    strategy_memory: str | None = Field(default=None, max_length=400)
+    legal_actions: tuple[BattleAction, ...]
+    prompt_profile_id: PromptProfileId
+    prompt_profile_version: str
+    context_profile_id: ContextProfileId
+    context_profile_version: str
+    history_policy_version: str
+    memory_policy: MemoryPolicyId
+    memory_policy_version: str
+    output_schema_version: str
 
 
 class BattleResult(FrozenModel):
@@ -264,8 +385,18 @@ class AgentRequest(FrozenModel):
     state: BattleState
     legal_actions: tuple[BattleAction, ...] = Field(min_length=1)
     prompt: str
-    prompt_schema_version: str = "3.0"
-    prompt_template_version: str = "battle-standard-v1"
+    knowledge: PlayerKnowledgeState | None = None
+    context: AgentContextSnapshot | None = None
+    context_metrics: ContextMetrics | None = None
+    prompt_profile_id: PromptProfileId = PromptProfileId.STANDARD_COMPETITIVE
+    prompt_profile_version: str = "1.0"
+    context_schema_version: str = "1.0"
+    knowledge_schema_version: str = "1.0"
+    history_policy_version: str = "relevant-v1"
+    memory_policy: MemoryPolicyId = MemoryPolicyId.DISABLED
+    memory_policy_version: str = "1.0"
+    prompt_schema_version: str = "5.0"
+    prompt_template_version: str = "pokemon-battle-v2"
     information_profile: Literal["standard"] = "standard"
 
 
@@ -278,6 +409,7 @@ class AgentDecision(FrozenModel):
     decision_sequence: int = Field(ge=1)
     action: str
     commentary: str = Field(default="", max_length=1000)
+    strategy_memory: str | None = Field(default=None, max_length=400)
     raw_response: str | None = None
     provider_metadata: dict[str, Any] = Field(default_factory=dict)
     latency_ms: int | None = Field(default=None, ge=0)
@@ -307,6 +439,10 @@ class PlayerConfig(FrozenModel):
     provider: str | None = None
     model: str | None = None
     configuration: AgentConfiguration = Field(default_factory=AgentConfiguration)
+    team_source: TeamSource = TeamSource.SHOWDOWN_RANDOM
+    team_snapshot_id: UUID | None = None
+    team_export: str | None = Field(default=None, max_length=50_000)
+    team_packed: str | None = Field(default=None, max_length=50_000)
 
     @model_validator(mode="after")
     def provider_matches_agent_type(self) -> PlayerConfig:
@@ -320,23 +456,60 @@ class PlayerConfig(FrozenModel):
                 and not self.configuration.base_url
             ):
                 raise ValueError("OpenAI-compatible agents require base_url")
+        if self.team_source is TeamSource.SHOWDOWN_RANDOM:
+            if self.team_snapshot_id is not None or self.team_export or self.team_packed:
+                raise ValueError("Showdown Random team source cannot contain a custom team")
+        elif self.team_snapshot_id is None:
+            raise ValueError("custom team sources require a validated snapshot ID")
+        elif (self.team_export is None) is not (self.team_packed is None):
+            raise ValueError("custom team export and packed representations must be paired")
         return self
+
+    @field_validator("display_name", "model")
+    @classmethod
+    def safe_single_line_identifier(cls, value: str | None) -> str | None:
+        if value is not None and any(ord(character) < 32 for character in value):
+            raise ValueError("display names and model IDs cannot contain control characters")
+        return value
 
 
 class MatchConfig(FrozenModel):
     name: str | None = Field(default=None, min_length=1, max_length=120)
-    format: Literal["gen9randombattle"] = "gen9randombattle"
+    format: Literal["gen9randombattle", "gen9ou"] = "gen9randombattle"
     generation: Literal[9] = 9
     players: tuple[PlayerConfig, PlayerConfig]
     random_seed: int | None = None
     fair_prompt_mode: bool = True
+    prompt_profile: PromptProfileId = PromptProfileId.STANDARD_COMPETITIVE
+    context_profile: ContextProfileId = ContextProfileId.STANDARD
+    memory_policy: MemoryPolicyId = MemoryPolicyId.STRATEGY_NOTE
+    team_policy: TeamPolicy = TeamPolicy.SHOWDOWN_RANDOM
     limits: MatchLimits = Field(default_factory=MatchLimits)
 
     @model_validator(mode="after")
     def has_two_sides(self) -> MatchConfig:
         if {player.side for player in self.players} != {Side.P1, Side.P2}:
             raise ValueError("players must contain exactly p1 and p2")
+        if self.format == "gen9randombattle":
+            if self.team_policy is not TeamPolicy.SHOWDOWN_RANDOM:
+                raise ValueError("Random Battle must use Showdown Random teams")
+            if any(player.team_source is not TeamSource.SHOWDOWN_RANDOM for player in self.players):
+                raise ValueError("Random Battle players cannot supply custom teams")
+        else:
+            if self.team_policy is TeamPolicy.SHOWDOWN_RANDOM:
+                raise ValueError("Gen 9 OU requires validated custom teams")
+            if self.team_policy is not TeamPolicy.FIXED:
+                raise ValueError("Phase 5 Gen 9 OU matches currently support fixed teams only")
+            if any(player.team_snapshot_id is None for player in self.players):
+                raise ValueError("Gen 9 OU requires a validated team snapshot for each player")
         return self
+
+    @field_validator("name")
+    @classmethod
+    def safe_name(cls, value: str | None) -> str | None:
+        if value is not None and any(ord(character) < 32 for character in value):
+            raise ValueError("match name cannot contain control characters")
+        return value
 
 
 class DecisionRecord(FrozenModel):

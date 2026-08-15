@@ -6,7 +6,13 @@ import pytest
 
 from koalabattle.agents import ApiAgent, ManualAgent, ManualDecisionBroker, RandomAgent
 from koalabattle.agents.providers import FakeProvider
-from koalabattle.core.models import AgentConfiguration, AgentLifecycleState, AgentRequest, Side
+from koalabattle.core.models import (
+    AgentConfiguration,
+    AgentLifecycleState,
+    AgentRequest,
+    MemoryPolicyId,
+    Side,
+)
 from koalabattle.core.pricing import PricingTable
 
 
@@ -64,6 +70,25 @@ async def test_manual_agent_accepts_fenced_json(agent_request: AgentRequest) -> 
 
 
 @pytest.mark.asyncio
+async def test_manual_double_submission_is_rejected_and_memory_is_replaced(
+    agent_request: AgentRequest,
+) -> None:
+    notified = asyncio.Event()
+
+    async def notify(_: AgentRequest) -> None:
+        notified.set()
+
+    broker = ManualDecisionBroker(notify)
+    task = asyncio.create_task(ManualAgent(broker).decide(agent_request))
+    await notified.wait()
+    raw = '{"action":"move:1","commentary":"Safe.","strategy_memory":"Replace the prior note."}'
+    await broker.submit(agent_request.request_id, raw)
+    with pytest.raises(KeyError):
+        await broker.submit(agent_request.request_id, raw)
+    assert (await task).strategy_memory == "Replace the prior note."
+
+
+@pytest.mark.asyncio
 async def test_api_agent_retries_invalid_response_and_records_audit(
     agent_request: AgentRequest,
 ) -> None:
@@ -95,3 +120,24 @@ async def test_api_agent_retries_invalid_response_and_records_audit(
         AgentLifecycleState.RETRYING,
         AgentLifecycleState.DECIDED,
     ]
+    assert decision.strategy_memory == "Preserve healthy switch options for the next turn."
+
+
+@pytest.mark.asyncio
+async def test_strategy_memory_is_ignored_when_policy_is_disabled(
+    agent_request: AgentRequest,
+) -> None:
+    async def state_callback(
+        _: Side, __: AgentLifecycleState, ___: int, ____: dict[str, object]
+    ) -> None:
+        return None
+
+    disabled = agent_request.model_copy(update={"memory_policy": MemoryPolicyId.DISABLED})
+    decision = await ApiAgent(
+        FakeProvider(),
+        "fake-battle-v1",
+        AgentConfiguration(),
+        state_callback=state_callback,
+        pricing=PricingTable("{}", "test-v1"),
+    ).decide(disabled)
+    assert decision.strategy_memory is None

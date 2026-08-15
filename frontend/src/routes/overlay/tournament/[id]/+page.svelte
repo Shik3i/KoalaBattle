@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { api, wsBase } from '$lib/api';
+  import ProductionConsole from '$lib/production/ProductionConsole.svelte';
   import type { TournamentArchive } from '$lib/types';
   export let data: { id: string };
   let tournament: TournamentArchive | null = null;
@@ -9,6 +10,7 @@
   $: participants = new Map((tournament?.participants || []).map((item) => [item.id, item]));
   $: live = tournament?.series.filter((series) => ['running', 'queued'].includes(series.status)).slice(0, 3) || [];
   $: recent = [...(tournament?.series || [])].reverse().find((series) => series.status === 'completed');
+  $: activeMatchId = live[0]?.match_ids.at(-1) || recent?.match_ids.at(-1) || null;
   onMount(() => { void connect(); return () => socket?.close(); });
   async function connect() {
     try {
@@ -35,6 +37,7 @@
     <footer><span>{tournament.participants.length} PARTICIPANTS</span><span>{tournament.statistics.matches_played} MATCHES PLAYED</span><span>{tournament.statistics.series_played} SERIES COMPLETE</span><span>KOALABATTLE 0.4</span></footer>
   </div>
 {/if}
+{#if activeMatchId}<ProductionConsole matchId={activeMatchId} compact overlay />{/if}
 {#if error}<div class="connection">{error}</div>{/if}
 
 <style>

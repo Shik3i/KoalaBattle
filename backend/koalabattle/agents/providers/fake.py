@@ -31,6 +31,14 @@ class FakeProvider:
 
     async def generate(self, request: ProviderRequest) -> ProviderResponse:
         self.calls += 1
+        if request.output_schema_name == "koalabattle_team":
+            return ProviderResponse(
+                text=json.dumps({"team": _FAKE_GEN9OU_TEAM}),
+                model=request.model,
+                usage=ProviderUsage(input_tokens=400, output_tokens=500, total_tokens=900),
+                request_id=f"fake-team-{self.calls}",
+                finish_reason="stop",
+            )
         if self._action is None:
             prompt = json.loads(request.prompt)
             action = prompt["legal_actions"][0]
@@ -59,6 +67,7 @@ class FakeProvider:
                 {
                     "action": self._action[0],
                     "commentary": f"Fake API selected {self._action[1]} deterministically.",
+                    "strategy_memory": "Preserve healthy switch options for the next turn.",
                 }
             )
         return ProviderResponse(
@@ -71,3 +80,64 @@ class FakeProvider:
 
     async def list_models(self) -> tuple[ProviderModel, ...]:
         return (ProviderModel(id="fake-battle-v1", display_name="Deterministic Fake"),)
+
+
+_FAKE_GEN9OU_TEAM = """Great Tusk @ Leftovers
+Ability: Protosynthesis
+Tera Type: Water
+EVs: 252 HP / 4 Atk / 252 Def
+Impish Nature
+- Earthquake
+- Rapid Spin
+- Stealth Rock
+- Knock Off
+
+Gholdengo @ Choice Scarf
+Ability: Good as Gold
+Tera Type: Steel
+EVs: 4 Def / 252 SpA / 252 Spe
+Timid Nature
+- Make It Rain
+- Shadow Ball
+- Focus Blast
+- Trick
+
+Dragonite @ Heavy-Duty Boots
+Ability: Multiscale
+Tera Type: Normal
+EVs: 252 Atk / 4 SpD / 252 Spe
+Adamant Nature
+- Dragon Dance
+- Extreme Speed
+- Earthquake
+- Ice Spinner
+
+Kingambit @ Black Glasses
+Ability: Supreme Overlord
+Tera Type: Dark
+EVs: 252 Atk / 4 SpD / 252 Spe
+Adamant Nature
+- Kowtow Cleave
+- Sucker Punch
+- Iron Head
+- Swords Dance
+
+Rillaboom @ Choice Band
+Ability: Grassy Surge
+Tera Type: Grass
+EVs: 252 Atk / 4 SpD / 252 Spe
+Adamant Nature
+- Grassy Glide
+- Wood Hammer
+- U-turn
+- Knock Off
+
+Rotom-Wash @ Leftovers
+Ability: Levitate
+Tera Type: Steel
+EVs: 252 HP / 200 Def / 56 Spe
+Bold Nature
+- Volt Switch
+- Hydro Pump
+- Will-O-Wisp
+- Protect"""

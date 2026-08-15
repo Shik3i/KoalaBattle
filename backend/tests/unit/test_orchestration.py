@@ -97,15 +97,19 @@ async def test_supervisor_runs_isolated_matches_with_global_limit(tmp_path) -> N
         _agents,
         concurrency_limit=2,
     )
-    created = [
-        await supervisor.create_match(
-            _config(f"match-{index}"),
-            engine_version="1",
-            showdown_version=None,
-            poke_env_version=None,
+    created = list(
+        await asyncio.gather(
+            *(
+                supervisor.create_match(
+                    _config(f"match-{index}"),
+                    engine_version="1",
+                    showdown_version=None,
+                    poke_env_version=None,
+                )
+                for index in range(3)
+            )
         )
-        for index in range(3)
-    ]
+    )
     await _wait_terminal(repository, [item.id for item in created])
     assert tracker.maximum == 2
     for item in created:

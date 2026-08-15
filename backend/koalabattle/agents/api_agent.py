@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import random
 from collections.abc import Awaitable, Callable
 from time import perf_counter
@@ -20,6 +21,7 @@ from koalabattle.core.pricing import PricingTable
 
 from .base import Agent
 from .providers import LLMProvider, ProviderError, ProviderRequest
+from .providers.openai import DECISION_SCHEMA
 from .validation import parse_structured_decision
 
 StateCallback = Callable[
@@ -105,6 +107,7 @@ class ApiAgent:
                                 if self.provider.capabilities.reasoning_control
                                 else None
                             ),
+                            output_schema=DECISION_SCHEMA,
                         )
                     )
                 parsed = parse_structured_decision(response.text, legal_ids)
@@ -121,6 +124,11 @@ class ApiAgent:
                     decision_sequence=request.decision_sequence,
                     action=parsed.action,
                     commentary=parsed.commentary,
+                    strategy_memory=(
+                        parsed.strategy_memory
+                        if request.memory_policy.value == "strategy-note"
+                        else None
+                    ),
                     raw_response=response.text,
                     provider_metadata={
                         "request_id": response.request_id,
@@ -172,7 +180,7 @@ class ApiAgent:
                 request.turn,
                 {"attempt": attempt + 1, "category": provider_error.category.value},
             )
-            prompt = _repair_prompt(legal_ids, provider_error.detail)
+            prompt = _repair_prompt(request.prompt, legal_ids, provider_error.detail)
             await asyncio.sleep(min(1.0, 0.2 * (2 ** (attempt - 1))))
         return await self._fallback(
             request,
@@ -243,10 +251,15 @@ class ApiAgent:
         return decision
 
 
-def _repair_prompt(legal_ids: set[str], detail: str) -> str:
-    choices = "\n".join(f"- {item}" for item in sorted(legal_ids))
-    return (
-        f"Your previous response was invalid: {detail}\n"
-        f"Choose exactly one of:\n{choices}\n"
-        'Return JSON only: {"action":"<exact id>","commentary":"<brief public reason>"}'
-    )
+def _repair_prompt(original_prompt: str, legal_ids: set[str], detail: str) -> str:
+    """Preserve the authoritative snapshot during retries."""
+    try:
+        payload = json.loads(original_prompt)
+    except json.JSONDecodeError:
+        return original_prompt
+    payload["repair"] = {
+        "previous_response_error": detail,
+        "allowed_action_ids": sorted(legal_ids),
+        "instruction": "Return a corrected JSON object using the same authoritative context.",
+    }
+    return json.dumps(payload, indent=2, sort_keys=True)

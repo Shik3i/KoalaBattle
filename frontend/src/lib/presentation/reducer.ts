@@ -26,6 +26,7 @@ export function createPresentationState(match: PresentationMatch): BattlePresent
   return {
     version: RENDERER_VERSION,
     matchId: match.id,
+    format: match.config.format,
     eventIndex: 0,
     eventSequence: 0,
     battle: null,

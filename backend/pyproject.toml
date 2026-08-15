@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "koalabattle"
-version = "0.4.0"
+version = "0.7.0"
 description = "Event-sourced AI battle production suite"
 readme = "../README.md"
 requires-python = ">=3.12"
@@ -16,7 +16,7 @@ dependencies = [
   "fastapi==0.139.2",
   "google-genai==2.13.0",
   "openai==2.46.0",
-  "orjson==3.11.1",
+  "orjson==3.11.6",
   "poke-env==0.15.0",
   "pydantic==2.13.4",
   "pydantic-settings==2.10.1",
@@ -26,12 +26,13 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-  "httpx==0.28.1",
+  "httpx2==2.10.0",
   "mypy==1.17.1",
-  "pytest==8.4.1",
-  "pytest-asyncio==1.1.0",
+  "pytest==9.0.3",
+  "pytest-asyncio==1.4.0",
   "ruff==0.12.8",
 ]
+renderer = ["playwright==1.62.0"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["koalabattle"]

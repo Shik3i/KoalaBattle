@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from typing import Protocol
+from typing import Any, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -27,12 +27,14 @@ class ProviderRequest(BaseModel):
     max_output_tokens: int = Field(ge=32, le=8192)
     temperature: float | None = Field(default=None, ge=0, le=2)
     reasoning_effort: str | None = None
+    output_schema_name: str = Field(default="koalabattle_decision", pattern=r"^[a-z0-9_]+$")
+    output_schema: dict[str, Any] = Field(default_factory=dict)
 
 
 class ProviderResponse(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    text: str
+    text: str = Field(max_length=50_000)
     model: str
     usage: ProviderUsage | None = None
     request_id: str | None = None

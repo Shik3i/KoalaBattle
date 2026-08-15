@@ -11,12 +11,15 @@ from koalabattle.core.models import (
     BattleAction,
     BattleSide,
     BattleState,
+    ContextProfileId,
     MatchConfig,
+    MemoryPolicyId,
     PlayerConfig,
     PokemonState,
+    PromptProfileId,
     Side,
 )
-from koalabattle.core.prompt import build_agent_prompt
+from koalabattle.engines.showdown.context import PokemonShowdownContextProvider
 
 
 @pytest.fixture
@@ -65,6 +68,14 @@ def actions() -> tuple[BattleAction, ...]:
 def agent_request(
     match_id: UUID, state: BattleState, actions: tuple[BattleAction, ...]
 ) -> AgentRequest:
+    knowledge, context, prompt, metrics = PokemonShowdownContextProvider().build(
+        state,
+        actions,
+        prompt_profile=PromptProfileId.STANDARD_COMPETITIVE,
+        context_profile=ContextProfileId.STANDARD,
+        memory_policy=MemoryPolicyId.STRATEGY_NOTE,
+        strategy_memory=None,
+    )
     return AgentRequest(
         request_id=uuid4(),
         match_id=match_id,
@@ -73,7 +84,11 @@ def agent_request(
         decision_sequence=1,
         state=state,
         legal_actions=actions,
-        prompt=build_agent_prompt(state, actions, Side.P1),
+        prompt=prompt,
+        knowledge=knowledge,
+        context=context,
+        context_metrics=metrics,
+        memory_policy=MemoryPolicyId.STRATEGY_NOTE,
     )
 
 

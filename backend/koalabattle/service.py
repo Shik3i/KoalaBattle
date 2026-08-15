@@ -39,12 +39,22 @@ from koalabattle.core.models import (
     PlayerConfig,
     ProviderKind,
     Side,
+    TeamSource,
 )
 from koalabattle.core.pricing import PricingTable
 from koalabattle.engines.base import EngineEventSink
 from koalabattle.engines.showdown import ShowdownBattleEngine
 from koalabattle.orchestration.runtime import MatchSupervisor, RealtimeHub
 from koalabattle.storage import BattleRepository
+from koalabattle.teams import (
+    ShowdownTeamValidator,
+    TeamBuildAudit,
+    TeamBuilder,
+    TeamBuildRequest,
+    TeamRepository,
+    TeamSnapshot,
+    TeamValidationResult,
+)
 from koalabattle.tournaments.models import CreateTournament, TournamentArchive, TournamentStatus
 from koalabattle.tournaments.repository import TournamentRepository
 
@@ -59,6 +69,9 @@ class BattleService:
         self.repository = repository
         self.settings = settings
         self.tournaments = tournament_repository or TournamentRepository(repository.database)
+        self.teams = TeamRepository(repository.database)
+        self.team_validator = ShowdownTeamValidator(settings.team_validator_url)
+        self.team_builder = TeamBuilder(self.teams, self.team_validator)
         self.hub = RealtimeHub()
         self.pricing = PricingTable(settings.pricing_table_json, settings.pricing_version)
         self.supervisor = MatchSupervisor(
@@ -90,6 +103,30 @@ class BattleService:
         tournament_id: UUID | None = None,
         series_id: UUID | None = None,
     ) -> MatchArchive:
+        hydrated_players: list[PlayerConfig] = []
+        for player in config.players:
+            if player.team_source is TeamSource.SHOWDOWN_RANDOM:
+                hydrated_players.append(player)
+                continue
+            if player.team_snapshot_id is None:
+                raise ValueError(f"{player.side.value} is missing a validated team snapshot")
+            snapshot = await self.teams.get(player.team_snapshot_id)
+            if snapshot is None:
+                raise ValueError(f"team snapshot {player.team_snapshot_id} was not found")
+            if snapshot.format != config.format:
+                raise ValueError(
+                    f"team snapshot {snapshot.id} is for {snapshot.format}, not {config.format}"
+                )
+            hydrated_players.append(
+                player.model_copy(
+                    update={
+                        "team_source": snapshot.source,
+                        "team_export": snapshot.normalized_export,
+                        "team_packed": snapshot.packed_team,
+                    }
+                )
+            )
+        config = config.model_copy(update={"players": tuple(hydrated_players)})
         self._validate_provider_configuration(config)
         return await self.supervisor.create_match(
             config,
@@ -99,6 +136,40 @@ class BattleService:
             tournament_id=tournament_id,
             series_id=series_id,
         )
+
+    async def validate_team(
+        self,
+        *,
+        name: str,
+        team_text: str,
+        format_id: str,
+        source: TeamSource,
+        save: bool,
+    ) -> tuple[TeamValidationResult, TeamSnapshot | None]:
+        validation = await self.team_validator.validate(team_text, format_id)
+        snapshot = None
+        if validation.valid and save:
+            snapshot = await self.teams.create_snapshot(
+                name=name,
+                source=source,
+                submitted_text=team_text,
+                validation=validation,
+            )
+        return validation, snapshot
+
+    async def build_team(
+        self, request: TeamBuildRequest
+    ) -> tuple[TeamBuildAudit, TeamSnapshot | None]:
+        player = PlayerConfig(
+            side=Side.P1,
+            display_name=request.participant,
+            agent_type=AgentType.API,
+            provider=request.provider.value,
+            model=request.model,
+            configuration=request.configuration,
+        )
+        provider = self._provider_for(player)
+        return await self.team_builder.build(request, provider)
 
     def _build_agents(
         self,
@@ -251,24 +322,28 @@ class BattleService:
                 update={"max_concurrent_matches": self.settings.max_concurrent_matches}
             )
         for participant in payload.participants:
-            validation_config = MatchConfig(
-                players=(
-                    PlayerConfig(
-                        side=Side.P1,
-                        display_name=participant.display_name,
-                        agent_type=participant.agent.agent_type,
-                        provider=participant.agent.provider,
-                        model=participant.agent.model,
-                        configuration=participant.agent.configuration,
-                    ),
-                    PlayerConfig(
-                        side=Side.P2,
-                        display_name="Validation",
-                        agent_type=AgentType.RANDOM,
-                    ),
-                )
+            player = PlayerConfig(
+                side=Side.P1,
+                display_name=participant.display_name,
+                agent_type=participant.agent.agent_type,
+                provider=participant.agent.provider,
+                model=participant.agent.model,
+                configuration=participant.agent.configuration,
+                team_source=participant.agent.team_source,
+                team_snapshot_id=participant.agent.team_snapshot_id,
             )
-            self._validate_provider_configuration(validation_config)
+            if player.agent_type is AgentType.API:
+                self._provider_for(player)
+            if payload.match_template.format == "gen9ou":
+                if player.team_snapshot_id is None:
+                    raise ValueError(
+                        f"participant {participant.display_name} requires a validated Gen 9 OU team"
+                    )
+                snapshot = await self.teams.get(player.team_snapshot_id)
+                if snapshot is None or snapshot.format != "gen9ou":
+                    raise ValueError(
+                        f"participant {participant.display_name} has no valid Gen 9 OU snapshot"
+                    )
         return await self.tournaments.create(payload)
 
     async def start_tournament(self, tournament_id: UUID) -> TournamentArchive:
@@ -305,9 +380,13 @@ class BattleService:
             await self.schedule_series(series_id)
 
     async def schedule_series(self, series_id: UUID) -> MatchArchive:
-        tournament_id, template, participant_a, participant_b, game_number = (
-            await self.tournaments.series_execution(series_id)
-        )
+        (
+            tournament_id,
+            template,
+            participant_a,
+            participant_b,
+            game_number,
+        ) = await self.tournaments.series_execution(series_id)
         if not await self.tournaments.budget_allows_start(tournament_id):
             raise ValueError("tournament cost limit reached")
         if template.engine != "pokemon-showdown":
@@ -328,6 +407,8 @@ class BattleService:
                         provider=participant_a.agent.provider,
                         model=participant_a.agent.model,
                         configuration=participant_a.agent.configuration,
+                        team_source=participant_a.agent.team_source,
+                        team_snapshot_id=participant_a.agent.team_snapshot_id,
                     ),
                     PlayerConfig(
                         side=Side.P2,
@@ -336,19 +417,31 @@ class BattleService:
                         provider=participant_b.agent.provider,
                         model=participant_b.agent.model,
                         configuration=participant_b.agent.configuration,
+                        team_source=participant_b.agent.team_source,
+                        team_snapshot_id=participant_b.agent.team_snapshot_id,
                     ),
                 ),
                 random_seed=template.engine_configuration.get("random_seed"),
                 fair_prompt_mode=template.fair_prompt_mode,
+                prompt_profile=template.prompt_profile,
+                context_profile=template.context_profile,
+                memory_policy=template.memory_policy,
+                team_policy=template.team_policy,
                 limits=template.limits,
             )
             self._validate_provider_configuration(config)
-            await self.tournaments.mark_series_queued(series_id)
+            if not await self.tournaments.mark_series_queued(series_id):
+                raise ValueError("series has already been claimed")
             return await self.create_match(
                 config,
                 tournament_id=tournament_id,
                 series_id=series_id,
             )
+        except ValueError as error:
+            if str(error) == "series has already been claimed":
+                raise
+            await self.tournaments.set_status(tournament_id, TournamentStatus.FAILED)
+            raise
         except Exception:
             await self.tournaments.set_status(tournament_id, TournamentStatus.FAILED)
             raise
@@ -435,7 +528,7 @@ class BattleService:
             ),
             "provider_failures": counts.get(MatchStatus.FAILED, 0),
             "showdown": await self._showdown_health(),
-            "backend": {"status": "ok", "version": "0.4.0"},
+            "backend": {"status": "ok", "version": "0.7.0"},
         }
 
     async def _showdown_health(self) -> dict[str, object]:

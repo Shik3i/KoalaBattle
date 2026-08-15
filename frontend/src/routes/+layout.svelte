@@ -4,7 +4,7 @@
   import '../app.css';
 
   let theme: 'light' | 'dark' = 'dark';
-  $: overlayRoute = $page.url.pathname.startsWith('/overlay/');
+  $: overlayRoute = $page.url.pathname.startsWith('/overlay/') || $page.url.pathname.startsWith('/render/');
   $: if (typeof document !== 'undefined') {
     document.documentElement.dataset.overlay = String(overlayRoute);
   }
@@ -31,6 +31,7 @@
     <nav aria-label="Primary navigation">
       <a href="/admin">Admin</a>
       <a href="/new">New battle</a>
+      <a href="/teams">Teams</a>
       <a href="/tournaments">Tournaments</a>
       <a href="/matches">Matches</a>
       <a href="/settings">Settings</a>
@@ -38,5 +39,5 @@
     <button class="icon-button" on:click={toggleTheme} aria-label="Toggle color theme">{theme === 'dark' ? '☀' : '☾'}</button>
   </header>
   <main><slot /></main>
-  <footer><span>KoalaBattle 0.4</span><span>Local-first · Concurrent · Event-sourced · No Pokémon assets included</span></footer>
+  <footer><span>KoalaBattle 0.7</span><span>Local-first · Auditable context · Event-sourced · No Pokémon assets included</span></footer>
 {/if}

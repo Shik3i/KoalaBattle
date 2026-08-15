@@ -58,6 +58,7 @@ test('presentation reducer restores switch, combat, status, commentary, and winn
     event(9, 'battle_finished', { winner_name: 'Alpha' })
   ];
   const state = reduceEvents(createPresentationState(match), events);
+  assert.equal(state.format, 'gen9randombattle');
   assert.equal(state.battle?.turn, 2);
   assert.equal(state.currentMove, 'Thunderbolt');
   assert.equal(state.players.p1.commentary[0].commentary, 'Public plan.');

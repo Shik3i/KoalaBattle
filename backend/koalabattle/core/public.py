@@ -22,4 +22,7 @@ def presentation_archive(archive: MatchArchive) -> dict[str, Any]:
         exclude={"raw_showdown_log", "decisions"},
     )
     payload["decisions"] = [public_decision(record) for record in archive.decisions]
+    for player in payload.get("config", {}).get("players", []):
+        for key in ("team_snapshot_id", "team_export", "team_packed"):
+            player.pop(key, None)
     return payload

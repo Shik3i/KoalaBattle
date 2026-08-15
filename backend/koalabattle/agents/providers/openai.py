@@ -20,8 +20,9 @@ DECISION_SCHEMA: dict[str, object] = {
     "properties": {
         "action": {"type": "string"},
         "commentary": {"type": "string", "maxLength": 1000},
+        "strategy_memory": {"type": ["string", "null"], "maxLength": 400},
     },
-    "required": ["action", "commentary"],
+    "required": ["action", "commentary", "strategy_memory"],
     "additionalProperties": False,
 }
 
@@ -48,9 +49,9 @@ class OpenAIProvider:
             "text": {
                 "format": {
                     "type": "json_schema",
-                    "name": "koalabattle_decision",
+                    "name": request.output_schema_name,
                     "strict": True,
-                    "schema": DECISION_SCHEMA,
+                    "schema": request.output_schema or DECISION_SCHEMA,
                 }
             },
         }

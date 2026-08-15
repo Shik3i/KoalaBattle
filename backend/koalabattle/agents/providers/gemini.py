@@ -31,7 +31,7 @@ class GeminiProvider:
     async def generate(self, request: ProviderRequest) -> ProviderResponse:
         config = types.GenerateContentConfig(
             response_mime_type="application/json",
-            response_json_schema=DECISION_SCHEMA,
+            response_json_schema=request.output_schema or DECISION_SCHEMA,
             max_output_tokens=request.max_output_tokens,
             temperature=request.temperature,
             http_options=types.HttpOptions(timeout=int(request.timeout_seconds * 1000)),

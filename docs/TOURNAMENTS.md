@@ -15,6 +15,11 @@ Participants, series games, wins, dependencies, statuses, standings inputs, cost
 timestamps persist in SQLite. Only dependency-ready series may run. Tournament and global
 concurrency limits both apply.
 
+Match templates persist PromptProfile, ContextProfile, memory policy, battle format, and team
+policy. Participant snapshots may reference immutable team snapshot IDs. Gen 9 Random Battle
+uses `showdown-random`; Phase 5 Gen 9 OU uses `fixed` teams. Both players should use equivalent
+prompt/context/memory policies for fair comparison.
+
 ## Lifecycle
 
 `draft -> ready -> running -> completed`; operators may also pause, resume, cancel, or mark a
@@ -29,7 +34,8 @@ raw Showdown logs, and internal errors.
 ## Recovery and consistency
 
 Bracket progression and result recording use SQLite `BEGIN IMMEDIATE` transactions and
-idempotent match-ID lists. Concurrent completions cannot advance one series twice. On restart,
+idempotent match-ID lists. Ready series also use a conditional one-winner scheduler claim.
+Concurrent schedules/completions cannot start or advance one series twice. On restart,
 active match rows are interrupted and historical results remain authoritative; ready series
 can be started again explicitly.
 

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import BattleRenderer from '$lib/BattleRenderer.svelte';
+  import ProductionConsole from '$lib/production/ProductionConsole.svelte';
   import { getPresentationMatch, wsBase } from '$lib/api';
   import { loadRendererConfig } from '$lib/presentation/config';
   import { PresentationTimeline } from '$lib/presentation/timeline';
@@ -33,6 +34,7 @@
 
 <div class="watch-head"><div><span class="eyebrow">Read-only spectator</span><h1>{match?.config.name || (match ? `${match.config.players[0].display_name} vs ${match.config.players[1].display_name}` : 'Loading match…')}</h1></div>{#if match}<span class={`status-pill ${match.status}`}>{match.status}</span>{/if}</div>
 <BattleRenderer presentation={snapshot?.state || null} {config} />
+<ProductionConsole matchId={data.id} compact />
 {#if match}<div class="watch-links"><span>No control data or provider secrets are available on this route.</span><a href={`/overlay/${match.id}`}>OBS view</a>{#if match.status === 'completed'}<a href={`/replay/${match.id}`}>Replay</a>{/if}</div>{/if}
 {#if error}<p class="error">{error}</p>{/if}
 <style>.watch-head,.watch-links{display:flex;align-items:center;justify-content:space-between;gap:1rem;margin-bottom:1rem}.watch-head h1{margin:.2rem 0;font-size:clamp(1.6rem,4vw,3rem)}.watch-links{margin-top:1rem;color:var(--muted);font-size:.72rem}.watch-links a{color:var(--accent);font-weight:700}@media(max-width:620px){.watch-head,.watch-links{align-items:flex-start;flex-direction:column}}</style>

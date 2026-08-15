@@ -184,3 +184,82 @@ def test_tournament_crud_uses_summaries_and_sanitized_presentation(tmp_path: Pat
         assert presentation.status_code == 200
         assert "must-not-leak" not in presentation.text
         assert "safe-model-name" in presentation.text
+
+
+def test_historical_match_can_receive_cached_free_production(
+    tmp_path: Path, match_config: MatchConfig, agent_request: AgentRequest
+) -> None:
+    database_url = f"sqlite+aiosqlite:///{tmp_path / 'production-api.db'}"
+
+    async def seed() -> None:
+        database = Database(database_url)
+        await database.create_schema()
+        repository = BattleRepository(database)
+        await repository.create_match(
+            agent_request.match_id,
+            match_config,
+            engine="test",
+            engine_version="1",
+            showdown_version="test",
+            poke_env_version="0.15.0",
+        )
+        await repository.append_event(
+            BattleEvent(
+                match_id=agent_request.match_id,
+                sequence=0,
+                turn=1,
+                event_type="agent_decision",
+                payload={"side": "p1", "commentary": "A public production line."},
+            )
+        )
+        await database.close()
+
+    asyncio.run(seed())
+    settings = Settings(
+        _env_file=None,
+        database_url=database_url,
+        asset_root=tmp_path / "assets",
+        speech_audio_root=tmp_path / "audio",
+        speech_openai_api_key="configured-but-never-called",
+    )
+    with TestClient(create_app(settings)) as client:
+        created = client.post(
+            f"/api/matches/{agent_request.match_id}/productions",
+            json={
+                "profile_id": "live-stream",
+                "voice_assignments": {"p1": "fake-test-a", "p2": "fake-test-b"},
+            },
+        )
+        assert created.status_code == 201, created.text
+        production_id = created.json()["id"]
+        prepared = client.post(
+            f"/api/productions/{production_id}/prepare",
+            json={"force": False, "allow_paid": False},
+        )
+        assert prepared.status_code == 200, prepared.text
+        assert prepared.json()["status"] == "ready"
+        voice = next(cue for cue in prepared.json()["cues"] if cue["track"] == "voice")
+        media = client.get(voice["payload"]["media_url"])
+        assert media.status_code == 200
+        assert media.headers["content-type"].startswith("audio/wav")
+        assert b"RIFF" == media.content[:4]
+        listed = client.get(f"/api/matches/{agent_request.match_id}/productions")
+        assert listed.status_code == 200
+        assert listed.json()[0]["id"] == production_id
+
+        paid_preset = {
+            "id": "paid-preview",
+            "display_name": "Paid preview",
+            "provider": "openai",
+            "voice": "alloy",
+            "model": "gpt-4o-mini-tts",
+            "speed": 1,
+            "enabled": True,
+        }
+        assert client.post("/api/production/voices", json=paid_preset).status_code == 200
+        refused = client.post(
+            "/api/production/voices/preview",
+            json={"preset_id": "paid-preview", "text": "Do not bill this test."},
+        )
+        assert refused.status_code == 409
+        assert "allow_paid=true" in refused.json()["detail"]

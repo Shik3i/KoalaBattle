@@ -40,7 +40,10 @@ class AnthropicProvider:
             "messages": [{"role": "user", "content": request.prompt}],
             "timeout": request.timeout_seconds,
             "output_config": {
-                "format": {"type": "json_schema", "schema": DECISION_SCHEMA}
+                "format": {
+                    "type": "json_schema",
+                    "schema": request.output_schema or DECISION_SCHEMA,
+                }
             },
         }
         if request.temperature is not None:

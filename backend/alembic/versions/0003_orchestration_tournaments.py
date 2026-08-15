@@ -77,9 +77,7 @@ def upgrade() -> None:
         sa.Column("seed", sa.Integer(), nullable=False),
         sa.Column("agent_snapshot_json", sa.Text(), nullable=False),
         sa.Column("metadata_json", sa.Text(), nullable=False, server_default="{}"),
-        sa.UniqueConstraint(
-            "tournament_id", "seed", name="uq_tournament_participant_seed"
-        ),
+        sa.UniqueConstraint("tournament_id", "seed", name="uq_tournament_participant_seed"),
     )
     op.create_index(
         "ix_tournament_participants_tournament_id",
@@ -113,12 +111,8 @@ def upgrade() -> None:
         sa.Column("result_json", sa.Text()),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
-        sa.ForeignKeyConstraint(
-            ["dependency_a_id"], ["tournament_series.id"], ondelete="SET NULL"
-        ),
-        sa.ForeignKeyConstraint(
-            ["dependency_b_id"], ["tournament_series.id"], ondelete="SET NULL"
-        ),
+        sa.ForeignKeyConstraint(["dependency_a_id"], ["tournament_series.id"], ondelete="SET NULL"),
+        sa.ForeignKeyConstraint(["dependency_b_id"], ["tournament_series.id"], ondelete="SET NULL"),
         sa.UniqueConstraint(
             "tournament_id",
             "round_number",
@@ -126,9 +120,7 @@ def upgrade() -> None:
             name="uq_series_bracket_slot",
         ),
     )
-    op.create_index(
-        "ix_tournament_series_tournament_id", "tournament_series", ["tournament_id"]
-    )
+    op.create_index("ix_tournament_series_tournament_id", "tournament_series", ["tournament_id"])
     op.create_index("ix_tournament_series_queue_order", "tournament_series", ["queue_order"])
     op.create_index("ix_tournament_series_status", "tournament_series", ["status"])
 

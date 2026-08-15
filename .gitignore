@@ -15,5 +15,10 @@ frontend/build/
 data/*.db
 data/*.db-*
 data/assets/
+data/audio/
+data/music/
+data/sound-packs/
+data/videos/
 data/vendor/
+backend/data/
 showdown/server/

@@ -1,23 +1,32 @@
 # Prompt contract
 
-Current prompt schema: `3.0`. Current template: `battle-standard-v1`. Information
-profile: `standard`.
+Current prompt schema: `5.0`. Current template: `pokemon-battle-v2`. Decision output schema:
+`battle-decision-v2`. Information profile: `standard`.
 
-The prompt contains only the requesting player's normalized perspective, current legal
-action IDs, and at most the latest 12 public history entries. It does not include an API
-key, provider object, hidden opponent information, raw Showdown command, or private
-chain of thought. Both players receive the same template when fair prompt mode is on.
+Every turn is a complete provider-independent JSON prompt containing the selected versioned
+PromptProfile, policy, player-scoped normalized context, bounded relevant event history,
+optional bounded Strategy Memory, exact Showdown-authoritative legal actions, and response
+schema. It contains no API key, provider conversation state, hidden opponent data, raw
+Showdown command, or request for private chain of thought.
 
-The response contract is deliberately small:
+Prompt profiles:
+
+- `standard-competitive` version `1.0`: normal competitive play.
+- `benchmark-fair` version `1.0`: identical semantic rules for fair model comparison.
+
+Context profiles and trimming are documented in [Agent context](AGENT_CONTEXT.md). Provider
+adapters may use different technical structured-output mechanisms, but receive the same
+semantic prompt and output contract.
 
 ```json
 {
   "action": "move:1",
-  "commentary": "Brief public reason"
+  "commentary": "Brief public reason",
+  "strategy_memory": "Replacement note for the next turn or null"
 }
 ```
 
-`action` must exactly match a supplied legal ID. `commentary` is public presentation
-text, limited to 1,000 characters. Generated prompts and their schema/template versions
-are stored in the audit archive so an old decision remains explainable after templates
-change.
+`action` must exactly match a supplied legal ID. `commentary` is public and limited to 1,000
+characters. `strategy_memory` is optional, limited to 400 characters, and discarded under the
+`disabled` policy. Generated prompt, normalized context, metrics, profile/version fields,
+memory before/after, and validation audit persist with each new decision.

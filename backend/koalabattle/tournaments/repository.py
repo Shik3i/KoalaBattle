@@ -5,9 +5,10 @@ import random
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import overload
 from uuid import UUID, uuid4
 
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from koalabattle.core.models import GenericMatchResult, GenericResultStatus, MatchStatus
@@ -42,6 +43,14 @@ from .models import (
     TournamentStatus,
     TournamentSummary,
 )
+
+
+@overload
+def _utc(value: datetime) -> datetime: ...
+
+
+@overload
+def _utc(value: None) -> None: ...
 
 
 def _utc(value: datetime | None) -> datetime | None:
@@ -170,9 +179,7 @@ class TournamentRepository:
                         games_played=0,
                         max_games=tournament.best_of + tournament.max_draw_replays,
                         winner_participant_id=(
-                            str(spec.winner_participant_id)
-                            if spec.winner_participant_id
-                            else None
+                            str(spec.winner_participant_id) if spec.winner_participant_id else None
                         ),
                         result_json=(
                             json.dumps({"status": "bye", "target_wins": target_wins})
@@ -244,9 +251,7 @@ class TournamentRepository:
                 .order_by(TournamentSeriesRow.queue_order)
             )
             if tournament_id is not None:
-                statement = statement.where(
-                    TournamentSeriesRow.tournament_id == str(tournament_id)
-                )
+                statement = statement.where(TournamentSeriesRow.tournament_id == str(tournament_id))
             return tuple(UUID(value) for value in (await session.scalars(statement)).all())
 
     async def series_execution(
@@ -275,16 +280,25 @@ class TournamentRepository:
                 series.games_played + 1,
             )
 
-    async def mark_series_queued(self, series_id: UUID) -> None:
+    async def mark_series_queued(self, series_id: UUID) -> bool:
         async with self.database.sessions() as session:
-            row = await session.get(TournamentSeriesRow, str(series_id))
-            if row is None:
-                raise KeyError(str(series_id))
-            if SeriesStatus(row.status) is not SeriesStatus.READY:
-                raise ValueError(f"series is {row.status}, not ready")
-            row.status = SeriesStatus.QUEUED.value
-            row.updated_at = datetime.now(UTC)
+            result = await session.execute(
+                update(TournamentSeriesRow)
+                .where(
+                    TournamentSeriesRow.id == str(series_id),
+                    TournamentSeriesRow.status == SeriesStatus.READY.value,
+                )
+                .values(status=SeriesStatus.QUEUED.value, updated_at=datetime.now(UTC))
+            )
             await session.commit()
+            if int(getattr(result, "rowcount", 0) or 0):
+                return True
+            exists = await session.scalar(
+                select(TournamentSeriesRow.id).where(TournamentSeriesRow.id == str(series_id))
+            )
+            if exists is None:
+                raise KeyError(str(series_id))
+            return False
 
     async def mark_series_running(self, series_id: UUID) -> None:
         async with self.database.sessions() as session:
@@ -296,9 +310,7 @@ class TournamentRepository:
                 row.updated_at = datetime.now(UTC)
                 await session.commit()
 
-    async def record_match_result(
-        self, match_id: UUID, result: GenericMatchResult
-    ) -> UUID | None:
+    async def record_match_result(self, match_id: UUID, result: GenericMatchResult) -> UUID | None:
         async with self.database.sessions() as session:
             await session.execute(text("BEGIN IMMEDIATE"))
             match = await session.get(MatchRow, str(match_id))
@@ -344,8 +356,7 @@ class TournamentRepository:
             elimination_draw_exhausted = (
                 exhausted
                 and winner is None
-                and TournamentFormat(tournament.format)
-                is TournamentFormat.SINGLE_ELIMINATION
+                and TournamentFormat(tournament.format) is TournamentFormat.SINGLE_ELIMINATION
             )
             if elimination_draw_exhausted:
                 series.status = SeriesStatus.FAILED.value
@@ -611,9 +622,7 @@ class TournamentRepository:
                 )
             return tuple(summaries)
 
-    async def create_template(
-        self, name: str, snapshot: MatchTemplateSnapshot
-    ) -> StoredTemplate:
+    async def create_template(self, name: str, snapshot: MatchTemplateSnapshot) -> StoredTemplate:
         now = datetime.now(UTC)
         row = MatchTemplateRow(
             id=str(uuid4()),
@@ -633,9 +642,7 @@ class TournamentRepository:
     async def list_templates(self) -> tuple[StoredTemplate, ...]:
         async with self.database.sessions() as session:
             rows = (
-                await session.scalars(
-                    select(MatchTemplateRow).order_by(MatchTemplateRow.name)
-                )
+                await session.scalars(select(MatchTemplateRow).order_by(MatchTemplateRow.name))
             ).all()
             return tuple(self._template(row) for row in rows)
 
@@ -765,9 +772,7 @@ class TournamentRepository:
             )
             for entry in values.values()
         ]
-        return tuple(
-            sorted(standings, key=lambda item: (-item.points, -item.wins, item.seed))
-        )
+        return tuple(sorted(standings, key=lambda item: (-item.points, -item.wins, item.seed)))
 
     @staticmethod
     def _template(row: MatchTemplateRow) -> StoredTemplate:

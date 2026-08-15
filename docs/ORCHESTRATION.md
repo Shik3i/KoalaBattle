@@ -12,7 +12,8 @@ starting|running|waiting_for_input|paused -> completed|failed|interrupted
 ```
 
 Invalid transitions are rejected by `orchestration/lifecycle.py`. Queue position and status
-are persisted before workers launch. `KOALABATTLE_MAX_CONCURRENT_MATCHES` limits active
+are persisted before workers launch. Initial dispatcher creation is lock-serialized and queue
+position assignment is a short SQLite immediate transaction. `KOALABATTLE_MAX_CONCURRENT_MATCHES` limits active
 sessions globally; a tournament may impose a lower limit. Provider calls remain subject to
 their existing per-player and tournament cost limits.
 
@@ -36,3 +37,7 @@ owned by another session.
 `starting`/`running`/`waiting_for_input`/`paused` consume capacity. Terminal states release a
 slot and wake the scheduler. Queue ordering is deterministic by `queue_position`, then
 creation time.
+
+Completion callbacks are tracked tasks and shutdown drains them before closing storage.
+Finished sessions, manual waiters, event locks, and realtime subscriber groups are released;
+the repeatable 25-match FakeProvider load verifies zero retained objects in those registries.

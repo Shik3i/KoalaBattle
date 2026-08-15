@@ -1,6 +1,6 @@
 # LLM providers
 
-KoalaBattle 0.4 supports five production provider shapes and one test-only provider.
+KoalaBattle 0.6 supports five battle-decision provider shapes and one test-only provider.
 Credentials are backend environment variables; the API exposes only a boolean
 `configured` status.
 
@@ -36,3 +36,7 @@ bounded retry/repair/fallback policy.
 Every match owns independent adapter/agent instances. The global match scheduler bounds total
 concurrency; per-player limits and an optional tournament budget stop future calls after the
 recorded threshold is reached. Tests use Random, Manual, or Fake agents and spend no API credit.
+
+All battle providers receive a fresh full prompt every turn. Adapters do not maintain provider
+conversation state. Team generation is a separate explicit structured-output operation with
+its own bounded Showdown-validation repair loop and audit; see [Team building](TEAM_BUILDING.md).

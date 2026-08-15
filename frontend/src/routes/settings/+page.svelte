@@ -3,7 +3,7 @@
   import { api, apiBase, wsBase } from '$lib/api';
   import { loadRendererConfig, saveRendererConfig } from '$lib/presentation/config';
   import { defaultRendererConfig, type RendererConfig, type RendererTheme } from '$lib/presentation/types';
-  import type { AssetResolution, AssetScanReport, MatchSummary, ProviderStatus } from '$lib/types';
+  import type { AssetResolution, AssetScanReport, MatchSummary, ProviderStatus, RendererCapabilities, SpeechProviderStatus, VoicePreset } from '$lib/types';
 
   type ObsPreset = 'youtube' | 'twitch' | 'vertical';
   const presets: Record<ObsPreset, { label: string; width: number; height: number; layout: RendererConfig['layout']; fps: number }> = {
@@ -17,6 +17,9 @@
   let assets: AssetScanReport | null = null;
   let matches: MatchSummary[] = [];
   let providers: ProviderStatus[] = [];
+  let speechProviders: SpeechProviderStatus[] = [];
+  let voices: VoicePreset[] = [];
+  let video: RendererCapabilities | null = null;
   let selectedMatch = '';
   let obsPreset: ObsPreset = 'youtube';
   let baseUrl = '';
@@ -39,10 +42,13 @@
 
   async function loadData() {
     try {
-      [assets, matches, providers] = await Promise.all([
+      [assets, matches, providers, speechProviders, voices, video] = await Promise.all([
         api<AssetScanReport>('/api/assets/status'),
         api<MatchSummary[]>('/api/matches?limit=100'),
-        api<{ providers: ProviderStatus[] }>('/api/providers').then((result) => result.providers)
+        api<{ providers: ProviderStatus[] }>('/api/providers').then((result) => result.providers),
+        api<{ providers: SpeechProviderStatus[] }>('/api/production/providers').then((result) => result.providers),
+        api<VoicePreset[]>('/api/production/voices'),
+        api<RendererCapabilities>('/api/video/capabilities')
       ]);
       selectedMatch ||= matches[0]?.id || '';
     } catch (caught) {
@@ -96,6 +102,8 @@
 
 <div class="settings-grid">
   <section class="panel providers"><span class="section-number">Providers</span><h2>Server-side credentials</h2><p>Keys are read from backend environment variables only. Their values are never returned to this browser.</p><div class="provider-cards">{#each providers as provider}<article><span class:ready={provider.configured}>{provider.configured ? 'Configured' : 'Not configured'}</span><strong>{provider.id}</strong><small>{provider.capabilities.structured_output ? 'Structured output' : 'Plain JSON'} · {provider.capabilities.model_listing ? 'model discovery' : 'custom model ID'}</small></article>{/each}</div><a class="preview-link" href="/new">Configure a battle →</a></section>
+  <section class="panel providers"><span class="section-number">Speech</span><h2>Audio providers & VoicePresets</h2><p>System speech is local and free. Network providers remain disabled until configured; paid generation requires an explicit API action.</p><div class="provider-cards">{#each speechProviders as provider}<article><span class:ready={provider.available}>{provider.available ? 'Available' : 'Unavailable'}</span><strong>{provider.id}</strong><small>{provider.paid ? 'paid / explicit action' : 'zero-cost'} · {provider.supports_timestamps ? 'timestamps' : 'normalized caption timing'}</small><small>{provider.detail}</small></article>{/each}</div><p>{voices.length} persisted VoicePresets · generated media: <code>data/audio/</code></p></section>
+  <section class="panel providers"><span class="section-number">Video</span><h2>Renderer & recording capabilities</h2><p>Offline exports use explicit logical-time frames. OBS recording remains realtime and uses server-side WebSocket credentials.</p>{#if video}<div class="provider-cards"><article><span class:ready={video.offline_available}>{video.offline_available ? 'Ready' : 'Unavailable'}</span><strong>Offline renderer</strong><small>FFmpeg {video.ffmpeg_available ? '✓' : '—'} · FFprobe {video.ffprobe_available ? '✓' : '—'} · Chromium {video.chromium_available ? '✓' : '—'} · Playwright {video.playwright_available ? '✓' : '—'}</small><small>{video.encoders.join(', ') || 'No H.264 encoder detected'}</small></article><article><span class:ready={video.obs_configured}>{video.obs_configured ? 'Configured' : 'Unavailable'}</span><strong>OBS WebSocket v5</strong><small>{video.obs_host}:{video.obs_port} · scene {video.obs_scene}</small><small>Realtime recording; password remains server-side.</small></article><article><span class:ready={video.output_writable}>{video.output_writable ? 'Writable' : 'Unavailable'}</span><strong>Video storage</strong><small>{(video.storage_bytes / 1024 / 1024 / 1024).toFixed(2)} GB used · {(video.free_bytes / 1024 / 1024 / 1024).toFixed(1)} GB free</small><small>{video.output_root} · concurrency {video.concurrency}</small></article></div>{#if video.detail.length}<ul>{#each video.detail as detail}<li>{detail}</li>{/each}</ul>{/if}{/if}</section>
   <section class="panel"><span class="section-number">01</span><h2>Application theme</h2><p>Dashboard styling, separate from renderer output.</p><div class="theme-options"><button class:active={appTheme === 'light'} on:click={() => setAppTheme('light')}>Koala Light</button><button class:active={appTheme === 'dark'} on:click={() => setAppTheme('dark')}>Koala Dark</button></div></section>
 
   <section class="panel"><span class="section-number">02</span><h2>Renderer defaults</h2><p>Versioned declarative settings. Existing battle data is never changed.</p><div class="form-grid"><label>Production theme<select value={renderer.theme} on:change={(event) => updateRenderer({ theme: event.currentTarget.value as RendererTheme })}><option value="koala-dark">Koala Dark</option><option value="koala-light">Koala Light</option></select></label><label>Default layout<select value={renderer.layout} on:change={(event) => updateRenderer({ layout: event.currentTarget.value as RendererConfig['layout'] })}><option value="standard-landscape">Landscape 16:9</option><option value="standard-vertical">Vertical 9:16</option><option value="overlay-landscape">Overlay landscape</option></select></label><label>Presentation preset<select value={renderer.preset} on:change={(event) => updateRenderer({ preset: event.currentTarget.value as RendererConfig['preset'] })}><option value="live">Live</option><option value="video">Video</option><option value="fast">Fast</option><option value="instant">Instant</option></select></label><label>Commentary history<select value={renderer.commentaryMode} on:change={(event) => updateRenderer({ commentaryMode: event.currentTarget.value as RendererConfig['commentaryMode'] })}><option value="latest">Latest</option><option value="last-3">Last 3</option><option value="full">Full</option><option value="hidden">Hidden</option></select></label></div><div class="toggles"><label><input type="checkbox" checked={renderer.showBattleLog} on:change={(event) => updateRenderer({ showBattleLog: event.currentTarget.checked })} />Battle log</label><label><input type="checkbox" checked={renderer.animatedSprites} on:change={(event) => updateRenderer({ animatedSprites: event.currentTarget.checked })} />Animated sprites</label><label><input type="checkbox" checked={renderer.transparentBackground} on:change={(event) => updateRenderer({ transparentBackground: event.currentTarget.checked })} />Transparent overlay</label></div></section>

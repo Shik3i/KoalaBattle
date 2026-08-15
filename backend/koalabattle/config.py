@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     database_url: str = "sqlite+aiosqlite:///./data/koalabattle.db"
     showdown_websocket_url: str = "ws://localhost:8000/showdown/websocket"
     showdown_auth_url: str = "https://play.pokemonshowdown.com/action.php?"
+    team_validator_url: str = "http://localhost:8002"
     showdown_version: str = "b22742debfdce6e640193384f5731b9030f9cb6e"
     asset_root: Path = Path("data/assets")
     cors_origins: Annotated[tuple[str, ...], NoDecode] = (
@@ -47,6 +48,32 @@ class Settings(BaseSettings):
     max_concurrent_matches: int = Field(default=2, ge=1, le=64)
     pricing_version: str = "unconfigured"
     pricing_table_json: str = "{}"
+    speech_provider: str = "system"
+    speech_audio_root: Path = Path("data/audio")
+    speech_max_concurrency: int = Field(default=2, ge=1, le=16)
+    speech_max_text_characters: int = Field(default=1000, ge=1, le=4096)
+    speech_openai_model: str = "gpt-4o-mini-tts"
+    speech_openai_base_url: str | None = None
+    speech_openai_api_key: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "KOALABATTLE_SPEECH_OPENAI_API_KEY", "KOALABATTLE_OPENAI_API_KEY", "OPENAI_API_KEY"
+        ),
+    )
+    video_root: Path = Path("data/videos")
+    video_max_concurrency: int = Field(default=1, ge=1, le=4)
+    video_worker_enabled: bool = True
+    video_frontend_url: str = "http://localhost:3000"
+    video_api_url: str = "http://localhost:8001"
+    video_ffmpeg_path: str = "ffmpeg"
+    video_ffprobe_path: str = "ffprobe"
+    video_chromium_path: Path | None = None
+    video_min_free_bytes: int = Field(default=1_073_741_824, ge=50_000_000)
+    obs_host: str = "127.0.0.1"
+    obs_port: int = Field(default=4455, ge=1, le=65535)
+    obs_password: str | None = None
+    obs_scene: str = "KoalaBattle"
+    obs_browser_source: str = "KoalaBattle"
 
     @field_validator("cors_origins", mode="before")
     @classmethod

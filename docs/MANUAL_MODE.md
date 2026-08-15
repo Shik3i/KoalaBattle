@@ -13,7 +13,7 @@ account integration and needs no key.
 Expected shape:
 
 ```json
-{"action":"move:2","commentary":"Short public explanation."}
+{"action":"move:2","commentary":"Short public explanation.","strategy_memory":"Replacement note or null"}
 ```
 
 Plain JSON and a single JSON object inside explanatory text or Markdown fences are
@@ -22,4 +22,7 @@ actions outside the current `legal_actions` list are rejected. Only normalized
 KoalaBattle IDs are executed. Raw Showdown commands are never accepted from a model.
 
 Manual vs Manual can expose two simultaneous workspaces. Each response is keyed by its
-request UUID and side; submitting one cannot answer the other.
+request UUID and side; submitting one cannot answer the other. A request can be answered only
+once. Each displayed prompt is complete enough for a fresh external chat: it includes current
+PromptProfile, ContextProfile, versions, turn, estimated size, memory state, player knowledge,
+and current legal actions. External chat history is optional and never authoritative.

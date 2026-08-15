@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import BattleRenderer from '$lib/BattleRenderer.svelte';
+  import ProductionConsole from '$lib/production/ProductionConsole.svelte';
   import { getPresentationMatch } from '$lib/api';
   import { loadRendererConfig, saveRendererConfig } from '$lib/presentation/config';
   import { PresentationTimeline } from '$lib/presentation/timeline';
@@ -22,6 +23,7 @@
   let snapshot: TimelineSnapshot | null = null;
   let config: RendererConfig = defaultRendererConfig({ preset: 'video' });
   let error = '';
+  let productionConsole: ProductionConsole | null = null;
 
   onMount(() => {
     config = { ...loadRendererConfig(), preset: 'video' };
@@ -33,7 +35,12 @@
     try {
       match = await getPresentationMatch(data.id);
       timeline = new PresentationTimeline(match, match.events);
-      timeline.subscribe((value) => (snapshot = value));
+      timeline.subscribe((value) => {
+        snapshot = value;
+        const event = value.index > 0 ? match?.events[value.index - 1] : null;
+        if (event) productionConsole?.seekEvent(event.sequence);
+        else productionConsole?.restart();
+      });
       timeline.setPreset(config.preset);
       timeline.setSpeed(config.playbackSpeed);
     } catch (caught) {
@@ -46,6 +53,19 @@
     saveRendererConfig(config);
     if (patch.playbackSpeed !== undefined) timeline?.setSpeed(config.playbackSpeed);
     if (patch.preset !== undefined) timeline?.setPreset(config.preset);
+    if (config.playbackSpeed !== 1 || config.preset === 'instant') productionConsole?.pause();
+  }
+
+  function togglePlayback() {
+    const willPlay = !snapshot?.playing;
+    timeline?.toggle();
+    if (willPlay && config.playbackSpeed === 1 && config.preset !== 'instant') productionConsole?.play();
+    else productionConsole?.pause();
+  }
+
+  function restartPlayback() {
+    timeline?.restart();
+    productionConsole?.restart();
   }
 
   function speedFrom(value: string): PlaybackSpeed {
@@ -59,14 +79,15 @@
 </div>
 
 <BattleRenderer presentation={snapshot?.state || null} {config} />
+<ProductionConsole bind:this={productionConsole} matchId={data.id} />
 
 {#if snapshot}
   <section class="transport panel" aria-label="Replay controls">
     <div class="transport-buttons">
-      <button on:click={() => timeline?.restart()} aria-label="Restart replay">↺</button>
+      <button on:click={restartPlayback} aria-label="Restart replay">↺</button>
       <button on:click={() => timeline?.previousTurn()} disabled={snapshot.index === 0}>Previous turn</button>
       <button on:click={() => timeline?.previousEvent()} disabled={snapshot.index === 0}>Previous event</button>
-      <button class="play" on:click={() => timeline?.toggle()}>{snapshot.playing ? 'Pause' : 'Play'}</button>
+      <button class="play" on:click={togglePlayback}>{snapshot.playing ? 'Pause' : 'Play'}</button>
       <button on:click={() => timeline?.nextEvent()} disabled={snapshot.index >= snapshot.eventCount}>Next event</button>
       <button on:click={() => timeline?.nextTurn()} disabled={snapshot.index >= snapshot.eventCount}>Next turn</button>
     </div>

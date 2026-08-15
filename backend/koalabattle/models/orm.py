@@ -40,18 +40,18 @@ class MatchRow(Base):
     queue_position: Mapped[int | None] = mapped_column(Integer, index=True)
 
     players: Mapped[list[PlayerRow]] = relationship(
-        back_populates="match", cascade="all, delete-orphan", lazy="selectin"
+        back_populates="match", cascade="all, delete-orphan", lazy="raise"
     )
     events: Mapped[list[BattleEventRow]] = relationship(
         back_populates="match",
         cascade="all, delete-orphan",
-        lazy="selectin",
+        lazy="raise",
         order_by="BattleEventRow.sequence",
     )
     decisions: Mapped[list[AgentDecisionRow]] = relationship(
         back_populates="match",
         cascade="all, delete-orphan",
-        lazy="selectin",
+        lazy="raise",
         order_by="AgentDecisionRow.decision_sequence",
     )
 
@@ -140,9 +140,139 @@ class AgentDecisionRow(Base):
     pricing_version: Mapped[str | None] = mapped_column(String(80))
     error_category: Mapped[str | None] = mapped_column(String(40))
     error_detail: Mapped[str | None] = mapped_column(Text)
+    knowledge_json: Mapped[str | None] = mapped_column(Text)
+    context_json: Mapped[str | None] = mapped_column(Text)
+    context_metrics_json: Mapped[str | None] = mapped_column(Text)
+    prompt_profile_id: Mapped[str | None] = mapped_column(String(80))
+    prompt_profile_version: Mapped[str | None] = mapped_column(String(40))
+    context_schema_version: Mapped[str | None] = mapped_column(String(40))
+    knowledge_schema_version: Mapped[str | None] = mapped_column(String(40))
+    history_policy_version: Mapped[str | None] = mapped_column(String(80))
+    memory_policy: Mapped[str | None] = mapped_column(String(40))
+    memory_policy_version: Mapped[str | None] = mapped_column(String(40))
+    strategy_memory_before: Mapped[str | None] = mapped_column(String(400))
+    strategy_memory_after: Mapped[str | None] = mapped_column(String(400))
     schema_version: Mapped[str] = mapped_column(String(20), nullable=False)
 
     match: Mapped[MatchRow] = relationship(back_populates="decisions")
+
+
+class VoicePresetRow(Base):
+    __tablename__ = "voice_presets"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    display_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    provider: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    voice: Mapped[str] = mapped_column(String(120), nullable=False)
+    model: Mapped[str | None] = mapped_column(String(160))
+    language: Mapped[str | None] = mapped_column(String(20))
+    speed: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
+    instructions: Mapped[str | None] = mapped_column(String(500))
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    schema_version: Mapped[str] = mapped_column(String(20), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class ProductionRow(Base):
+    __tablename__ = "productions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    match_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("matches.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    profile_id: Mapped[str] = mapped_column(String(60), nullable=False, index=True)
+    profile_version: Mapped[str] = mapped_column(String(20), nullable=False)
+    timeline_version: Mapped[str] = mapped_column(String(20), nullable=False)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, index=True)
+    director_state: Mapped[str] = mapped_column(String(40), nullable=False)
+    timeline_json: Mapped[str] = mapped_column(Text, nullable=False)
+    voice_assignments_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    overrides_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    authoritative_client_id: Mapped[str | None] = mapped_column(String(120))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class SpeechCacheRow(Base):
+    __tablename__ = "speech_cache"
+
+    cache_key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    provider: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    model: Mapped[str] = mapped_column(String(160), nullable=False)
+    voice: Mapped[str] = mapped_column(String(120), nullable=False)
+    text_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    relative_path: Mapped[str] = mapped_column(String(260), nullable=False, unique=True)
+    media_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    byte_size: Mapped[int] = mapped_column(Integer, nullable=False)
+    duration_ms: Mapped[int] = mapped_column(Integer, nullable=False)
+    content_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_accessed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class VideoExportJobRow(Base):
+    __tablename__ = "video_export_jobs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    production_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("productions.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    match_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("matches.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    backend: Mapped[str] = mapped_column(String(30), nullable=False, index=True)
+    preset_id: Mapped[str] = mapped_column(String(60), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, index=True)
+    priority: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    progress: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    idempotency_key: Mapped[str | None] = mapped_column(String(120), unique=True)
+    output_relative_path: Mapped[str | None] = mapped_column(String(500), unique=True)
+    job_json: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class TeamSnapshotRow(Base):
+    __tablename__ = "team_snapshots"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
+    format: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    source: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    submitted_text: Mapped[str] = mapped_column(Text, nullable=False)
+    normalized_export: Mapped[str] = mapped_column(Text, nullable=False)
+    packed_team: Mapped[str] = mapped_column(Text, nullable=False)
+    structured_team_json: Mapped[str] = mapped_column(Text, nullable=False)
+    generation_audit_json: Mapped[str | None] = mapped_column(Text)
+    schema_version: Mapped[str] = mapped_column(String(20), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class TeamBuildAuditRow(Base):
+    __tablename__ = "team_build_audits"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    participant: Mapped[str] = mapped_column(String(80), nullable=False)
+    provider: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    model: Mapped[str] = mapped_column(String(200), nullable=False)
+    format: Mapped[str] = mapped_column(String(40), nullable=False)
+    prompt_profile_version: Mapped[str] = mapped_column(String(80), nullable=False)
+    rendered_prompt: Mapped[str] = mapped_column(Text, nullable=False)
+    raw_responses_json: Mapped[str] = mapped_column(Text, nullable=False)
+    validation_errors_json: Mapped[str] = mapped_column(Text, nullable=False)
+    repair_attempts: Mapped[int] = mapped_column(Integer, nullable=False)
+    success: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    team_snapshot_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("team_snapshots.id", ondelete="SET NULL"), index=True
+    )
+    usage_json: Mapped[str | None] = mapped_column(Text)
+    latency_ms: Mapped[int] = mapped_column(Integer, nullable=False)
+    schema_version: Mapped[str] = mapped_column(String(20), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 class MatchTemplateRow(Base):

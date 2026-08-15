@@ -20,7 +20,8 @@ surfaces must not escape `engines/showdown`.
 
 - unit: contracts, lifecycle, scheduling races, generic tournaments, validation, agents, assets
 - storage: SQLite migrations, ordering, audit, tournament persistence, reopen/recovery
-- integration: two concurrent real Gen 9 Random Battles in independent Showdown rooms
+- integration: two concurrent real Gen 9 Random Battles plus one validated fixed-team Gen 9 OU
+  battle with parse/pack/completion/persistence/replay
 - presentation: Node tests for reducer restoration and deterministic scheduler operations
 - frontend: `npm test`, Svelte diagnostics, production build, and rendered browser QA
 
@@ -33,10 +34,16 @@ Run documentation/setup checks from the repository root:
 python3 scripts/check_docs.py
 python3 scripts/setup_assets.py status
 docker compose config --quiet
+PYTHONPATH=backend .venv/bin/python scripts/benchmark_phase5.py
 ```
 
 Validate migrations against both an empty temporary database and a copy of any existing
 database. Do not use the working `data/koalabattle.db` as a migration test fixture.
+
+Frontend production and development audits are separate. `cookie@0.7.2` is an explicit safe
+override for the SvelteKit dependency tree. The pinned upstream Showdown image has known audit
+findings; do not force major upgrades without the real-server gates. Details and measured limits:
+[Security](SECURITY.md) and [Performance](PERFORMANCE.md).
 
 ## Adding an engine
 

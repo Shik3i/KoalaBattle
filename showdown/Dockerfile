@@ -7,11 +7,13 @@ RUN apt-get update \
     && cd /opt/showdown \
     && git checkout "${SHOWDOWN_COMMIT}" \
     && npm ci \
+    && node build \
     && apt-get purge -y git \
     && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt/showdown
 COPY showdown/config/config.js config/config.js
-EXPOSE 8000
+COPY showdown/team-validator-server.js team-validator-server.js
+EXPOSE 8000 8002
 CMD ["node", "pokemon-showdown", "start", "--no-security", "8000"]

@@ -209,9 +209,7 @@ class MatchSession:
             try:
                 await self.sink.emit("battle_failed", 0, {"error": message})
                 await self.repository.fail_match(self.archive.id, message)
-                await self.hub.publish(
-                    self.archive.id, {"kind": "match_failed", "error": message}
-                )
+                await self.hub.publish(self.archive.id, {"kind": "match_failed", "error": message})
             except Exception:
                 LOGGER.exception("Could not persist failure for match %s", self.archive.id)
 
@@ -219,6 +217,8 @@ class MatchSession:
         archive = await self.repository.get_match(self.archive.id)
         if archive is None:
             raise KeyError(str(self.archive.id))
+        if archive.status is MatchStatus.PAUSED:
+            return
         if archive.status not in {MatchStatus.RUNNING, MatchStatus.WAITING}:
             raise ValueError(f"match cannot pause while {archive.status.value}")
         self.paused = True
@@ -230,6 +230,8 @@ class MatchSession:
         archive = await self.repository.get_match(self.archive.id)
         if archive is None:
             raise KeyError(str(self.archive.id))
+        if archive.status in {MatchStatus.RUNNING, MatchStatus.WAITING}:
+            return
         if archive.status is not MatchStatus.PAUSED:
             raise ValueError(f"match cannot resume while {archive.status.value}")
         pending = await self.manual_broker.pending_for_match(self.archive.id)
@@ -281,9 +283,7 @@ class MatchSession:
                 return request
         raise KeyError(str(request_id))
 
-    async def _publish_state(
-        self, side: Side, turn: int, state: AgentLifecycleState
-    ) -> None:
+    async def _publish_state(self, side: Side, turn: int, state: AgentLifecycleState) -> None:
         await self.sink.emit(
             "agent_state",
             turn,
@@ -314,18 +314,21 @@ class MatchSupervisor:
         self.on_terminal = on_terminal
         self.sessions: dict[UUID, MatchSession] = {}
         self._wake = asyncio.Event()
+        self._start_lock = asyncio.Lock()
         self._dispatcher: asyncio.Task[None] | None = None
+        self._completion_tasks: set[asyncio.Task[None]] = set()
         self._closing = False
 
     async def start(self) -> tuple[UUID, ...]:
-        if self._dispatcher is not None:
-            return ()
-        interrupted = await self.repository.reconcile_interrupted_matches()
-        self._dispatcher = asyncio.create_task(
-            self._dispatch_loop(), name="match-supervisor-dispatch"
-        )
-        self._wake.set()
-        return interrupted
+        async with self._start_lock:
+            if self._dispatcher is not None:
+                return ()
+            interrupted = await self.repository.reconcile_interrupted_matches()
+            self._dispatcher = asyncio.create_task(
+                self._dispatch_loop(), name="match-supervisor-dispatch"
+            )
+            self._wake.set()
+            return interrupted
 
     async def create_match(
         self,
@@ -354,16 +357,19 @@ class MatchSupervisor:
         self._wake.set()
         queued = await self.repository.get_match(archive.id)
         assert queued is not None
-        await self.hub.publish_overview(
-            {"kind": "match_queued", "match_id": str(archive.id)}
-        )
+        await self.hub.publish_overview({"kind": "match_queued", "match_id": str(archive.id)})
         return queued
 
     async def _dispatch_loop(self) -> None:
         while not self._closing:
             await self._wake.wait()
             self._wake.clear()
-            await self._dispatch_available()
+            try:
+                await self._dispatch_available()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                LOGGER.exception("Match dispatcher recovered from an unexpected failure")
 
     async def _dispatch_available(self) -> None:
         while not self._closing and len(self.sessions) < self.concurrency_limit:
@@ -375,24 +381,36 @@ class MatchSupervisor:
                     break
             if selected is None:
                 return
-            await self.repository.set_status(selected.id, MatchStatus.STARTING)
-            if self.on_start is not None:
-                await self.on_start(selected)
-            archive = await self.repository.get_match(selected.id)
-            assert archive is not None
-            session = MatchSession(
-                archive,
-                self.repository,
-                self.hub,
-                self.engine_factory,
-                self.agent_factory,
-            )
-            self.sessions[selected.id] = session
-            task = session.start()
-            task.add_done_callback(partial(self._schedule_session_done, selected.id))
-            await self.hub.publish_overview(
-                {"kind": "match_started", "match_id": str(selected.id)}
-            )
+            try:
+                await self.repository.set_status(selected.id, MatchStatus.STARTING)
+                if self.on_start is not None:
+                    await self.on_start(selected)
+                archive = await self.repository.get_match(selected.id)
+                if archive is None:
+                    raise RuntimeError("queued match disappeared before dispatch")
+                session = MatchSession(
+                    archive,
+                    self.repository,
+                    self.hub,
+                    self.engine_factory,
+                    self.agent_factory,
+                )
+                self.sessions[selected.id] = session
+                task = session.start()
+                task.add_done_callback(partial(self._schedule_session_done, selected.id))
+                await self.hub.publish_overview(
+                    {"kind": "match_started", "match_id": str(selected.id)}
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception as error:
+                LOGGER.exception("Could not dispatch match %s", selected.id)
+                await self.repository.fail_match(
+                    selected.id, f"DispatchError: {type(error).__name__}: {error}"
+                )
+                await self.hub.publish_overview(
+                    {"kind": "match_terminal", "match_id": str(selected.id), "status": "failed"}
+                )
 
     async def _session_done(self, match_id: UUID, task: asyncio.Task[None]) -> None:
         self.sessions.pop(match_id, None)
@@ -411,10 +429,15 @@ class MatchSupervisor:
                     "status": archive.status.value,
                 }
             )
+            self.repository.release_event_lock(match_id)
         self._wake.set()
 
     def _schedule_session_done(self, match_id: UUID, task: asyncio.Task[None]) -> None:
-        asyncio.create_task(self._session_done(match_id, task))
+        completion = asyncio.create_task(
+            self._session_done(match_id, task), name=f"match-session-cleanup-{match_id}"
+        )
+        self._completion_tasks.add(completion)
+        completion.add_done_callback(self._completion_tasks.discard)
 
     async def pending_for_match(self, match_id: UUID) -> tuple[AgentRequest, ...]:
         session = self.sessions.get(match_id)
@@ -446,6 +469,8 @@ class MatchSupervisor:
         archive = await self.repository.get_match(match_id)
         if archive is None:
             raise KeyError(str(match_id))
+        if archive.status is MatchStatus.CANCELLED:
+            return
         if archive.status in TERMINAL_MATCH_STATUSES:
             raise ValueError(f"match is already {archive.status.value}")
         session = self.sessions.get(match_id)
@@ -454,6 +479,7 @@ class MatchSupervisor:
             if session.task is not None:
                 session.task.cancel()
                 await asyncio.gather(session.task, return_exceptions=True)
+        await self.repository.cancel_match(match_id)
         event = BattleEvent(
             match_id=match_id,
             sequence=0,
@@ -462,7 +488,6 @@ class MatchSupervisor:
             payload={"reason": "operator"},
         )
         stored = await self.repository.append_event(event)
-        await self.repository.cancel_match(match_id)
         await self.hub.publish(
             match_id,
             {"kind": "battle_event", "event": stored.model_dump(mode="json")},
@@ -471,6 +496,7 @@ class MatchSupervisor:
         terminal = await self.repository.get_match(match_id)
         if session is None and terminal is not None and self.on_terminal is not None:
             await self.on_terminal(match_id, terminal)
+        self.repository.release_event_lock(match_id)
         self._wake.set()
 
     async def close(self) -> None:
@@ -488,6 +514,10 @@ class MatchSupervisor:
                 *(session.task for _, session in sessions if session.task is not None),
                 return_exceptions=True,
             )
+        await asyncio.sleep(0)
+        while self._completion_tasks:
+            await asyncio.gather(*tuple(self._completion_tasks), return_exceptions=True)
+            await asyncio.sleep(0)
         for match_id, _ in sessions:
             archive = await self.repository.get_match(match_id)
             if archive is not None and archive.status not in TERMINAL_MATCH_STATUSES:

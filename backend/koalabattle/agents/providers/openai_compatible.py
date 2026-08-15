@@ -41,9 +41,9 @@ class OpenAICompatibleProvider:
             {
                 "type": "json_schema",
                 "json_schema": {
-                    "name": "koalabattle_decision",
+                    "name": request.output_schema_name,
                     "strict": True,
-                    "schema": DECISION_SCHEMA,
+                    "schema": request.output_schema or DECISION_SCHEMA,
                 },
             },
             {"type": "json_object"},

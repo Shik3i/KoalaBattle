@@ -7,7 +7,16 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from koalabattle.core.models import AgentConfiguration, AgentType, MatchLimits
+from koalabattle.core.models import (
+    AgentConfiguration,
+    AgentType,
+    ContextProfileId,
+    MatchLimits,
+    MemoryPolicyId,
+    PromptProfileId,
+    TeamPolicy,
+    TeamSource,
+)
 
 TOURNAMENT_SCHEMA_VERSION = "1.0"
 
@@ -46,8 +55,11 @@ class AgentPresetSnapshot(FrozenTournamentModel):
     provider: str | None = Field(default=None, max_length=80)
     model: str | None = Field(default=None, max_length=200)
     configuration: AgentConfiguration = Field(default_factory=AgentConfiguration)
-    prompt_profile: str = Field(default="battle-standard-v1", max_length=80)
-    prompt_version: str = Field(default="3.0", max_length=40)
+    team_source: TeamSource = TeamSource.SHOWDOWN_RANDOM
+    team_snapshot_id: UUID | None = None
+    # Retained for Phase 4 snapshot compatibility; Phase 5 profiles live on the match template.
+    prompt_profile: str | None = None
+    prompt_version: str | None = None
     fallback_configuration: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -55,11 +67,27 @@ class MatchTemplateSnapshot(FrozenTournamentModel):
     schema_version: str = TOURNAMENT_SCHEMA_VERSION
     engine: str = Field(default="pokemon-showdown", min_length=1, max_length=80)
     engine_configuration: dict[str, Any] = Field(default_factory=dict)
-    format: str = Field(default="gen9randombattle", min_length=1, max_length=80)
-    generation: int = Field(default=9, ge=1, le=99)
+    format: Literal["gen9randombattle", "gen9ou"] = "gen9randombattle"
+    generation: Literal[9] = 9
     fair_prompt_mode: bool = True
+    prompt_profile: PromptProfileId = PromptProfileId.STANDARD_COMPETITIVE
+    context_profile: ContextProfileId = ContextProfileId.STANDARD
+    memory_policy: MemoryPolicyId = MemoryPolicyId.STRATEGY_NOTE
+    team_policy: TeamPolicy = TeamPolicy.SHOWDOWN_RANDOM
     limits: MatchLimits = Field(default_factory=MatchLimits)
     presentation: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def supported_showdown_format(self) -> MatchTemplateSnapshot:
+        if self.format not in {"gen9randombattle", "gen9ou"} or self.generation != 9:
+            raise ValueError("Phase 5 supports gen9randombattle and gen9ou only")
+        if self.format == "gen9randombattle" and self.team_policy is not TeamPolicy.SHOWDOWN_RANDOM:
+            raise ValueError("Random Battle tournaments must use Showdown Random teams")
+        if self.format == "gen9ou" and self.team_policy is TeamPolicy.SHOWDOWN_RANDOM:
+            raise ValueError("Gen 9 OU tournaments require custom team policy")
+        if self.format == "gen9ou" and self.team_policy is not TeamPolicy.FIXED:
+            raise ValueError("Phase 5 Gen 9 OU tournaments currently support fixed teams only")
+        return self
 
 
 class TournamentParticipantDraft(FrozenTournamentModel):

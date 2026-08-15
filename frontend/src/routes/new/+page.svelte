@@ -2,13 +2,13 @@
   import { goto } from '$app/navigation';
   import { onMount } from 'svelte';
   import { api } from '$lib/api';
-  import type { AgentType, MatchArchive, ProviderKind, ProviderStatus } from '$lib/types';
+  import type { AgentType, MatchArchive, ProviderKind, ProviderStatus, TeamSnapshot } from '$lib/types';
 
   interface PlayerDraft {
     name: string; agentType: AgentType; provider: ProviderKind; model: string; baseUrl: string;
     timeout: number; retries: number; fallback: 'random' | 'manual' | 'forfeit';
     temperature: string; maxTokens: number; reasoning: '' | 'low' | 'medium' | 'high' | 'max';
-    maximumCost: string; fakeScenario: string;
+    maximumCost: string; fakeScenario: string; teamSnapshotId: string;
   }
   const providerLabels: Record<ProviderKind, string> = {
     openai: 'OpenAI', gemini: 'Google Gemini', anthropic: 'Anthropic', deepseek: 'DeepSeek',
@@ -21,22 +21,31 @@
   const draft = (name: string): PlayerDraft => ({
     name, agentType: 'random', provider: 'openai', model: defaultModels.openai, baseUrl: '',
     timeout: 45, retries: 1, fallback: 'random', temperature: '', maxTokens: 256,
-    reasoning: '', maximumCost: '', fakeScenario: 'valid'
+    reasoning: '', maximumCost: '', fakeScenario: 'valid', teamSnapshotId: ''
   });
 
   let players = [draft('Player One'), draft('Player Two')];
   let matchName = '';
   let providers: ProviderStatus[] = [];
+  let teams: TeamSnapshot[] = [];
+  let format: 'gen9randombattle' | 'gen9ou' = 'gen9randombattle';
   let seed = ''; let maximumTotalCost = ''; let maximumTurns = '';
   let preset: 'economy' | 'balanced' | 'power' = 'balanced';
   let loading = false; let error = ''; let discovering: number | null = null;
   let discoveredModels: Record<number, string[]> = {};
 
-  onMount(() => void loadProviders());
-  async function loadProviders() {
-    try { providers = (await api<{ providers: ProviderStatus[] }>('/api/providers')).providers; }
-    catch (caught) { error = caught instanceof Error ? caught.message : String(caught); }
-  }
+  onMount(() => {
+    const controller = new AbortController();
+    void Promise.all([
+      api<{ providers: ProviderStatus[] }>('/api/providers', { signal: controller.signal }),
+      api<TeamSnapshot[]>('/api/teams', { signal: controller.signal })
+    ]).then(([providerResult, teamResult]) => {
+      providers = providerResult.providers; teams = teamResult;
+    }).catch((caught) => {
+      if (!controller.signal.aborted) error = caught instanceof Error ? caught.message : String(caught);
+    });
+    return () => controller.abort();
+  });
   function selectProvider(index: number, value: ProviderKind) {
     players[index].provider = value; players[index].model = defaultModels[value]; players = [...players];
   }
@@ -73,18 +82,28 @@
         base_url: player.provider === 'openai-compatible' ? player.baseUrl : null,
         maximum_cost: player.maximumCost === '' ? null : Number(player.maximumCost),
         fake_scenario: player.fakeScenario
-      }
+      },
+      team_source: format === 'gen9ou' ? 'preset' : 'showdown-random',
+      team_snapshot_id: format === 'gen9ou' ? player.teamSnapshotId : null
     };
   }
   async function createBattle() {
+    if (loading) return;
+    if (format === 'gen9ou' && players.some((player) => !player.teamSnapshotId)) {
+      error = 'Select one validated team snapshot for each player.'; return;
+    }
     loading = true; error = '';
     try {
       const match = await api<MatchArchive>('/api/matches', {
         method: 'POST',
         body: JSON.stringify({
           name: matchName || null,
+          format,
           player1: playerPayload(players[0]), player2: playerPayload(players[1]),
           random_seed: seed ? Number(seed) : null, fair_prompt_mode: true,
+          prompt_profile: 'benchmark-fair', context_profile: 'pokemon-standard',
+          memory_policy: 'strategy-note',
+          team_policy: format === 'gen9ou' ? 'fixed' : 'showdown-random',
           limits: {
             maximum_total_cost: maximumTotalCost ? Number(maximumTotalCost) : null,
             maximum_turns: maximumTurns ? Number(maximumTurns) : null
@@ -98,10 +117,15 @@
 
 <div class="page-head">
   <div><span class="eyebrow">New production</span><h1>Stage a battle</h1></div>
-  <span class="status-pill">Standard information · Gen 9 Random Battle</span>
+  <span class="status-pill">Standard information · {format === 'gen9ou' ? 'Gen 9 OU' : 'Gen 9 Random Battle'}</span>
 </div>
 <form class="builder" on:submit|preventDefault={createBattle}>
   <section class="panel match-name"><label>Optional match name<input bind:value={matchName} maxlength="120" placeholder="Benchmark Run 14" /></label><span>Stable URLs continue to use the match UUID.</span></section>
+  <section class="panel format-picker">
+    <div><span class="eyebrow">Battle format</span><strong>{format === 'gen9ou' ? 'Custom validated teams' : 'Showdown random teams'}</strong></div>
+    <label>Format<select bind:value={format}><option value="gen9randombattle">Gen 9 Random Battle</option><option value="gen9ou">Gen 9 OU</option></select></label>
+    {#if format === 'gen9ou'}<a href="/teams">Import or generate teams →</a>{/if}
+  </section>
   <div class="preset-bar panel">
     <div><span class="eyebrow">Run preset</span><strong>{preset}</strong></div>
     <div class="segmented">
@@ -118,6 +142,15 @@
         <label>Control mode
           <select bind:value={player.agentType}><option value="random">Random agent</option><option value="manual">Manual Web Chat</option><option value="api">Provider API · full auto</option></select>
         </label>
+        {#if format === 'gen9ou'}
+          <label>Validated team snapshot
+            <select bind:value={player.teamSnapshotId} required>
+              <option value="">Select a saved team…</option>
+              {#each teams as team}<option value={team.id}>{team.name} · {team.source}</option>{/each}
+            </select>
+          </label>
+          {#if teams.length === 0}<div class="mode-note"><strong>No team snapshots</strong><span>Open Team Lab, validate a full Gen 9 OU team, then return here.</span></div>{/if}
+        {/if}
         {#if player.agentType === 'manual'}
           <div class="mode-note"><strong>Manual Web Chat</strong><span>Each turn pauses. Copy the prompt to any chat, then paste its JSON response.</span></div>
         {:else if player.agentType === 'random'}
@@ -159,5 +192,5 @@
 </form>
 
 <style>
-  .builder{display:grid;gap:1rem}.match-name{display:grid;grid-template-columns:1fr auto;align-items:end;gap:1rem;padding:1rem 1.2rem;box-shadow:none}.match-name span{color:var(--muted);font:.65rem var(--mono)}.preset-bar{display:flex;justify-content:space-between;align-items:center;padding:1rem 1.2rem;box-shadow:none}.preset-bar strong{display:block;margin-top:.2rem;text-transform:capitalize}.segmented{display:flex;padding:.2rem;border:1px solid var(--border);border-radius:.7rem;background:var(--panel-strong)}.segmented button{min-height:36px;padding:.4rem .8rem;border:0;border-radius:.5rem;background:transparent;color:var(--muted);cursor:pointer}.segmented button.active{background:var(--surface);color:var(--text)}.players{display:grid;grid-template-columns:1fr 1fr;gap:1rem}.player{padding:clamp(1.2rem,3vw,2rem);background:linear-gradient(145deg,color-mix(in srgb,var(--p1) 7%,var(--panel)),var(--panel) 45%)}.player.second{background:linear-gradient(215deg,color-mix(in srgb,var(--p2) 7%,var(--panel)),var(--panel) 45%)}.player header{display:flex;align-items:baseline;gap:.8rem}.player h2{font-size:1.6rem}.player-number{color:var(--accent);font:.72rem var(--mono)}.player label+label{margin-top:.85rem}.mode-note{display:grid;gap:.3rem;margin-top:1rem;padding:1rem;border:1px solid var(--border);border-radius:.75rem;background:var(--panel-strong)}.mode-note span,.limits p{color:var(--muted);font-size:.78rem;line-height:1.5}.provider-grid{display:grid;grid-template-columns:1fr 1fr;gap:.75rem;margin-top:1rem}.provider-grid label+label{margin-top:0}.provider-grid .wide{grid-column:1/-1}.discover{grid-column:1/-1;min-height:40px;border:1px solid var(--border);border-radius:.6rem;background:var(--panel-strong);color:var(--text);cursor:pointer}details{margin-top:1rem;border-top:1px solid var(--border);padding-top:1rem}summary{color:var(--muted);font-size:.78rem;cursor:pointer}.advanced{display:grid;grid-template-columns:1fr 1fr;gap:.75rem;margin-top:1rem}.advanced label+label{margin-top:0}.limits{display:grid;grid-template-columns:1.6fr repeat(3,1fr);align-items:end;gap:1rem;padding:1.2rem;box-shadow:none}.limits h2{margin:.3rem 0}.limits p{margin:.2rem 0}.launch{display:flex;justify-content:flex-end;align-items:center;gap:1rem}.launch .error{margin-right:auto}@media(max-width:880px){.players{grid-template-columns:1fr}.limits{grid-template-columns:1fr 1fr}.limits>div{grid-column:1/-1}}@media(max-width:560px){.page-head,.preset-bar{align-items:flex-start;flex-direction:column}.match-name{grid-template-columns:1fr}.segmented{width:100%}.segmented button{flex:1}.provider-grid,.advanced,.limits{grid-template-columns:1fr}.limits>div{grid-column:auto}.launch{align-items:stretch;flex-direction:column}.launch .button{width:100%}}
+  .builder{display:grid;gap:1rem}.match-name{display:grid;grid-template-columns:1fr auto;align-items:end;gap:1rem;padding:1rem 1.2rem;box-shadow:none}.match-name span{color:var(--muted);font:.65rem var(--mono)}.format-picker,.preset-bar{display:flex;justify-content:space-between;align-items:center;gap:1rem;padding:1rem 1.2rem;box-shadow:none}.format-picker strong,.preset-bar strong{display:block;margin-top:.2rem;text-transform:capitalize}.format-picker label{min-width:260px}.format-picker a{color:var(--accent);font:.7rem var(--mono)}.segmented{display:flex;padding:.2rem;border:1px solid var(--border);border-radius:.7rem;background:var(--panel-strong)}.segmented button{min-height:36px;padding:.4rem .8rem;border:0;border-radius:.5rem;background:transparent;color:var(--muted);cursor:pointer}.segmented button.active{background:var(--surface);color:var(--text)}.players{display:grid;grid-template-columns:1fr 1fr;gap:1rem}.player{padding:clamp(1.2rem,3vw,2rem);background:linear-gradient(145deg,color-mix(in srgb,var(--p1) 7%,var(--panel)),var(--panel) 45%)}.player.second{background:linear-gradient(215deg,color-mix(in srgb,var(--p2) 7%,var(--panel)),var(--panel) 45%)}.player header{display:flex;align-items:baseline;gap:.8rem}.player h2{font-size:1.6rem}.player-number{color:var(--accent);font:.72rem var(--mono)}.player label+label{margin-top:.85rem}.mode-note{display:grid;gap:.3rem;margin-top:1rem;padding:1rem;border:1px solid var(--border);border-radius:.75rem;background:var(--panel-strong)}.mode-note span,.limits p{color:var(--muted);font-size:.78rem;line-height:1.5}.provider-grid{display:grid;grid-template-columns:1fr 1fr;gap:.75rem;margin-top:1rem}.provider-grid label+label{margin-top:0}.provider-grid .wide{grid-column:1/-1}.discover{grid-column:1/-1;min-height:40px;border:1px solid var(--border);border-radius:.6rem;background:var(--panel-strong);color:var(--text);cursor:pointer}details{margin-top:1rem;border-top:1px solid var(--border);padding-top:1rem}summary{color:var(--muted);font-size:.78rem;cursor:pointer}.advanced{display:grid;grid-template-columns:1fr 1fr;gap:.75rem;margin-top:1rem}.advanced label+label{margin-top:0}.limits{display:grid;grid-template-columns:1.6fr repeat(3,1fr);align-items:end;gap:1rem;padding:1.2rem;box-shadow:none}.limits h2{margin:.3rem 0}.limits p{margin:.2rem 0}.launch{display:flex;justify-content:flex-end;align-items:center;gap:1rem}.launch .error{margin-right:auto}@media(max-width:880px){.players{grid-template-columns:1fr}.limits{grid-template-columns:1fr 1fr}.limits>div{grid-column:1/-1}.format-picker{align-items:flex-start;flex-direction:column}.format-picker label{min-width:0;width:100%}}@media(max-width:560px){.page-head,.preset-bar{align-items:flex-start;flex-direction:column}.match-name{grid-template-columns:1fr}.segmented{width:100%}.segmented button{flex:1}.provider-grid,.advanced,.limits{grid-template-columns:1fr}.limits>div{grid-column:auto}.launch{align-items:stretch;flex-direction:column}.launch .button{width:100%}}
 </style>

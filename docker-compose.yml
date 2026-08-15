@@ -1,5 +1,6 @@
 services:
   showdown:
+    image: koalabattle-showdown:local
     build:
       context: .
       dockerfile: showdown/Dockerfile
@@ -14,6 +15,21 @@ services:
       retries: 20
     restart: unless-stopped
 
+  team-validator:
+    image: koalabattle-showdown:local
+    command: ["node", "team-validator-server.js"]
+    ports:
+      - "8002:8002"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8002/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    depends_on:
+      showdown:
+        condition: service_healthy
+    restart: unless-stopped
+
   backend:
     build:
       context: .
@@ -22,7 +38,8 @@ services:
       KOALABATTLE_DATABASE_URL: sqlite+aiosqlite:////data/koalabattle.db
       KOALABATTLE_SHOWDOWN_WEBSOCKET_URL: ws://showdown:8000/showdown/websocket
       KOALABATTLE_SHOWDOWN_AUTH_URL: https://play.pokemonshowdown.com/action.php?
-      KOALABATTLE_CORS_ORIGINS: http://localhost:${KOALABATTLE_FRONTEND_PORT:-3000}
+      KOALABATTLE_TEAM_VALIDATOR_URL: http://team-validator:8002
+      KOALABATTLE_CORS_ORIGINS: http://localhost:${KOALABATTLE_FRONTEND_PORT:-3000},http://frontend:3000
       KOALABATTLE_ASSET_ROOT: /assets
       KOALABATTLE_OPENAI_API_KEY: ${KOALABATTLE_OPENAI_API_KEY:-}
       KOALABATTLE_GEMINI_API_KEY: ${KOALABATTLE_GEMINI_API_KEY:-}
@@ -33,6 +50,16 @@ services:
       KOALABATTLE_MAX_CONCURRENT_MATCHES: ${KOALABATTLE_MAX_CONCURRENT_MATCHES:-2}
       KOALABATTLE_PRICING_VERSION: ${KOALABATTLE_PRICING_VERSION:-unconfigured}
       KOALABATTLE_PRICING_TABLE_JSON: ${KOALABATTLE_PRICING_TABLE_JSON:-{}}
+      KOALABATTLE_SPEECH_PROVIDER: ${KOALABATTLE_SPEECH_PROVIDER:-system}
+      KOALABATTLE_SPEECH_AUDIO_ROOT: /data/audio
+      KOALABATTLE_SPEECH_MAX_CONCURRENCY: ${KOALABATTLE_SPEECH_MAX_CONCURRENCY:-2}
+      KOALABATTLE_SPEECH_MAX_TEXT_CHARACTERS: ${KOALABATTLE_SPEECH_MAX_TEXT_CHARACTERS:-1000}
+      KOALABATTLE_SPEECH_OPENAI_MODEL: ${KOALABATTLE_SPEECH_OPENAI_MODEL:-gpt-4o-mini-tts}
+      KOALABATTLE_SPEECH_OPENAI_BASE_URL: ${KOALABATTLE_SPEECH_OPENAI_BASE_URL:-}
+      KOALABATTLE_SPEECH_OPENAI_API_KEY: ${KOALABATTLE_SPEECH_OPENAI_API_KEY:-}
+      KOALABATTLE_VIDEO_ROOT: /data/videos
+      KOALABATTLE_VIDEO_WORKER_ENABLED: ${KOALABATTLE_VIDEO_WORKER_ENABLED:-false}
+      KOALABATTLE_VIDEO_MAX_CONCURRENCY: ${KOALABATTLE_VIDEO_MAX_CONCURRENCY:-1}
     volumes:
       - ./data:/data
       - ./data/assets:/assets:ro
@@ -40,6 +67,8 @@ services:
       - "8001:8001"
     depends_on:
       showdown:
+        condition: service_healthy
+      team-validator:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/healthz')"]
@@ -55,10 +84,39 @@ services:
     environment:
       PUBLIC_API_URL: http://localhost:8001
       PUBLIC_WS_URL: ws://localhost:8001
+      PUBLIC_RENDER_API_URL: http://backend:8001
       ORIGIN: http://localhost:${KOALABATTLE_FRONTEND_PORT:-3000}
     ports:
       - "${KOALABATTLE_FRONTEND_PORT:-3000}:3000"
     depends_on:
       backend:
         condition: service_healthy
+    restart: unless-stopped
+
+  renderer:
+    profiles: ["renderer"]
+    build:
+      context: .
+      dockerfile: Dockerfile.renderer
+    environment:
+      KOALABATTLE_DATABASE_URL: sqlite+aiosqlite:////data/koalabattle.db
+      KOALABATTLE_ASSET_ROOT: /assets
+      KOALABATTLE_SPEECH_AUDIO_ROOT: /data/audio
+      KOALABATTLE_VIDEO_ROOT: /data/videos
+      KOALABATTLE_VIDEO_WORKER_ENABLED: "true"
+      KOALABATTLE_VIDEO_MAX_CONCURRENCY: ${KOALABATTLE_VIDEO_MAX_CONCURRENCY:-1}
+      KOALABATTLE_VIDEO_FRONTEND_URL: http://frontend:3000
+      KOALABATTLE_VIDEO_API_URL: http://backend:8001
+      KOALABATTLE_VIDEO_FFMPEG_PATH: /usr/bin/ffmpeg
+      KOALABATTLE_VIDEO_FFPROBE_PATH: /usr/bin/ffprobe
+      KOALABATTLE_VIDEO_CHROMIUM_PATH: /usr/bin/chromium
+    volumes:
+      - ./data:/data
+      - ./data/assets:/assets:ro
+    depends_on:
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_started
+    init: true
     restart: unless-stopped

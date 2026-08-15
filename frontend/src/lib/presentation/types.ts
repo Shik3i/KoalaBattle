@@ -80,6 +80,7 @@ export interface SpectatorLogEntry {
 export interface BattlePresentationState {
   version: typeof RENDERER_VERSION;
   matchId: string;
+  format: string;
   eventIndex: number;
   eventSequence: number;
   battle: BattleState | null;

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import BattleRenderer from '$lib/BattleRenderer.svelte';
+  import ProductionConsole from '$lib/production/ProductionConsole.svelte';
   import { getPresentationMatch, wsBase } from '$lib/api';
   import { configFromQuery } from '$lib/presentation/config';
   import { PresentationTimeline } from '$lib/presentation/timeline';
@@ -95,6 +96,7 @@
 
 <svelte:head><title>KoalaBattle OBS Overlay</title></svelte:head>
 <BattleRenderer presentation={snapshot?.state || null} {config} overlay {agentStatus} />
+<ProductionConsole matchId={data.id} compact overlay />
 {#if error}<div class="connection-state" role="status">{error}</div>{/if}
 
 <style>.connection-state{position:fixed;z-index:30;right:1rem;bottom:1rem;padding:.5rem .7rem;border:1px solid rgba(255,255,255,.2);border-radius:999px;background:rgba(8,16,11,.8);color:#ffd26a;font:.65rem var(--mono)}</style>

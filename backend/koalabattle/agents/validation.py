@@ -10,6 +10,7 @@ class StructuredDecision(BaseModel):
 
     action: str
     commentary: str = Field(default="", max_length=1000)
+    strategy_memory: str | None = Field(default=None, max_length=400)
 
 
 def parse_structured_decision(raw_response: str, legal_ids: set[str]) -> StructuredDecision:

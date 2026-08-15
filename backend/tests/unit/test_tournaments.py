@@ -217,3 +217,33 @@ async def test_simultaneous_branch_results_advance_final_once(tmp_path) -> None:
     assert finals[0].participant_b_id is not None
     assert len(await tournaments.ready_series(created.id)) == 1
     await database.close()
+
+
+@pytest.mark.asyncio
+async def test_ready_series_has_one_transactional_scheduler_claim(tmp_path) -> None:
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'claim.db'}")
+    await database.create_schema()
+    tournaments = TournamentRepository(database)
+    created = await tournaments.create(
+        _create_payload(TournamentFormat.SINGLE_ELIMINATION, count=2)
+    )
+    await tournaments.start(created.id)
+    series_id = (await tournaments.ready_series(created.id))[0]
+    claims = await asyncio.gather(
+        tournaments.mark_series_queued(series_id),
+        tournaments.mark_series_queued(series_id),
+    )
+    assert sorted(claims) == [False, True]
+    await database.close()
+
+
+def test_phase4_agent_snapshot_fields_remain_readable() -> None:
+    snapshot = AgentPresetSnapshot.model_validate(
+        {
+            "agent_type": "random",
+            "prompt_profile": "standard",
+            "prompt_version": "phase4",
+        }
+    )
+    assert snapshot.prompt_profile == "standard"
+    assert snapshot.prompt_version == "phase4"
