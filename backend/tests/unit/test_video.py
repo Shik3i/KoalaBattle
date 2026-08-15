@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import shutil
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
@@ -23,6 +24,7 @@ from koalabattle.storage import BattleRepository, Database
 from koalabattle.video.exporters import (
     OBSWebSocketClient,
     OfflineRendererExporter,
+    WebCodecsChunkWriter,
     pipe_frame_batch,
     probe,
     srt_time,
@@ -35,6 +37,7 @@ from koalabattle.video.models import (
     CreateVideoExport,
     ExportBackend,
     ExportStatus,
+    RenderEngine,
     VideoExportJob,
     frame_count,
     frame_time_ms,
@@ -52,6 +55,27 @@ def test_frame_mapping_uses_absolute_rational_time_without_drift() -> None:
     assert PACING_PROFILES[PRESETS["fast-preview"].pacing_profile].version == "1.0"
     assert PRESETS["youtube-1080p30"].fps == 30
     assert PRESETS["vertical-1080p30"].fps == 30
+    assert CreateVideoExport(production_id=uuid4()).render_engine is RenderEngine.NATIVE
+
+
+def test_webcodecs_writer_preserves_annexb_and_frames_vp9(tmp_path: Path) -> None:
+    annexb = tmp_path / "sample.h264"
+    h264 = WebCodecsChunkWriter(annexb, width=1280, height=720, fps=30)
+    h264.write_packets(
+        [{"codecPath": "h264-annexb", "timestamp": 0, "type": "key", "data": "AAAAAQ=="}]
+    )
+    h264.close()
+    assert annexb.read_bytes() == b"\x00\x00\x00\x01"
+    ivf = tmp_path / "sample.ivf"
+    vp9 = WebCodecsChunkWriter(ivf, width=1280, height=720, fps=30)
+    vp9.write_packets(
+        [{"codecPath": "vp9-ivf", "timestamp": 33_333, "type": "delta", "data": "AQID"}]
+    )
+    vp9.close()
+    payload = ivf.read_bytes()
+    assert payload[:4] == b"DKIF"
+    assert int.from_bytes(payload[24:28], "little") == 1
+    assert int.from_bytes(payload[32:36], "little") == 3
 
 
 async def test_frame_pipe_preserves_order_and_waits_for_backpressure() -> None:
@@ -90,6 +114,34 @@ def test_video_storage_sanitizes_and_contains_paths(tmp_path: Path) -> None:
     sample = tmp_path / "sample.bin"
     sample.write_bytes(b"koalabattle")
     assert file_sha256(sample) == "9aaa7a3c26f351fc4358be2ff20cdf2bef3ae3bb1d1fefe81fd6fd51a947a888"
+
+
+def test_renderer_heartbeat_is_bounded_and_rejects_stale_state(tmp_path: Path) -> None:
+    settings = Settings(
+        database_url=f"sqlite+aiosqlite:///{tmp_path / 'test.db'}",
+        video_root=tmp_path / "videos",
+    )
+    database = Database(settings.database_url)
+    battles = BattleRepository(database)
+    productions = ProductionService(database, battles, settings)
+    video = VideoExportService(database, battles, productions, settings)
+    video.storage.prepare()
+    path = video.storage.root / ".renderer-capabilities.json"
+    path.write_text(
+        json.dumps({"generated_at": time.time(), "capabilities": {"webcodecs_h264": True}}),
+        encoding="utf-8",
+    )
+    assert video._renderer_heartbeat() == {"webcodecs_h264": True}
+    path.write_text(
+        json.dumps({"generated_at": time.time() - 31, "capabilities": {}}), encoding="utf-8"
+    )
+    assert video._renderer_heartbeat() is None
+
+
+def test_native_transport_can_force_bounded_raw_fallback(tmp_path: Path) -> None:
+    settings = Settings(video_root=tmp_path, video_native_transport="raw-rgba")
+    exporter = OfflineRendererExporter(settings, VideoStorage(settings.video_root))
+    assert exporter._native_transport() == "raw-rgba"
 
 
 def job_fixture(

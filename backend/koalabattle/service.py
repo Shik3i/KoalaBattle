@@ -528,7 +528,7 @@ class BattleService:
             ),
             "provider_failures": counts.get(MatchStatus.FAILED, 0),
             "showdown": await self._showdown_health(),
-            "backend": {"status": "ok", "version": "0.8.0"},
+            "backend": {"status": "ok", "version": "0.9.0"},
         }
 
     async def _showdown_health(self) -> dict[str, object]:

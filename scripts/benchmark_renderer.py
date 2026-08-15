@@ -16,7 +16,13 @@ from koalabattle.production import ProductionService
 from koalabattle.storage import BattleRepository, Database
 from koalabattle.video.exporters import OfflineRendererExporter
 from koalabattle.video.filesystem import VideoStorage
-from koalabattle.video.models import PRESETS, ExportBackend, ExportStatus, VideoExportJob
+from koalabattle.video.models import (
+    PRESETS,
+    ExportBackend,
+    ExportStatus,
+    RenderEngine,
+    VideoExportJob,
+)
 
 
 def arguments() -> argparse.Namespace:
@@ -29,6 +35,7 @@ def arguments() -> argparse.Namespace:
     parser.add_argument("--output-root", type=Path, default=Path("data/videos/benchmarks"))
     parser.add_argument("--encoder", default="software")
     parser.add_argument("--workers", type=int, choices=range(1, 9), default=4)
+    parser.add_argument("--render-engine", choices=("native", "legacy"), default="native")
     parser.add_argument("--start-ms", type=int, default=0)
     parser.add_argument("--end-ms", type=int)
     return parser.parse_args()
@@ -79,6 +86,7 @@ async def run(args: argparse.Namespace) -> None:
             start_ms=args.start_ms,
             end_ms=end_ms,
             encoder=args.encoder,
+            render_engine=RenderEngine(args.render_engine),
             created_at=now,
             updated_at=now,
         )
@@ -101,6 +109,7 @@ async def run(args: argparse.Namespace) -> None:
             "match_id": str(production.match_id),
             "preset": preset.id,
             "encoder_request": args.encoder,
+            "render_engine": args.render_engine,
             "frame_workers": args.workers,
             "frames": job.frame_count,
             "duration_ms": job.duration_ms,

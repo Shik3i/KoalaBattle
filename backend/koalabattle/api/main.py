@@ -48,6 +48,7 @@ from koalabattle.video import (
     ExportBackend,
     ExportPreflight,
     PacingProfile,
+    RenderEngine,
     RendererCapabilities,
     VideoExportJob,
     VideoExportPreset,
@@ -102,7 +103,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app = FastAPI(
         title="KoalaBattle API",
-        version="0.8.0",
+        version="0.9.0",
         description="Auditable AI battle tournaments, deterministic production and video API",
         lifespan=lifespan,
     )
@@ -116,7 +117,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/healthz")
     async def health() -> dict[str, str]:
-        return {"status": "ok", "version": "0.8.0"}
+        return {"status": "ok", "version": "0.9.0"}
 
     @app.get("/api/video/presets", response_model=tuple[VideoExportPreset, ...])
     async def video_presets(request: Request) -> tuple[VideoExportPreset, ...]:
@@ -132,10 +133,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/api/productions/{production_id}/video-preflight", response_model=ExportPreflight)
     async def video_preflight(
-        production_id: UUID, request: Request, backend: ExportBackend = ExportBackend.OFFLINE
+        production_id: UUID,
+        request: Request,
+        backend: ExportBackend = ExportBackend.OFFLINE,
+        render_engine: RenderEngine = RenderEngine.NATIVE,
     ) -> ExportPreflight:
         try:
-            return await _video(request).preflight(production_id, backend)
+            return await _video(request).preflight(production_id, backend, render_engine)
         except KeyError as error:
             raise HTTPException(status_code=404, detail="production not found") from error
 

@@ -126,3 +126,55 @@ PYTHONPATH=backend .venv/bin/python scripts/benchmark_renderer.py PRODUCTION_ID 
 Three real render/cancel cycles left no owned Chromium/FFmpeg process or temporary file.
 During the long render, a Random-vs-Random match completed with 106 events; match creation,
 Admin API/UI, and WebSocket response remained 56 ms, 157/113 ms, and 75 ms respectively.
+
+## Phase 9 native compositor profile and result
+
+Phase 9 replaces the default screenshot/JPEG round trip with `RenderPlan -> ProductionScene ->
+Canvas2D -> VideoFrame -> WebCodecs`. The same Chrome 151 / FFmpeg 8.1.2 macOS host reports
+WebCodecs H.264 Annex-B and VP9 support. The old screenshot path is retained only as an explicit
+`render_engine=legacy` debug option.
+
+Measured native exports:
+
+| Production | Output | Frames | Media | Job wall | Media / job wall | Native measured |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| YouTube representative | 1920x1080, 60 FPS | 1,657 | 27.617 s | 17.673 s | 1.562x | 2.021x |
+| Vertical Shorts | 1080x1920, 60 FPS | 1,304 | 21.733 s | 14.124 s | 1.538x | — |
+| Fast Preview | 1280x720, 30 FPS | 829 | 27.633 s | 10.049 s | 2.749x | 4.493x |
+| Historical 31-turn replay | 1280x720, 30 FPS | 8,546 | 284.867 s | 65.504 s | 4.349x | 4.493x |
+
+The representative 1080p60 gate therefore exceeds realtime including queue-worker setup,
+validation, hashing, and persistence. The instrumented compositor/encode/mux span exceeds the
+preferred 2x target. Fast Preview materially exceeds Phase 8's 1.887x; its full measured span
+is 4.493x rather than the aspirational 5x, so 5x is not claimed. The long match's browser
+compositor/encoder alone processed 284.84 s in 46.53 s (6.12x); deterministic audio synthesis
+was the largest additional stage at 14.81 s.
+
+The representative stage profile recorded 621 unique raster renders, 1,036 static CFR holds,
+528 active-animation frames, two local sprite decodes, zero asset failures, a maximum encode
+queue of 11, 0.171 s raster work, 0.104 s `VideoFrame` construction, 10.262 s encoder wait,
+0.895 s bounded chunk transfer, 0.182 s container work, 0.128 s audio, and 0.219 s final mux.
+FFprobe confirmed H.264/yuv420p, 1920x1080, 60/1 FPS, exactly 1,657 frames, and 27.616667 s.
+
+While the long render was active, local match-list and job API reads completed in 150 ms and
+15 ms. An active long render cancelled at 25.2%; its job became `cancelled`, its per-job temp
+files were removed, and no owned Chrome/FFmpeg process remained. These are host-local
+observations, not universal latency guarantees.
+
+Capability/fallback matrix:
+
+| Path | Requirement | Automatic? | Intended use |
+| --- | --- | --- | --- |
+| Native H.264 | Canvas + WebCodecs H.264 | yes, default | production MP4 |
+| Native VP9 -> FFmpeg H.264 | Canvas + WebCodecs VP9 + local H.264 encoder | yes, codec fallback | production MP4 |
+| Native raw RGBA -> FFmpeg | Canvas + local `libx264` | yes, when codec probe fails | compatibility production |
+| Legacy screenshots | Playwright screenshots + FFmpeg encoder | no | explicit debug/compatibility |
+| OBS | configured OBS WebSocket/source | no | explicit realtime recording |
+
+Host and container capabilities are probed independently. The measured macOS host has working
+WebCodecs H.264/VP9, `libx264`, and VideoToolbox. Debian Chromium 151.0.7922.137 in the rebuilt
+Linux arm64 renderer advertised both browser codecs, but an actual one-frame encode crashed the
+page for each; capabilities therefore report WebCodecs H.264/VP9 unavailable and select bounded
+raw RGBA -> `libx264`. A 1.000 s 720p30 container smoke completed with H.264/AAC, 30 output
+frames, 19 unique rasters, 11 static holds, and persisted UI metrics in 7.152 s. This container
+fallback is compatibility-first and is not presented as the host performance path.

@@ -1,5 +1,5 @@
 import { env } from '$env/dynamic/public';
-import type { ExportBackend, ExportPreflight, MatchArchive, ProductionProfile, ProductionTimeline, RendererCapabilities, VideoExportJob, VideoExportPreset, VoicePreset } from './types';
+import type { ExportBackend, ExportPreflight, MatchArchive, ProductionProfile, ProductionTimeline, RenderEngine, RendererCapabilities, VideoExportJob, VideoExportPreset, VoicePreset } from './types';
 
 export const apiBase = () =>
   typeof location !== 'undefined' && location.pathname.startsWith('/render/')
@@ -60,17 +60,18 @@ export const getVideoSetup = async (matchId: string) => {
   ]);
   return { presets, capabilities, jobs };
 };
-export const getVideoPreflight = (productionId: string, backend: ExportBackend) =>
-  api<ExportPreflight>(`/api/productions/${productionId}/video-preflight?backend=${backend}`);
+export const getVideoPreflight = (productionId: string, backend: ExportBackend, renderEngine: RenderEngine = 'native') =>
+  api<ExportPreflight>(`/api/productions/${productionId}/video-preflight?backend=${backend}&render_engine=${renderEngine}`);
 export const createVideoExport = (
   productionId: string,
   backend: ExportBackend,
   presetId: string,
   outputName: string,
-  encoder: string
+  encoder: string,
+  renderEngine: RenderEngine = 'native'
 ) => api<VideoExportJob>('/api/video/jobs', {
   method: 'POST',
-  body: JSON.stringify({ production_id: productionId, backend, preset_id: presetId, output_name: outputName || null, encoder })
+  body: JSON.stringify({ production_id: productionId, backend, preset_id: presetId, output_name: outputName || null, encoder, render_engine: renderEngine })
 });
 export const cancelVideoExport = (id: string) =>
   api<VideoExportJob>(`/api/video/jobs/${id}/cancel`, { method: 'POST' });

@@ -118,17 +118,18 @@ Battle (immutable events)
   -> Production (fixed logical clock and presentation decisions)
     -> VideoExportJob (preset, backend, range, progress)
       -> OBSRecorderExporter      -> realtime OBS recording
-      -> OfflineRendererExporter -> indexed renderAt(t) -> ordered JPEG pipe -> FFmpeg -> FFprobe
+      -> OfflineRendererExporter -> RenderPlan -> ProductionScene -> Canvas -> WebCodecs -> FFprobe
 ```
 
 `ProductionService` receives repository post-commit hooks. It appends only the new event's
 cues and finalizes result/outro/audio without blocking battle execution. `VideoExportService`
 owns the bounded persistent queue; exporters do not enter match/tournament orchestration.
 
-Offline frames use the same `BattleRenderer`, reducer, themes, layouts, local sprite endpoint,
-and caption overlay as live/replay/OBS. Timeline tracks and immutable presentation snapshots
-are indexed once per page. At logical time `t`, binary search selects only event sequences
-whose visual cue has started. Winner, future moves, future commentary, hidden teams, and later
-series data therefore cannot enter an early frame. A bounded page pool captures a small batch
-concurrently, then writes it in exact frame order with pipe backpressure. Animation state is
-derived from logical cue progress; browser wall-clock time does not control frame sampling.
+Offline production reuses the indexed reducer and local sprite endpoint, then derives a pure
+`ProductionScene` for the native Canvas compositor. `RenderPlan` marks animated frames, cue
+boundaries, and static holds. Every output keeps exact CFR timestamps, while unchanged spans
+reuse the previous raster. WebCodecs chunks stream through a bounded Playwright binding into
+H.264 Annex-B or VP9 IVF. Where an actual codec-frame probe fails, unique Canvas RGBA rasters
+stream through a bounded `libx264` pipe with pipe-side static expansion. FFmpeg containers/muxes
+without screenshot capture. Animation and
+impact authority derive only from logical cue progress, never browser wall-clock time.

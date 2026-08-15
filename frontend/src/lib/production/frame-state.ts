@@ -5,6 +5,7 @@ import type { BattleEvent, MatchArchive, ProductionCue, ProductionTimeline } fro
 export interface ProductionFrameState {
   timeMs: number;
   presentation: BattlePresentationState;
+  priorPresentation: BattlePresentationState | null;
   caption: ProductionCue | null;
   director: ProductionCue | null;
   visual: ProductionCue | null;
@@ -17,6 +18,7 @@ interface VisualSnapshot {
   cue: ProductionCue;
   event: BattleEvent;
   presentation: BattlePresentationState;
+  priorPresentation: BattlePresentationState;
 }
 
 export interface ProductionFrameRenderer {
@@ -50,8 +52,9 @@ export function createProductionFrameRenderer(
   for (const cue of visualCues) {
     const event = eventBySequence.get(cue.event_sequence as number);
     if (!event) continue;
+    const priorPresentation = state;
     state = reducePresentation(state, event);
-    snapshots.push({ cue, event, presentation: state });
+    snapshots.push({ cue, event, presentation: state, priorPresentation });
   }
   const initial = createPresentationState(match);
 
@@ -66,6 +69,7 @@ export function createProductionFrameRenderer(
       return {
         timeMs,
         presentation: snapshot?.presentation || initial,
+        priorPresentation: snapshot?.priorPresentation || null,
         caption,
         director,
         visual,

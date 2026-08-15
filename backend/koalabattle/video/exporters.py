@@ -7,6 +7,8 @@ import importlib.util
 import json
 import os
 import shutil
+import struct
+import sys
 import time
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
@@ -81,6 +83,218 @@ class FramePipelineMetrics:
         }
 
 
+@dataclass
+class NativePipelineMetrics:
+    browser: dict[str, int | float | str]
+    setup_seconds: float = 0.0
+    container_seconds: float = 0.0
+    audio_seconds: float = 0.0
+    mux_seconds: float = 0.0
+
+    def manifest(self, duration_ms: int) -> dict[str, int | float | str]:
+        browser_total = float(self.browser.get("totalSeconds", 0.0))
+        measured = (
+            self.setup_seconds
+            + browser_total
+            + self.container_seconds
+            + self.audio_seconds
+            + self.mux_seconds
+        )
+        return {
+            "transport": str(self.browser.get("transport", "canvas-webcodecs-stream")),
+            "render_plan_version": "1.0",
+            "production_scene_version": "2.0",
+            "codec": str(self.browser.get("codec", "unknown")),
+            "codec_path": str(self.browser.get("codecPath", "unknown")),
+            "hardware_acceleration": str(
+                self.browser.get("hardwareAcceleration", "no-preference")
+            ),
+            "output_frames": int(self.browser.get("outputFrames", 0)),
+            "unique_renders": int(self.browser.get("uniqueRenders", 0)),
+            "static_held_frames": int(self.browser.get("staticHeldFrames", 0)),
+            "animated_frames": int(self.browser.get("animatedFrames", 0)),
+            "encoded_bytes": int(self.browser.get("encodedBytes", 0)),
+            "max_encode_queue": int(self.browser.get("maxEncodeQueue", 0)),
+            "asset_loads": int(self.browser.get("assetLoads", 0)),
+            "asset_failures": int(self.browser.get("assetFailures", 0)),
+            "cached_assets": int(self.browser.get("cachedAssets", 0)),
+            "setup_seconds": round(self.setup_seconds, 6),
+            "render_plan_seconds": round(float(self.browser.get("renderPlanSeconds", 0)), 6),
+            "raster_seconds": round(float(self.browser.get("rasterSeconds", 0)), 6),
+            "frame_create_seconds": round(float(self.browser.get("frameCreateSeconds", 0)), 6),
+            "encoder_wait_seconds": round(float(self.browser.get("encoderWaitSeconds", 0)), 6),
+            "transfer_seconds": round(float(self.browser.get("transferSeconds", 0)), 6),
+            "browser_total_seconds": round(browser_total, 6),
+            "container_seconds": round(self.container_seconds, 6),
+            "audio_seconds": round(self.audio_seconds, 6),
+            "mux_seconds": round(self.mux_seconds, 6),
+            "measured_seconds": round(measured, 6),
+            "speed_ratio": round(duration_ms / 1000 / max(0.000001, measured), 6),
+        }
+
+
+class WebCodecsChunkWriter:
+    """Bounded WebCodecs transport sink for Annex-B H.264 or framed VP9 IVF."""
+
+    def __init__(self, path: Path, *, width: int, height: int, fps: int) -> None:
+        self.path = path
+        self.width = width
+        self.height = height
+        self.fps = fps
+        self.codec_path: str | None = None
+        self.frame_count = 0
+        self.bytes_written = 0
+        self._stream = path.open("w+b")
+
+    def write_packets(self, payload: object) -> None:
+        if not isinstance(payload, list) or len(payload) > 256:
+            raise ValueError("invalid WebCodecs packet batch")
+        for packet in payload:
+            if not isinstance(packet, dict):
+                raise ValueError("invalid WebCodecs packet")
+            codec_path = packet.get("codecPath")
+            if codec_path not in {"h264-annexb", "vp9-ivf"}:
+                raise ValueError("unsupported WebCodecs packet codec")
+            if self.codec_path is None:
+                self.codec_path = str(codec_path)
+                if codec_path == "vp9-ivf":
+                    self._stream.write(self._ivf_header(0))
+            elif codec_path != self.codec_path:
+                raise ValueError("WebCodecs codec changed during export")
+            encoded = packet.get("data")
+            if not isinstance(encoded, str) or len(encoded) > 4_000_000:
+                raise ValueError("invalid WebCodecs packet payload")
+            data = base64.b64decode(encoded, validate=True)
+            if codec_path == "vp9-ivf":
+                timestamp = int(packet.get("timestamp", 0))
+                self._stream.write(struct.pack("<IQ", len(data), timestamp))
+            self._stream.write(data)
+            self.bytes_written += len(data)
+            self.frame_count += 1
+
+    def close(self) -> None:
+        if self._stream.closed:
+            return
+        if self.codec_path == "vp9-ivf":
+            self._stream.seek(0)
+            self._stream.write(self._ivf_header(self.frame_count))
+        self._stream.flush()
+        self._stream.close()
+        if self.frame_count == 0 or self.bytes_written == 0:
+            raise RuntimeError("WebCodecs returned no encoded video frames")
+
+    def abort(self) -> None:
+        if not self._stream.closed:
+            self._stream.close()
+
+    def _ivf_header(self, frames: int) -> bytes:
+        return struct.pack(
+            "<4sHH4sHHIIII",
+            b"DKIF",
+            0,
+            32,
+            b"VP90",
+            self.width,
+            self.height,
+            1_000_000,
+            1,
+            frames,
+            0,
+        )
+
+
+class RawFramePipe:
+    """Bounded RGBA frame sink; static repeats are expanded directly into FFmpeg."""
+
+    def __init__(self, process: asyncio.subprocess.Process, *, frame_bytes: int) -> None:
+        self.process = process
+        self.frame_bytes = frame_bytes
+        self.frame_count = 0
+        self.transferred_bytes = 0
+
+    @classmethod
+    async def start(
+        cls, ffmpeg: str, output: Path, *, width: int, height: int, fps: int
+    ) -> RawFramePipe:
+        process = await asyncio.create_subprocess_exec(
+            ffmpeg,
+            "-hide_banner",
+            "-loglevel",
+            "warning",
+            "-f",
+            "rawvideo",
+            "-pixel_format",
+            "rgba",
+            "-video_size",
+            f"{width}x{height}",
+            "-framerate",
+            str(fps),
+            "-i",
+            "pipe:0",
+            "-an",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-crf",
+            "21",
+            "-pix_fmt",
+            "yuv420p",
+            "-movflags",
+            "+faststart",
+            "-f",
+            "mp4",
+            "-y",
+            str(output),
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        return cls(process, frame_bytes=width * height * 4)
+
+    async def write_frame(self, payload: object) -> None:
+        if not isinstance(payload, dict):
+            raise ValueError("invalid raw-frame payload")
+        encoded = payload.get("data")
+        repeat = payload.get("repeat")
+        max_encoded = (self.frame_bytes + 2) // 3 * 4
+        if not isinstance(encoded, str) or len(encoded) > max_encoded:
+            raise ValueError("invalid raw-frame data")
+        if not isinstance(repeat, int) or repeat < 1 or repeat > 3600:
+            raise ValueError("invalid raw-frame repeat")
+        data = base64.b64decode(encoded, validate=True)
+        if len(data) != self.frame_bytes:
+            raise ValueError("raw-frame byte size mismatch")
+        stream = self.process.stdin
+        if stream is None:
+            raise RuntimeError("raw-frame FFmpeg stdin is unavailable")
+        for _ in range(repeat):
+            stream.write(data)
+            await stream.drain()
+        self.frame_count += repeat
+        self.transferred_bytes += len(data)
+
+    async def close(self) -> None:
+        if self.process.stdin is not None and not self.process.stdin.is_closing():
+            self.process.stdin.close()
+            await self.process.stdin.wait_closed()
+        stderr = await self.process.stderr.read() if self.process.stderr is not None else b""
+        code = await self.process.wait()
+        if code != 0:
+            raise RuntimeError(stderr.decode(errors="replace")[-4000:] or "raw-frame FFmpeg failed")
+        if self.frame_count == 0:
+            raise RuntimeError("raw-frame compositor returned no frames")
+
+    async def abort(self) -> None:
+        if self.process.returncode is None:
+            self.process.terminate()
+            try:
+                await asyncio.wait_for(self.process.wait(), timeout=3)
+            except TimeoutError:
+                self.process.kill()
+                await self.process.wait()
+
+
 class VideoExporter(ABC):
     backend: ExportBackend
 
@@ -95,7 +309,7 @@ class VideoExporter(ABC):
     ) -> Path: ...
 
 
-class OfflineRendererExporter(VideoExporter):
+class LegacyScreenshotRendererExporter(VideoExporter):
     backend = ExportBackend.OFFLINE
 
     def __init__(self, settings: Settings, storage: VideoStorage) -> None:
@@ -481,7 +695,7 @@ class OfflineRendererExporter(VideoExporter):
         production: ProductionTimeline,
         encoder: str,
         final: Path,
-        metrics: FramePipelineMetrics,
+        metrics: FramePipelineMetrics | NativePipelineMetrics,
     ) -> None:
         manifest = ExportManifest(
             job_id=job.id,
@@ -523,6 +737,311 @@ class OfflineRendererExporter(VideoExporter):
             Path("/usr/bin/chromium-browser"),
         )
         return next((path for path in candidates if path.is_file()), None)
+
+
+class OfflineRendererExporter(LegacyScreenshotRendererExporter):
+    """Default deterministic Canvas compositor with streaming WebCodecs output."""
+
+    async def export(
+        self,
+        job: VideoExportJob,
+        production: ProductionTimeline,
+        *,
+        progress: Progress,
+        cancelled: Cancelled,
+    ) -> Path:
+        if job.render_engine == "legacy":
+            return await super().export(
+                job, production, progress=progress, cancelled=cancelled
+            )
+        if importlib.util.find_spec("playwright") is None:
+            raise RuntimeError("Playwright is unavailable; install koalabattle[renderer]")
+        from playwright.async_api import async_playwright
+
+        await progress(ExportStatus.PREPARING, "Preparing native production compositor", 2)
+        encoded_part = self.storage.temporary(job.id, ".webcodecs.part")
+        video_part = self.storage.temporary(job.id, ".video.mp4.part")
+        muxed_part = self.storage.temporary(job.id, ".mp4.part")
+        audio_part = self.storage.temporary(job.id, ".audio.wav")
+        transport = self._native_transport()
+        writer = (
+            WebCodecsChunkWriter(
+                encoded_part,
+                width=job.preset.width,
+                height=job.preset.height,
+                fps=job.preset.fps,
+            )
+            if transport == "webcodecs"
+            else None
+        )
+        raw_pipe = (
+            await RawFramePipe.start(
+                self.settings.video_ffmpeg_path,
+                video_part,
+                width=job.preset.width,
+                height=job.preset.height,
+                fps=job.preset.fps,
+            )
+            if transport == "raw-rgba"
+            else None
+        )
+        browser_metrics: dict[str, int | float | str] = {}
+        setup_seconds = 0.0
+        browser = None
+        try:
+            async with async_playwright() as playwright:
+                chromium = self._chromium_path()
+                browser = (
+                    await playwright.chromium.launch(
+                        headless=True,
+                        executable_path=str(chromium),
+                        args=self._native_chromium_args(),
+                    )
+                    if chromium is not None
+                    else await playwright.chromium.launch(
+                        headless=True, args=self._native_chromium_args()
+                    )
+                )
+                context = await browser.new_context(
+                    viewport={"width": job.preset.width, "height": job.preset.height},
+                    device_scale_factor=1,
+                    reduced_motion="no-preference",
+                )
+                await self._isolate_network(context)
+                page = await context.new_page()
+
+                async def write_chunks(_: object, payload: object) -> None:
+                    if writer is None:
+                        raise RuntimeError("WebCodecs transport was not selected")
+                    writer.write_packets(payload)
+
+                async def write_raw_frame(_: object, payload: object) -> None:
+                    if raw_pipe is None:
+                        raise RuntimeError("raw-frame transport was not selected")
+                    await raw_pipe.write_frame(payload)
+
+                async def render_progress(_: object, payload: object) -> None:
+                    if not isinstance(payload, dict):
+                        return
+                    completed = int(payload.get("completed", 0))
+                    total = int(payload.get("total", job.frame_count))
+                    speed = float(payload.get("speedRatio", 0.0))
+                    percent = 5 + completed / max(1, total) * 75
+                    await progress(
+                        ExportStatus.RENDERING,
+                        f"Native compositor {completed} / {total} · {speed:.2f}x",
+                        percent,
+                    )
+
+                async def render_cancelled(_: object) -> bool:
+                    return await cancelled()
+
+                await page.expose_binding("__KOALABATTLE_WRITE_CHUNKS", write_chunks)
+                await page.expose_binding("__KOALABATTLE_WRITE_RAW_FRAME", write_raw_frame)
+                await page.expose_binding("__KOALABATTLE_RENDER_PROGRESS", render_progress)
+                await page.expose_binding("__KOALABATTLE_RENDER_CANCELLED", render_cancelled)
+                setup_started = time.monotonic()
+                url = f"{self.settings.video_frontend_url}/render/{production.id}?engine=native"
+                await page.goto(url, wait_until="networkidle", timeout=60_000)
+                await page.wait_for_function(
+                    "() => window.__KOALABATTLE_RENDER_READY === true", timeout=60_000
+                )
+                setup_seconds = time.monotonic() - setup_started
+                await progress(ExportStatus.RENDERING, "Native compositor 0 frames", 5)
+                request = {
+                    "width": job.preset.width,
+                    "height": job.preset.height,
+                    "fps": job.preset.fps,
+                    "bitrate": self._native_bitrate(job),
+                    "startMs": job.start_ms,
+                    "endMs": job.end_ms,
+                    "hardwareAcceleration": self._hardware_preference(job.encoder),
+                    "assetApiBase": self.settings.video_api_url.rstrip("/"),
+                    "transport": transport,
+                }
+                try:
+                    result = await page.evaluate(
+                        "request => window.__KOALABATTLE_NATIVE_RENDER(request)", request
+                    )
+                except Exception:
+                    if await cancelled():
+                        raise asyncio.CancelledError from None
+                    raise
+                if not isinstance(result, dict):
+                    raise RuntimeError("native compositor returned invalid metrics")
+                browser_metrics = {
+                    str(key): value
+                    for key, value in result.items()
+                    if isinstance(value, int | float | str)
+                }
+                await browser.close()
+                browser = None
+            metrics = NativePipelineMetrics(browser=browser_metrics, setup_seconds=setup_seconds)
+            await progress(ExportStatus.ENCODING, "Finalizing deterministic video stream", 82)
+            codec_path: str | None
+            if raw_pipe is not None:
+                await raw_pipe.close()
+                if raw_pipe.frame_count != job.frame_count:
+                    raise RuntimeError(
+                        f"raw-frame count mismatch: {raw_pipe.frame_count} != {job.frame_count}"
+                    )
+                ffmpeg_encoder = "libx264"
+                codec_path = "raw-rgba"
+            else:
+                if writer is None:
+                    raise RuntimeError("native compositor transport was not initialized")
+                writer.close()
+                if writer.frame_count != job.frame_count:
+                    raise RuntimeError(
+                        f"WebCodecs frame count mismatch: {writer.frame_count} != {job.frame_count}"
+                    )
+                container_started = time.monotonic()
+                ffmpeg_encoder = await self._container_video(
+                    encoded_part, video_part, job, writer.codec_path
+                )
+                metrics.container_seconds = time.monotonic() - container_started
+                codec_path = writer.codec_path
+                if codec_path is None:
+                    raise RuntimeError("WebCodecs compositor returned no codec path")
+            await progress(ExportStatus.ENCODING, "Mixing deterministic audio", 87)
+            audio_started = time.monotonic()
+            has_audio = await self._audio(production, job, audio_part)
+            metrics.audio_seconds = time.monotonic() - audio_started
+            if has_audio:
+                mux_started = time.monotonic()
+                await self._mux(video_part, audio_part, muxed_part, job.duration_ms)
+                metrics.mux_seconds = time.monotonic() - mux_started
+            else:
+                os.replace(video_part, muxed_part)
+            await progress(ExportStatus.FINALIZING, "Validating native H.264 MP4", 95)
+            final = self.storage.final(job.id, job.output_name)
+            metadata = await probe(self.settings.video_ffprobe_path, muxed_part)
+            validate_probe(metadata, job, audio_expected=has_audio)
+            video_stream = next(
+                stream
+                for stream in metadata.get("streams", [])
+                if stream.get("codec_type") == "video"
+            )
+            if video_stream.get("codec_name") != "h264":
+                raise ValueError("native production output is not H.264")
+            self.storage.atomic_complete(muxed_part, final)
+            encoder_label = (
+                "canvas-raw-rgba+libx264"
+                if codec_path == "raw-rgba"
+                else "webcodecs-h264"
+                if codec_path == "h264-annexb"
+                else f"webcodecs-vp9+{ffmpeg_encoder}"
+            )
+            await self._sidecars(job, production, encoder_label, final, metrics)
+            return final
+        finally:
+            if browser is not None:
+                await browser.close()
+            if writer is not None:
+                writer.abort()
+            if raw_pipe is not None:
+                await raw_pipe.abort()
+            for path in (encoded_part, video_part, muxed_part, audio_part):
+                path.unlink(missing_ok=True)
+
+    async def _container_video(
+        self,
+        encoded: Path,
+        output: Path,
+        job: VideoExportJob,
+        codec_path: str | None,
+    ) -> str:
+        if codec_path == "h264-annexb":
+            await run_checked(
+                [
+                    self.settings.video_ffmpeg_path,
+                    "-hide_banner",
+                    "-loglevel",
+                    "warning",
+                    "-fflags",
+                    "+genpts",
+                    "-r",
+                    str(job.preset.fps),
+                    "-f",
+                    "h264",
+                    "-i",
+                    str(encoded),
+                    "-an",
+                    "-c:v",
+                    "copy",
+                    "-movflags",
+                    "+faststart",
+                    "-f",
+                    "mp4",
+                    "-y",
+                    str(output),
+                ]
+            )
+            return "copy"
+        if codec_path != "vp9-ivf":
+            raise RuntimeError("native compositor returned no supported codec")
+        encoder = await self._encoder(job.encoder)
+        command = [
+            self.settings.video_ffmpeg_path,
+            "-hide_banner",
+            "-loglevel",
+            "warning",
+            "-f",
+            "ivf",
+            "-i",
+            str(encoded),
+            "-an",
+            "-c:v",
+            encoder,
+        ]
+        if encoder == "libx264":
+            command.extend(["-preset", "medium", "-crf", "21"])
+        command.extend(
+            [
+                "-pix_fmt",
+                "yuv420p",
+                "-movflags",
+                "+faststart",
+                "-f",
+                "mp4",
+                "-y",
+                str(output),
+            ]
+        )
+        await run_checked(command)
+        return encoder
+
+    @staticmethod
+    def _hardware_preference(encoder: str) -> str:
+        if encoder == "software":
+            return "prefer-software"
+        if encoder in {"videotoolbox", "nvenc", "vaapi", "qsv"}:
+            return "prefer-hardware"
+        return "no-preference"
+
+    @staticmethod
+    def _native_bitrate(job: VideoExportJob) -> int:
+        base = {
+            VideoQuality.FAST: 6_000_000,
+            VideoQuality.BALANCED: 12_000_000,
+            VideoQuality.HIGH: 20_000_000,
+        }[job.preset.quality]
+        scale = job.preset.width * job.preset.height / (1920 * 1080)
+        frame_scale = job.preset.fps / 60
+        return round(base * max(0.45, scale) * max(0.65, frame_scale))
+
+    def _native_chromium_args(self) -> list[str]:
+        target = urlparse(self.settings.video_frontend_url)
+        if target.scheme != "http" or target.hostname in {"localhost", "127.0.0.1", "::1"}:
+            return []
+        origin = f"{target.scheme}://{target.netloc}"
+        return [f"--unsafely-treat-insecure-origin-as-secure={origin}"]
+
+    def _native_transport(self) -> str:
+        configured = self.settings.video_native_transport
+        if configured != "auto":
+            return configured
+        return "raw-rgba" if sys.platform.startswith("linux") else "webcodecs"
 
 
 class OBSRecorderExporter(VideoExporter):

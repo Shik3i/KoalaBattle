@@ -3,6 +3,7 @@
   import BattleRenderer from '$lib/BattleRenderer.svelte';
   import CaptionOverlay from '$lib/production/CaptionOverlay.svelte';
   import { ProductionAudioEngine } from '$lib/production/audio-engine';
+  import { renderNativeProduction, type NativeRenderMetrics, type NativeRenderRequest } from '$lib/production/native-encoder';
   import {
     createProductionFrameRenderer,
     type ProductionFrameRenderer,
@@ -23,10 +24,13 @@
   let audio: ProductionAudioEngine | null = null;
   let animationFrame = 0;
   let frameRenderer: ProductionFrameRenderer | null = null;
+  let nativeCanvas: HTMLCanvasElement;
+  let nativeMode = false;
 
   type RenderWindow = Window & {
     __KOALABATTLE_RENDER_READY?: boolean;
     __KOALABATTLE_RENDER_AT?: (milliseconds: number) => Promise<boolean>;
+    __KOALABATTLE_NATIVE_RENDER?: (request: NativeRenderRequest) => Promise<NativeRenderMetrics>;
   };
 
   onMount(() => {
@@ -35,6 +39,7 @@
       const renderWindow = window as RenderWindow;
       delete renderWindow.__KOALABATTLE_RENDER_AT;
       delete renderWindow.__KOALABATTLE_RENDER_READY;
+      delete renderWindow.__KOALABATTLE_NATIVE_RENDER;
       cancelAnimationFrame(animationFrame);
       audio?.destroy();
     };
@@ -44,6 +49,7 @@
     try {
       production = await getProduction(data.id);
       match = await getPresentationMatch(production.match_id);
+      nativeMode = new URLSearchParams(location.search).get('engine') === 'native';
       config = defaultRendererConfig({
         preset: 'video',
         layout: production.profile.aspect_ratio === '9:16' ? 'standard-vertical' : 'standard-landscape',
@@ -55,6 +61,16 @@
       frameRenderer = createProductionFrameRenderer(match, production);
       frame = frameRenderer.renderAt(0);
       const renderWindow = window as RenderWindow;
+      if (nativeMode) {
+        await tick();
+        renderWindow.__KOALABATTLE_NATIVE_RENDER = (request) => {
+          if (!match || !production || !nativeCanvas) throw new Error('native compositor is not initialized');
+          return renderNativeProduction(nativeCanvas, match, production, request);
+        };
+        renderWindow.__KOALABATTLE_RENDER_READY = true;
+        ready = true;
+        return;
+      }
       renderWindow.__KOALABATTLE_RENDER_AT = async (milliseconds: number) => {
         if (!frameRenderer) return false;
         frame = frameRenderer.renderAt(milliseconds);
@@ -95,7 +111,9 @@
 <svelte:head><title>KoalaBattle deterministic render</title></svelte:head>
 
 <main class="render-shell" data-render-ready={ready ? 'true' : 'false'}>
-  {#if frame && production}
+  {#if nativeMode}
+    <canvas bind:this={nativeCanvas} class="native-compositor" aria-label="Native production compositor"></canvas>
+  {:else if frame && production}
     <BattleRenderer
       presentation={frame.presentation}
       {config}
@@ -118,5 +136,6 @@
   :global(html),:global(body){width:100%;height:100%;margin:0;overflow:hidden;background:#07120c}
   :global(body>div){width:100%;height:100%}
   .render-shell{position:fixed;inset:0;width:100vw;height:100vh;overflow:hidden;background:#07120c}
+  .native-compositor{display:block;width:100%;height:100%;background:#07120c}
   .render-error{display:grid;height:100%;place-items:center;padding:2rem;color:#fff;font-family:system-ui}
 </style>

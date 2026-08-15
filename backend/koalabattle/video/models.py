@@ -8,10 +8,10 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-VIDEO_SCHEMA_VERSION = "1.0"
-RENDERER_VERSION = "0.8.0-parallel-frame-pool-v1"
+VIDEO_SCHEMA_VERSION = "1.1"
+RENDERER_VERSION = "0.9.0-native-compositor-v1"
 AUDIO_PIPELINE_VERSION = "1.1"
-VISUAL_PROFILE_VERSION = "1.0"
+VISUAL_PROFILE_VERSION = "2.0"
 
 
 class FrozenModel(BaseModel):
@@ -21,6 +21,11 @@ class FrozenModel(BaseModel):
 class ExportBackend(StrEnum):
     OFFLINE = "offline"
     OBS = "obs"
+
+
+class RenderEngine(StrEnum):
+    NATIVE = "native"
+    LEGACY = "legacy"
 
 
 class ExportStatus(StrEnum):
@@ -187,6 +192,7 @@ class CreateVideoExport(FrozenModel):
     start_ms: int = Field(default=0, ge=0)
     end_ms: int | None = Field(default=None, gt=0)
     encoder: str = Field(default="auto", pattern=r"^(auto|software|videotoolbox|nvenc|vaapi|qsv)$")
+    render_engine: RenderEngine = RenderEngine.NATIVE
 
     @model_validator(mode="after")
     def valid_range(self) -> CreateVideoExport:
@@ -213,17 +219,24 @@ class VideoExportJob(FrozenModel):
     attempt: int = Field(default=1, ge=1)
     renderer_version: str = RENDERER_VERSION
     pacing_profile_version: str = "1.0"
-    frontend_version: str = "0.8.0"
+    frontend_version: str = "0.9.0"
     production_schema_version: str = "2.0"
     audio_pipeline_version: str = AUDIO_PIPELINE_VERSION
     visual_profile_version: str = VISUAL_PROFILE_VERSION
     encoder: str = "auto"
+    render_engine: RenderEngine = RenderEngine.NATIVE
     encoder_information: str | None = None
     output_relative_path: str | None = None
     manifest_relative_path: str | None = None
     subtitle_relative_path: str | None = None
     video_duration_ms: int | None = None
     render_duration_ms: int | None = None
+    output_frame_count: int | None = None
+    unique_rendered_frames: int | None = None
+    static_held_frames: int | None = None
+    animated_frames: int | None = None
+    renderer_transport: str | None = None
+    selected_encoder: str | None = None
     output_file_size: int | None = None
     output_sha256: str | None = None
     width: int | None = None
@@ -257,6 +270,14 @@ class RendererCapabilities(FrozenModel):
     chromium_available: bool
     chromium_version: str | None = None
     playwright_available: bool
+    native_compositor_available: bool = False
+    webcodecs_available: bool = False
+    webcodecs_h264: bool = False
+    webcodecs_vp9: bool = False
+    raw_frame_available: bool = False
+    legacy_renderer_available: bool = False
+    default_render_engine: RenderEngine = RenderEngine.NATIVE
+    compositor_backend: str = "canvas2d"
     encoders: tuple[str, ...] = ()
     output_writable: bool
     output_root: str

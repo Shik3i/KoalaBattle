@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import importlib.util
+import json
 import shutil
 import time
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import cast
+from urllib.parse import urlsplit
 from uuid import UUID, uuid4
 
 from koalabattle.config import Settings
@@ -30,6 +33,7 @@ from .models import (
     ExportPreflight,
     ExportStatus,
     PacingProfile,
+    RenderEngine,
     RendererCapabilities,
     VideoExportJob,
     VideoExportPreset,
@@ -65,6 +69,7 @@ class VideoExportService:
         self._active: dict[UUID, asyncio.Task[None]] = {}
         self._wake = asyncio.Event()
         self._closing = False
+        self._webcodecs_cache: tuple[float, bool, bool, bool] | None = None
 
     async def start(self) -> None:
         self.storage.prepare()
@@ -137,6 +142,7 @@ class VideoExportService:
             start_ms=request.start_ms,
             end_ms=end_ms,
             encoder=request.encoder,
+            render_engine=request.render_engine,
             attempt=attempt,
             pacing_profile_version=PACING_PROFILES[preset.pacing_profile].version,
             created_at=now,
@@ -190,11 +196,17 @@ class VideoExportService:
                 start_ms=previous.start_ms,
                 end_ms=previous.end_ms,
                 encoder=previous.encoder,
+                render_engine=previous.render_engine,
             ),
             attempt=previous.attempt + 1,
         )
 
-    async def preflight(self, production_id: UUID, backend: ExportBackend) -> ExportPreflight:
+    async def preflight(
+        self,
+        production_id: UUID,
+        backend: ExportBackend,
+        render_engine: RenderEngine = RenderEngine.NATIVE,
+    ) -> ExportPreflight:
         production = await self.productions.require(production_id)
         capabilities = await self.capabilities()
         missing: list[str] = []
@@ -221,13 +233,20 @@ class VideoExportService:
             "ffmpeg": "available" if capabilities.ffmpeg_available else "missing",
             "chromium": "available" if capabilities.chromium_available else "missing",
             "playwright": "available" if capabilities.playwright_available else "missing",
+            "render_engine": render_engine.value,
+            "native_compositor": (
+                "available" if capabilities.native_compositor_available else "missing"
+            ),
+            "webcodecs_h264": "available" if capabilities.webcodecs_h264 else "missing",
             "disk": f"{capabilities.free_bytes} bytes free",
         }
-        backend_ready = (
-            capabilities.offline_available
-            if backend is ExportBackend.OFFLINE
-            else capabilities.obs_configured
-        )
+        backend_ready = capabilities.obs_configured
+        if backend is ExportBackend.OFFLINE:
+            backend_ready = (
+                capabilities.offline_available
+                if render_engine is RenderEngine.NATIVE
+                else capabilities.legacy_renderer_available
+            )
         speech_required = production.profile.speech_enabled and production.profile.wait_for_speech
         ready = (
             production.status
@@ -245,7 +264,7 @@ class VideoExportService:
             ready=ready, checks=checks, missing_speech=tuple(missing), warnings=warnings
         )
 
-    async def capabilities(self) -> RendererCapabilities:
+    async def capabilities(self, *, use_heartbeat: bool = True) -> RendererCapabilities:
         self.storage.prepare()
         ffmpeg = self._command_exists(self.settings.video_ffmpeg_path)
         ffprobe = self._command_exists(self.settings.video_ffprobe_path)
@@ -255,6 +274,9 @@ class VideoExportService:
         ffmpeg_version = await self._version(self.settings.video_ffmpeg_path) if ffmpeg else None
         chromium_version = await self._version(str(chromium_path)) if chromium_path else None
         encoders = await detected_encoders(self.settings.video_ffmpeg_path) if ffmpeg else ()
+        webcodecs, webcodecs_h264, webcodecs_vp9 = await self._webcodecs_capabilities(
+            playwright and chromium
+        )
         free, storage = self.storage.disk()
         writable = os_access(self.storage.root)
         details: list[str] = []
@@ -264,10 +286,54 @@ class VideoExportService:
             details.append("Install `koalabattle[renderer]` and run `playwright install chromium`.")
         if not chromium:
             details.append("No compatible Chromium executable was detected.")
+        if playwright and chromium and not webcodecs:
+            details.append(
+                "WebCodecs VideoEncoder is unavailable in the configured renderer Chromium."
+            )
+        legacy_available = (
+            ffmpeg and ffprobe and playwright and chromium and writable and bool(encoders)
+        )
+        raw_frame_available = (
+            ffmpeg and ffprobe and playwright and chromium and writable and "libx264" in encoders
+        )
+        native_available = (
+            raw_frame_available
+            or (
+                ffmpeg
+                and ffprobe
+                and playwright
+                and chromium
+                and writable
+                and webcodecs
+                and (webcodecs_h264 or (webcodecs_vp9 and bool(encoders)))
+            )
+        )
+        external = self._renderer_heartbeat() if use_heartbeat and not native_available else None
+        if external is not None:
+            ffmpeg = bool(external.get("ffmpeg_available"))
+            ffprobe = bool(external.get("ffprobe_available"))
+            playwright = bool(external.get("playwright_available"))
+            chromium = bool(external.get("chromium_available"))
+            ffmpeg_version = string_or_none(external.get("ffmpeg_version"))
+            chromium_version = string_or_none(external.get("chromium_version"))
+            external_encoders = external.get("encoders", ())
+            encoders = (
+                tuple(str(value) for value in external_encoders)
+                if isinstance(external_encoders, list | tuple)
+                else ()
+            )
+            webcodecs = bool(external.get("webcodecs_available"))
+            webcodecs_h264 = bool(external.get("webcodecs_h264"))
+            webcodecs_vp9 = bool(external.get("webcodecs_vp9"))
+            raw_frame_available = bool(external.get("raw_frame_available"))
+            legacy_available = bool(external.get("legacy_renderer_available"))
+            native_available = bool(external.get("native_compositor_available"))
+            external_details = external.get("detail", ())
+            details = ["External renderer heartbeat active."]
+            if isinstance(external_details, list | tuple):
+                details.extend(str(value) for value in external_details)
         return RendererCapabilities(
-            offline_available=(
-                ffmpeg and ffprobe and playwright and chromium and writable and bool(encoders)
-            ),
+            offline_available=native_available,
             obs_configured=bool(self.settings.obs_host and self.settings.obs_scene),
             ffmpeg_available=ffmpeg,
             ffmpeg_version=ffmpeg_version,
@@ -275,6 +341,12 @@ class VideoExportService:
             chromium_available=chromium,
             chromium_version=chromium_version,
             playwright_available=playwright,
+            native_compositor_available=native_available,
+            webcodecs_available=webcodecs,
+            webcodecs_h264=webcodecs_h264,
+            webcodecs_vp9=webcodecs_vp9,
+            raw_frame_available=raw_frame_available,
+            legacy_renderer_available=legacy_available,
             encoders=encoders,
             output_writable=writable,
             output_root=str(self.storage.root),
@@ -286,6 +358,103 @@ class VideoExportService:
             obs_scene=self.settings.obs_scene,
             detail=tuple(details),
         )
+
+    async def publish_renderer_heartbeat(self) -> None:
+        capabilities = await self.capabilities(use_heartbeat=False)
+        payload = {
+            "generated_at": time.time(),
+            "capabilities": capabilities.model_dump(mode="json"),
+        }
+        target = self.storage.root / ".renderer-capabilities.json"
+        temporary = self.storage.root / ".renderer-capabilities.json.part"
+        temporary.write_text(json.dumps(payload, separators=(",", ":")), encoding="utf-8")
+        temporary.replace(target)
+
+    def clear_renderer_heartbeat(self) -> None:
+        (self.storage.root / ".renderer-capabilities.json").unlink(missing_ok=True)
+        (self.storage.root / ".renderer-capabilities.json.part").unlink(missing_ok=True)
+
+    def _renderer_heartbeat(self) -> dict[str, object] | None:
+        path = self.storage.root / ".renderer-capabilities.json"
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            generated_at = float(payload["generated_at"])
+            capabilities = payload["capabilities"]
+            if time.time() - generated_at > 30 or not isinstance(capabilities, dict):
+                return None
+            return cast(dict[str, object], capabilities)
+        except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError):
+            return None
+
+    async def _webcodecs_capabilities(self, prerequisites: bool) -> tuple[bool, bool, bool]:
+        if not prerequisites:
+            return False, False, False
+        now = time.monotonic()
+        if self._webcodecs_cache and now - self._webcodecs_cache[0] < 60:
+            return self._webcodecs_cache[1:]
+        browser = None
+        resolved = (False, False, False)
+        try:
+            from playwright.async_api import async_playwright
+
+            async with async_playwright() as playwright:
+                chromium_path = self._chromium_path()
+                target = self.settings.video_frontend_url.rstrip("/")
+                parsed = urlsplit(target)
+                origin = f"{parsed.scheme}://{parsed.netloc}"
+                args = (
+                    [f"--unsafely-treat-insecure-origin-as-secure={origin}"]
+                    if parsed.scheme == "http"
+                    and parsed.hostname not in {"localhost", "127.0.0.1", "::1"}
+                    else []
+                )
+                browser = (
+                    await playwright.chromium.launch(
+                        headless=True, executable_path=str(chromium_path), args=args
+                    )
+                    if chromium_path is not None
+                    else await playwright.chromium.launch(headless=True, args=args)
+                )
+                page = await browser.new_page()
+                await page.goto(target, wait_until="domcontentloaded", timeout=10_000)
+                result = await page.evaluate(
+                    """
+                    async () => {
+                      if (typeof VideoEncoder === 'undefined') return [false, false, false];
+                      const base = {width:1920,height:1080,framerate:60,bitrate:12000000};
+                      const test = async (config) => {
+                        const support = await VideoEncoder.isConfigSupported(config)
+                          .catch(() => ({supported:false}));
+                        if (!support.supported) return false;
+                        const canvas = document.createElement('canvas');
+                        canvas.width = 64; canvas.height = 64;
+                        canvas.getContext('2d').fillRect(0, 0, 64, 64);
+                        let chunks = 0;
+                        const encoder = new VideoEncoder({output() { chunks += 1; }, error() {}});
+                        encoder.configure({...support.config, width:64, height:64, bitrate:250000});
+                        const frame = new VideoFrame(canvas, {timestamp:0, duration:33333});
+                        encoder.encode(frame, {keyFrame:true}); frame.close();
+                        await encoder.flush(); encoder.close();
+                        return chunks > 0;
+                      };
+                      const h264 = await test({
+                        ...base, codec:'avc1.64002a', avc:{format:'annexb'}
+                      });
+                      const vp9 = await test({...base, codec:'vp09.00.10.08'});
+                      return [true, h264, vp9];
+                    }
+                    """
+                )
+                await browser.close()
+                browser = None
+                resolved = (bool(result[0]), bool(result[1]), bool(result[2]))
+        except Exception:
+            resolved = (False, False, False)
+        finally:
+            if browser is not None:
+                await browser.close()
+        self._webcodecs_cache = (now, *resolved)
+        return resolved
 
     async def registered_file(self, job_id: UUID, kind: str) -> Path | None:
         job = await self.require(job_id)
@@ -351,7 +520,7 @@ class VideoExportService:
             return (await self.require(job.id)).cancel_requested
 
         try:
-            preflight = await self.preflight(job.production_id, job.backend)
+            preflight = await self.preflight(job.production_id, job.backend, job.render_engine)
             if not preflight.ready:
                 raise RuntimeError(
                     "preflight failed: "
@@ -385,6 +554,10 @@ class VideoExportService:
                     created_at=datetime.now(UTC),
                 )
                 manifest_path.write_text(manifest.model_dump_json(indent=2), encoding="utf-8")
+            export_manifest = ExportManifest.model_validate_json(
+                manifest_path.read_text(encoding="utf-8")
+            )
+            renderer_metrics = export_manifest.renderer_metrics
             caption_path = self.storage.sidecar(job.id, ".srt")
             if not caption_path.exists():
                 captions_to_srt(production, caption_path)
@@ -414,6 +587,18 @@ class VideoExportService:
                         float(metadata.get("format", {}).get("duration", 0)) * 1000
                     ),
                     "render_duration_ms": round((time.monotonic() - started) * 1000),
+                    "output_frame_count": int_metric(
+                        renderer_metrics, "output_frames", export_manifest.frame_count
+                    ),
+                    "unique_rendered_frames": int_metric(
+                        renderer_metrics, "unique_renders"
+                    ),
+                    "static_held_frames": int_metric(
+                        renderer_metrics, "static_held_frames"
+                    ),
+                    "animated_frames": int_metric(renderer_metrics, "animated_frames"),
+                    "renderer_transport": string_or_none(renderer_metrics.get("transport")),
+                    "selected_encoder": export_manifest.encoder,
                     "output_file_size": output_size,
                     "output_sha256": output_digest,
                     "width": int(video["width"]),
@@ -505,3 +690,14 @@ def parse_rate(value: str) -> float:
     if not separator:
         return float(value)
     return float(numerator) / float(denominator or 1)
+
+
+def string_or_none(value: object) -> str | None:
+    return value if isinstance(value, str) else None
+
+
+def int_metric(
+    metrics: dict[str, int | float | str], key: str, default: int | None = None
+) -> int | None:
+    value = metrics.get(key)
+    return int(value) if isinstance(value, int | float) else default

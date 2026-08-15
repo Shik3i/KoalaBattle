@@ -6,10 +6,10 @@ tournament, watch, control, and OBS interfaces. Pokémon Showdown supports Gen 9
 Battle and validated fixed-team Gen 9 OU; the tournament core consumes generic participants
 and results.
 
-Phase 8 adds a polished animated battle presentation, all-type/category procedural attack
-visuals, indexed deterministic replay, and a bounded parallel offline renderer. Only stored
-events, local assets, and cached audio are used; rendering never reruns Showdown or battle
-LLMs. OBS remains the realtime live/recording path.
+Phase 9 adds a native deterministic Canvas compositor and streaming WebCodecs video engine.
+It preserves the polished all-type/category battle presentation while avoiding screenshot
+capture for normal offline production. Only stored events, local assets, and cached audio are
+used; rendering never reruns Showdown or battle LLMs. OBS remains the realtime live path.
 
 Supported agents: Random, Manual Web Chat, OpenAI, Gemini, Anthropic, DeepSeek, and generic
 OpenAI-compatible providers. Manual Web Chat needs no API key.

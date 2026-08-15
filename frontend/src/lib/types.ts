@@ -372,6 +372,7 @@ export interface SpeechProviderStatus {
 }
 
 export type ExportBackend = 'offline' | 'obs';
+export type RenderEngine = 'native' | 'legacy';
 export type ExportStatus = 'queued' | 'preparing' | 'rendering' | 'encoding' | 'finalizing' | 'completed' | 'cancelled' | 'failed';
 
 export interface VideoExportPreset {
@@ -403,9 +404,16 @@ export interface VideoExportJob {
   cancel_requested: boolean;
   attempt: number;
   encoder: string;
+  render_engine: RenderEngine;
   encoder_information: string | null;
   video_duration_ms: number | null;
   render_duration_ms: number | null;
+  output_frame_count: number | null;
+  unique_rendered_frames: number | null;
+  static_held_frames: number | null;
+  animated_frames: number | null;
+  renderer_transport: string | null;
+  selected_encoder: string | null;
   output_file_size: number | null;
   error_category: string | null;
   error_detail: string | null;
@@ -421,6 +429,14 @@ export interface RendererCapabilities {
   chromium_available: boolean;
   chromium_version: string | null;
   playwright_available: boolean;
+  native_compositor_available: boolean;
+  webcodecs_available: boolean;
+  webcodecs_h264: boolean;
+  webcodecs_vp9: boolean;
+  raw_frame_available: boolean;
+  legacy_renderer_available: boolean;
+  default_render_engine: RenderEngine;
+  compositor_backend: string;
   encoders: string[];
   output_writable: boolean;
   output_root: string;

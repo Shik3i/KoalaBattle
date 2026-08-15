@@ -69,6 +69,7 @@ class Settings(BaseSettings):
     video_ffmpeg_path: str = "ffmpeg"
     video_ffprobe_path: str = "ffprobe"
     video_chromium_path: Path | None = None
+    video_native_transport: str = Field(default="auto", pattern=r"^(auto|webcodecs|raw-rgba)$")
     video_min_free_bytes: int = Field(default=1_073_741_824, ge=50_000_000)
     obs_host: str = "127.0.0.1"
     obs_port: int = Field(default=4455, ge=1, le=65535)

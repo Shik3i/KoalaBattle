@@ -37,6 +37,7 @@ def main() -> None:
     render.add_argument("--profile", default="youtube")
     render.add_argument("--output-name")
     render.add_argument("--encoder", default="auto")
+    render.add_argument("--render-engine", choices=("native", "legacy"), default="native")
     render.add_argument("--wait", action="store_true")
     args = parser.parse_args()
     if args.command == "capabilities":
@@ -74,6 +75,7 @@ def main() -> None:
                 "preset_id": args.preset,
                 "output_name": args.output_name,
                 "encoder": args.encoder,
+                "render_engine": args.render_engine,
             },
         ),
     )
