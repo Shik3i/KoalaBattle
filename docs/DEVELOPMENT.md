@@ -35,10 +35,16 @@ python3 scripts/check_docs.py
 python3 scripts/setup_assets.py status
 docker compose config --quiet
 PYTHONPATH=backend .venv/bin/python scripts/benchmark_phase5.py
+PYTHONPATH=backend .venv/bin/python scripts/benchmark_renderer.py PRODUCTION_ID \
+  --preset youtube-1080p60 --encoder software --workers 4
 ```
 
 Validate migrations against both an empty temporary database and a copy of any existing
 database. Do not use the working `data/koalabattle.db` as a migration test fixture.
+
+The repository-root `data/` directory is canonical. `backend/data/` is a legacy ignored
+working-directory artifact, not a second database location. Generated assets, speech, music,
+sound packs, videos, renderer temp files, and vendor downloads remain ignored and untracked.
 
 Frontend production and development audits are separate. `cookie@0.7.2` is an explicit safe
 override for the SvelteKit dependency tree. The pinned upstream Showdown image has known audit

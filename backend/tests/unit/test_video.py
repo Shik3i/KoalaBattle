@@ -23,6 +23,7 @@ from koalabattle.storage import BattleRepository, Database
 from koalabattle.video.exporters import (
     OBSWebSocketClient,
     OfflineRendererExporter,
+    pipe_frame_batch,
     probe,
     srt_time,
     validate_probe,
@@ -49,6 +50,32 @@ def test_frame_mapping_uses_absolute_rational_time_without_drift() -> None:
     assert frame_time_ms(18_000, 60) == 300_000
     assert frame_time_ms(3, 30) == 100
     assert PACING_PROFILES[PRESETS["fast-preview"].pacing_profile].version == "1.0"
+    assert PRESETS["youtube-1080p30"].fps == 30
+    assert PRESETS["vertical-1080p30"].fps == 30
+
+
+async def test_frame_pipe_preserves_order_and_waits_for_backpressure() -> None:
+    class Sink:
+        def __init__(self) -> None:
+            self.operations: list[str] = []
+
+        def write(self, image: bytes) -> None:
+            self.operations.append(f"write:{image.decode()}")
+
+        async def drain(self) -> None:
+            self.operations.append("drain")
+
+    sink = Sink()
+    elapsed = await pipe_frame_batch(sink, [b"0", b"1", b"2"])
+    assert sink.operations == [
+        "write:0",
+        "drain",
+        "write:1",
+        "drain",
+        "write:2",
+        "drain",
+    ]
+    assert elapsed >= 0
 
 
 def test_video_storage_sanitizes_and_contains_paths(tmp_path: Path) -> None:

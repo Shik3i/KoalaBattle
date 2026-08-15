@@ -10,6 +10,7 @@ import shutil
 import time
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol, cast
@@ -33,6 +34,51 @@ from .models import (
 
 Progress = Callable[[ExportStatus, str, float], Awaitable[None]]
 Cancelled = Callable[[], Awaitable[bool]]
+
+
+async def pipe_frame_batch(stream: Any, images: list[bytes]) -> float:
+    """Write an ordered frame batch while honoring subprocess backpressure."""
+    started = time.monotonic()
+    for image in images:
+        stream.write(image)
+        await stream.drain()
+    return time.monotonic() - started
+
+
+@dataclass
+class FramePipelineMetrics:
+    page_workers: int = 1
+    setup_seconds: float = 0.0
+    frame_loop_seconds: float = 0.0
+    state_seconds: float = 0.0
+    capture_seconds: float = 0.0
+    pipe_seconds: float = 0.0
+    encode_finalize_seconds: float = 0.0
+    audio_seconds: float = 0.0
+    mux_seconds: float = 0.0
+
+    def manifest(self, duration_ms: int) -> dict[str, int | float | str]:
+        measured = (
+            self.setup_seconds
+            + self.frame_loop_seconds
+            + self.encode_finalize_seconds
+            + self.audio_seconds
+            + self.mux_seconds
+        )
+        return {
+            "transport": "parallel-jpeg-image2pipe",
+            "page_workers": self.page_workers,
+            "setup_seconds": round(self.setup_seconds, 6),
+            "frame_loop_seconds": round(self.frame_loop_seconds, 6),
+            "state_worker_seconds": round(self.state_seconds, 6),
+            "capture_worker_seconds": round(self.capture_seconds, 6),
+            "pipe_seconds": round(self.pipe_seconds, 6),
+            "encode_finalize_seconds": round(self.encode_finalize_seconds, 6),
+            "audio_seconds": round(self.audio_seconds, 6),
+            "mux_seconds": round(self.mux_seconds, 6),
+            "measured_seconds": round(measured, 6),
+            "speed_ratio": round(duration_ms / 1000 / max(0.000001, measured), 6),
+        }
 
 
 class VideoExporter(ABC):
@@ -74,6 +120,9 @@ class OfflineRendererExporter(VideoExporter):
         muxed_part = self.storage.temporary(job.id, ".mp4.part")
         audio_part = self.storage.temporary(job.id, ".audio.wav")
         frame_total = job.frame_count
+        metrics = FramePipelineMetrics(
+            page_workers=min(self.settings.video_frame_workers, max(1, frame_total))
+        )
         encoder = await self._encoder(job.encoder)
         command = self._video_command(job, encoder, video_part)
         process = await asyncio.create_subprocess_exec(
@@ -96,50 +145,92 @@ class OfflineRendererExporter(VideoExporter):
                 context = await browser.new_context(
                     viewport={"width": job.preset.width, "height": job.preset.height},
                     device_scale_factor=1,
-                    reduced_motion="reduce",
+                    reduced_motion="no-preference",
                 )
-                page = await context.new_page()
-                await self._isolate_network(page)
+                await self._isolate_network(context)
                 url = f"{self.settings.video_frontend_url}/render/{production.id}"
-                await page.goto(url, wait_until="networkidle", timeout=60_000)
-                await page.wait_for_function(
-                    "() => window.__KOALABATTLE_RENDER_READY === true", timeout=60_000
+                setup_started = time.monotonic()
+
+                async def prepare_page() -> Any:
+                    page = await context.new_page()
+                    await page.goto(url, wait_until="networkidle", timeout=60_000)
+                    await page.wait_for_function(
+                        "() => window.__KOALABATTLE_RENDER_READY === true", timeout=60_000
+                    )
+                    return page
+
+                pages = await asyncio.gather(
+                    *(prepare_page() for _ in range(metrics.page_workers))
                 )
+                metrics.setup_seconds = time.monotonic() - setup_started
                 await progress(ExportStatus.RENDERING, f"Rendering 0 / {frame_total}", 5)
                 last_report = 0.0
-                for index in range(frame_total):
+                loop_started = time.monotonic()
+                for batch_start in range(0, frame_total, metrics.page_workers):
                     if await cancelled():
                         raise asyncio.CancelledError
-                    logical = job.start_ms + frame_time_ms(index, job.preset.fps)
-                    await page.evaluate("time => window.__KOALABATTLE_RENDER_AT(time)", logical)
-                    image = await page.screenshot(
-                        type="jpeg",
-                        quality=92,
-                        animations="disabled",
-                        caret="hide",
-                        scale="css",
+
+                    async def capture(index: int, page: Any) -> tuple[bytes, float, float]:
+                        logical = job.start_ms + frame_time_ms(index, job.preset.fps)
+                        state_started = time.monotonic()
+                        rendered = await page.evaluate(
+                            "time => window.__KOALABATTLE_RENDER_AT(time)", logical
+                        )
+                        state_seconds = time.monotonic() - state_started
+                        if rendered is not True:
+                            raise RuntimeError(f"renderer rejected logical frame {index}")
+                        capture_started = time.monotonic()
+                        image = await page.screenshot(
+                            type="jpeg",
+                            quality=92,
+                            animations="disabled",
+                            caret="hide",
+                            scale="css",
+                        )
+                        return image, state_seconds, time.monotonic() - capture_started
+
+                    indexes = range(
+                        batch_start, min(batch_start + metrics.page_workers, frame_total)
                     )
-                    process.stdin.write(image)
-                    await process.stdin.drain()
+                    frames = await asyncio.gather(
+                        *(capture(index, pages[offset]) for offset, index in enumerate(indexes))
+                    )
+                    images: list[bytes] = []
+                    for image, state_seconds, capture_seconds in frames:
+                        metrics.state_seconds += state_seconds
+                        metrics.capture_seconds += capture_seconds
+                        images.append(image)
+                    metrics.pipe_seconds += await pipe_frame_batch(process.stdin, images)
                     now = time.monotonic()
-                    if now - last_report >= 0.5 or index + 1 == frame_total:
-                        percent = 5 + ((index + 1) / max(1, frame_total)) * 75
+                    completed = min(batch_start + len(frames), frame_total)
+                    if now - last_report >= 0.5 or completed == frame_total:
+                        percent = 5 + (completed / max(1, frame_total)) * 75
+                        elapsed = max(0.001, now - loop_started)
+                        media_seconds = completed / job.preset.fps
                         await progress(
                             ExportStatus.RENDERING,
-                            f"Rendering frame {index + 1} / {frame_total}",
+                            f"Rendering frame {completed} / {frame_total} · "
+                            f"{media_seconds / elapsed:.2f}x",
                             percent,
                         )
                         last_report = now
+                metrics.frame_loop_seconds = time.monotonic() - loop_started
                 await browser.close()
             process.stdin.close()
             await process.stdin.wait_closed()
+            encode_started = time.monotonic()
             stderr = (await process.communicate())[1]
+            metrics.encode_finalize_seconds = time.monotonic() - encode_started
             if process.returncode != 0:
                 raise RuntimeError(self._bounded(stderr))
             await progress(ExportStatus.ENCODING, "Mixing deterministic audio", 83)
+            audio_started = time.monotonic()
             has_audio = await self._audio(production, job, audio_part)
+            metrics.audio_seconds = time.monotonic() - audio_started
             if has_audio:
+                mux_started = time.monotonic()
                 await self._mux(video_part, audio_part, muxed_part, job.duration_ms)
+                metrics.mux_seconds = time.monotonic() - mux_started
             else:
                 os.replace(video_part, muxed_part)
             await progress(ExportStatus.FINALIZING, "Validating MP4", 95)
@@ -147,7 +238,7 @@ class OfflineRendererExporter(VideoExporter):
             metadata = await probe(self.settings.video_ffprobe_path, muxed_part)
             validate_probe(metadata, job, audio_expected=has_audio)
             self.storage.atomic_complete(muxed_part, final)
-            await self._sidecars(job, production, encoder, final)
+            await self._sidecars(job, production, encoder, final, metrics)
             _ = started
             return final
         except BaseException:
@@ -230,7 +321,14 @@ class OfflineRendererExporter(VideoExporter):
             if encoder not in encoders:
                 raise ValueError(f"requested encoder is unavailable: {encoder}")
             return encoder
-        return "libx264" if "libx264" in encoders else next(iter(encoders), "")
+        preferred = (
+            "h264_videotoolbox",
+            "h264_nvenc",
+            "h264_qsv",
+            "h264_vaapi",
+            "libx264",
+        )
+        return next((name for name in preferred if name in encoders), "")
 
     async def _audio(
         self, production: ProductionTimeline, job: VideoExportJob, output: Path
@@ -383,6 +481,7 @@ class OfflineRendererExporter(VideoExporter):
         production: ProductionTimeline,
         encoder: str,
         final: Path,
+        metrics: FramePipelineMetrics,
     ) -> None:
         manifest = ExportManifest(
             job_id=job.id,
@@ -394,6 +493,7 @@ class OfflineRendererExporter(VideoExporter):
             pacing_profile_version=job.pacing_profile_version,
             frontend_version=job.frontend_version,
             audio_pipeline_version=job.audio_pipeline_version,
+            visual_profile_version=job.visual_profile_version,
             preset=job.preset,
             encoder=encoder,
             frame_count=job.frame_count,
@@ -401,6 +501,7 @@ class OfflineRendererExporter(VideoExporter):
             source_start_ms=job.start_ms,
             source_end_ms=job.end_ms,
             assets={"network": "local-only", "output": final.name},
+            renderer_metrics=metrics.manifest(job.duration_ms),
             created_at=datetime.now(UTC),
         )
         self.storage.sidecar(job.id, ".json").write_text(

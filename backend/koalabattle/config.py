@@ -62,6 +62,7 @@ class Settings(BaseSettings):
     )
     video_root: Path = Path("data/videos")
     video_max_concurrency: int = Field(default=1, ge=1, le=4)
+    video_frame_workers: int = Field(default=4, ge=1, le=8)
     video_worker_enabled: bool = True
     video_frontend_url: str = "http://localhost:3000"
     video_api_url: str = "http://localhost:8001"

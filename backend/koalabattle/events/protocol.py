@@ -14,6 +14,13 @@ _EVENT_NAMES = {
     "-status": "status_applied",
     "-curestatus": "status_removed",
     "-weather": "weather_changed",
+    "-supereffective": "super_effective",
+    "-resisted": "resisted",
+    "-immune": "immune",
+    "-fieldstart": "terrain_started",
+    "-fieldend": "terrain_ended",
+    "-sidestart": "side_condition_started",
+    "-sideend": "side_condition_ended",
     "faint": "pokemon_fainted",
     "win": "battle_finished",
     "tie": "battle_finished",
@@ -48,6 +55,12 @@ def normalize_showdown_message(parts: list[str]) -> tuple[str, dict[str, Any]] |
         payload.update(target=parts[2], status=parts[3])
     elif command == "-weather" and len(parts) > 2:
         payload["weather"] = parts[2]
+    elif command in {"-supereffective", "-resisted", "-immune"} and len(parts) > 2:
+        payload["target"] = parts[2]
+    elif command in {"-fieldstart", "-fieldend"} and len(parts) > 2:
+        payload["field"] = parts[2]
+    elif command in {"-sidestart", "-sideend"} and len(parts) > 3:
+        payload.update(target=parts[2], condition=parts[3])
     elif command == "faint" and len(parts) > 2:
         payload["target"] = parts[2]
     elif command == "win" and len(parts) > 2:

@@ -29,15 +29,14 @@
   <header class="app-header">
     <a class="brand" href="/" aria-label="KoalaBattle home"><span>KB</span>KoalaBattle</a>
     <nav aria-label="Primary navigation">
-      <a href="/admin">Admin</a>
-      <a href="/new">New battle</a>
-      <a href="/teams">Teams</a>
-      <a href="/tournaments">Tournaments</a>
-      <a href="/matches">Matches</a>
-      <a href="/settings">Settings</a>
+      <a class:active={$page.url.pathname.startsWith('/admin')} href="/admin">Dashboard</a>
+      <a class:active={$page.url.pathname.startsWith('/matches') || $page.url.pathname.startsWith('/battle') || $page.url.pathname.startsWith('/replay')} href="/matches">Matches</a>
+      <a class:active={$page.url.pathname.startsWith('/tournaments')} href="/tournaments">Tournaments</a>
+      <a class:active={$page.url.pathname.startsWith('/teams')} href="/teams">Teams</a>
+      <a class:active={$page.url.pathname.startsWith('/settings')} href="/settings">Settings</a>
     </nav>
-    <button class="icon-button" on:click={toggleTheme} aria-label="Toggle color theme">{theme === 'dark' ? '☀' : '☾'}</button>
+    <div class="header-actions"><a class="button compact" href="/new">New match</a><button class="icon-button" on:click={toggleTheme} aria-label={`Use ${theme === 'dark' ? 'light' : 'dark'} application theme`}><span class:moon={theme === 'light'} class="theme-icon" aria-hidden="true"></span></button></div>
   </header>
   <main><slot /></main>
-  <footer><span>KoalaBattle 0.7</span><span>Local-first · Auditable context · Event-sourced · No Pokémon assets included</span></footer>
+  <footer><span>KoalaBattle 0.8</span><span>Local-first · Auditable context · Event-sourced · No Pokémon assets included</span></footer>
 {/if}

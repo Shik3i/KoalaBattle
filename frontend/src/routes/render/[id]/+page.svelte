@@ -3,7 +3,11 @@
   import BattleRenderer from '$lib/BattleRenderer.svelte';
   import CaptionOverlay from '$lib/production/CaptionOverlay.svelte';
   import { ProductionAudioEngine } from '$lib/production/audio-engine';
-  import { renderAt, type ProductionFrameState } from '$lib/production/frame-state';
+  import {
+    createProductionFrameRenderer,
+    type ProductionFrameRenderer,
+    type ProductionFrameState
+  } from '$lib/production/frame-state';
   import { apiBase, getPresentationMatch, getProduction } from '$lib/api';
   import { defaultRendererConfig, type RendererConfig } from '$lib/presentation/types';
   import type { MatchArchive, ProductionTimeline } from '$lib/types';
@@ -18,6 +22,7 @@
   let ready = false;
   let audio: ProductionAudioEngine | null = null;
   let animationFrame = 0;
+  let frameRenderer: ProductionFrameRenderer | null = null;
 
   type RenderWindow = Window & {
     __KOALABATTLE_RENDER_READY?: boolean;
@@ -47,11 +52,12 @@
         transparentBackground: false,
         animatedSprites: true
       });
-      frame = renderAt(match, production, 0);
+      frameRenderer = createProductionFrameRenderer(match, production);
+      frame = frameRenderer.renderAt(0);
       const renderWindow = window as RenderWindow;
       renderWindow.__KOALABATTLE_RENDER_AT = async (milliseconds: number) => {
-        if (!match || !production) return false;
-        frame = renderAt(match, production, milliseconds);
+        if (!frameRenderer) return false;
+        frame = frameRenderer.renderAt(milliseconds);
         await tick();
         await document.fonts.ready;
         await Promise.all(
@@ -96,6 +102,7 @@
       overlay
       deterministic
       logicalElapsedMs={frame.visualElapsedMs}
+      visualProgress={frame.visualProgress}
     />
     <CaptionOverlay
       cue={frame.caption}

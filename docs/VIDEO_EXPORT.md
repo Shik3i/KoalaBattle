@@ -12,10 +12,11 @@ Lifecycle: `queued -> preparing -> rendering -> encoding -> finalizing -> comple
 Queue priority is bounded. An optional idempotency key prevents duplicate creation caused by
 one retried request; deliberate rerenders receive new IDs.
 
-Presets: YouTube 1080p60, 1440p60, optional 4K60, Vertical 1080x1920, and Fast Preview
-1280x720p30. H.264/yuv420p is the compatible default. Auto prefers software `libx264` for
-reproducibility; detected VideoToolbox/NVENC/VAAPI/QSV may be selected. Arbitrary encoder
-arguments are never accepted.
+Presets: YouTube 1080p60 and 1080p30, 1440p60, optional 4K60, Vertical 1080x1920 at
+60 or 30 FPS, and Fast Preview 1280x720p30. Existing 60 FPS presets retain their meaning.
+H.264/yuv420p is the compatible default. Auto prefers detected hardware H.264 on the host
+(VideoToolbox, NVENC, QSV, then VAAPI) before software `libx264`; software remains explicitly
+selectable for comparable benchmarks. Arbitrary encoder arguments are never accepted.
 
 Pacing profiles are versioned independently: Full Replay, YouTube, Fast, and Shorts. They
 define synthetic thinking time, transition gaps, result hold time, and commentary policy;
@@ -33,7 +34,9 @@ data/videos/
 
 SQLite stores metadata, not video blobs. A completed job records codec, dimensions, FPS,
 duration, render time, bytes, SHA-256, versions, and only relative registered paths. Encoder
-success is not sufficient: FFprobe validation precedes atomic publication.
+success is not sufficient: FFprobe validation precedes atomic publication. The manifest also
+records visual profile version, transport, page-worker count, stage timings, and measured
+media/wall ratio.
 
 ## API
 

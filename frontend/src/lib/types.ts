@@ -39,6 +39,7 @@ export interface MoveState {
   id: string;
   name: string;
   type: string | null;
+  category?: 'physical' | 'special' | 'status' | null;
   power: number | null;
   accuracy: number | null;
   current_pp: number | null;
@@ -430,6 +431,13 @@ export interface RendererCapabilities {
   obs_port: number;
   obs_scene: string;
   detail: string[];
+}
+
+export interface ExportPreflight {
+  ready: boolean;
+  checks: Record<string, string>;
+  missing_speech: string[];
+  warnings: string[];
 }
 
 export type MatchSummary = Omit<MatchArchive, 'events' | 'decisions'> & {

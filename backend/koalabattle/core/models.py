@@ -218,6 +218,7 @@ class MoveState(FrozenModel):
     id: str
     name: str
     type: str | None = None
+    category: Literal["physical", "special", "status"] | None = None
     power: int | None = None
     accuracy: float | int | None = None
     current_pp: int | None = Field(default=None, ge=0)

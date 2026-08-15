@@ -8,6 +8,13 @@
 
   $: players = match.config.players;
   $: title = match.config.name || `${players[0].display_name} vs ${players[1].display_name}`;
+  $: statusLabel = match.status === 'waiting'
+    ? players.some((player) => player.agent_type === 'manual')
+      ? 'Waiting for manual response'
+      : 'Waiting for provider'
+    : match.status === 'running'
+      ? 'Running'
+      : match.status;
 
   async function copyOverlay() {
     await navigator.clipboard.writeText(`${location.origin}/overlay/${match.id}`);
@@ -22,7 +29,7 @@
       <span class="eyebrow">{match.tournament_id ? 'Tournament match' : 'Standalone match'}</span>
       <h3>{title}</h3>
     </div>
-    <span class={`status-pill ${match.status}`}>{match.status}</span>
+    <span class={`status-pill ${match.status}`}>{statusLabel}</span>
   </header>
   <div class="summary">
     <span><strong>Turn {match.turns}</strong>{match.config.format}</span>

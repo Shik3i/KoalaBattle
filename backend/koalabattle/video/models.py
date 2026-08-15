@@ -9,8 +9,9 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 VIDEO_SCHEMA_VERSION = "1.0"
-RENDERER_VERSION = "0.7.0-explicit-time-v2"
+RENDERER_VERSION = "0.8.0-parallel-frame-pool-v1"
 AUDIO_PIPELINE_VERSION = "1.1"
+VISUAL_PROFILE_VERSION = "1.0"
 
 
 class FrozenModel(BaseModel):
@@ -114,6 +115,15 @@ PRESETS: dict[str, VideoExportPreset] = {
             layout="16:9",
         ),
         VideoExportPreset(
+            id="youtube-1080p30",
+            display_name="YouTube 1080p30",
+            width=1920,
+            height=1080,
+            fps=30,
+            pacing_profile="youtube",
+            layout="16:9",
+        ),
+        VideoExportPreset(
             id="youtube-1440p60",
             display_name="YouTube 1440p60",
             width=2560,
@@ -139,6 +149,15 @@ PRESETS: dict[str, VideoExportPreset] = {
             width=1080,
             height=1920,
             fps=60,
+            pacing_profile="shorts",
+            layout="9:16",
+        ),
+        VideoExportPreset(
+            id="vertical-1080p30",
+            display_name="Vertical 1080x1920 30 FPS",
+            width=1080,
+            height=1920,
+            fps=30,
             pacing_profile="shorts",
             layout="9:16",
         ),
@@ -194,9 +213,10 @@ class VideoExportJob(FrozenModel):
     attempt: int = Field(default=1, ge=1)
     renderer_version: str = RENDERER_VERSION
     pacing_profile_version: str = "1.0"
-    frontend_version: str = "0.7.0"
+    frontend_version: str = "0.8.0"
     production_schema_version: str = "2.0"
     audio_pipeline_version: str = AUDIO_PIPELINE_VERSION
+    visual_profile_version: str = VISUAL_PROFILE_VERSION
     encoder: str = "auto"
     encoder_information: str | None = None
     output_relative_path: str | None = None
@@ -267,6 +287,7 @@ class ExportManifest(FrozenModel):
     pacing_profile_version: str
     frontend_version: str
     audio_pipeline_version: str
+    visual_profile_version: str = VISUAL_PROFILE_VERSION
     preset: VideoExportPreset
     encoder: str
     frame_count: int
@@ -274,6 +295,7 @@ class ExportManifest(FrozenModel):
     source_start_ms: int
     source_end_ms: int
     assets: dict[str, Any] = Field(default_factory=dict)
+    renderer_metrics: dict[str, int | float | str] = Field(default_factory=dict)
     created_at: datetime
 
 

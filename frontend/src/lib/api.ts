@@ -1,5 +1,5 @@
 import { env } from '$env/dynamic/public';
-import type { ExportBackend, MatchArchive, ProductionProfile, ProductionTimeline, RendererCapabilities, VideoExportJob, VideoExportPreset, VoicePreset } from './types';
+import type { ExportBackend, ExportPreflight, MatchArchive, ProductionProfile, ProductionTimeline, RendererCapabilities, VideoExportJob, VideoExportPreset, VoicePreset } from './types';
 
 export const apiBase = () =>
   typeof location !== 'undefined' && location.pathname.startsWith('/render/')
@@ -60,6 +60,8 @@ export const getVideoSetup = async (matchId: string) => {
   ]);
   return { presets, capabilities, jobs };
 };
+export const getVideoPreflight = (productionId: string, backend: ExportBackend) =>
+  api<ExportPreflight>(`/api/productions/${productionId}/video-preflight?backend=${backend}`);
 export const createVideoExport = (
   productionId: string,
   backend: ExportBackend,

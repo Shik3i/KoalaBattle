@@ -39,3 +39,21 @@ def test_preserves_unknown_showdown_message_as_untrusted_raw_data() -> None:
     )
     assert event_type == "showdown_message"
     assert payload["raw"] == "|future-command|value"
+
+
+def test_normalizes_effectiveness_and_field_visual_events() -> None:
+    effective = normalize_showdown_message(["", "-supereffective", "p2a: Target"])
+    terrain = normalize_showdown_message(["", "-fieldstart", "move: Electric Terrain"])
+    barrier = normalize_showdown_message(["", "-sidestart", "p1: Alpha", "Reflect"])
+    assert effective == (
+        "super_effective",
+        {
+            "raw": "|-supereffective|p2a: Target",
+            "command": "-supereffective",
+            "target": "p2a: Target",
+        },
+    )
+    assert terrain is not None and terrain[0] == "terrain_started"
+    assert terrain[1]["field"] == "move: Electric Terrain"
+    assert barrier is not None and barrier[0] == "side_condition_started"
+    assert barrier[1]["condition"] == "Reflect"

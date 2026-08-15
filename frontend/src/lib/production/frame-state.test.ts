@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { renderAt } from './frame-state.ts';
+import { createProductionFrameRenderer, renderAt } from './frame-state.ts';
 
 const match = {
   id: '00000000-0000-0000-0000-000000000001',
@@ -73,4 +73,21 @@ test('renderAt keeps a 1500-event archive bounded by logical cue time', () => {
   assert.equal(frame.presentation.eventSequence, 1000);
   assert.equal(frame.presentation.finished, false);
   assert.equal(frame.visual?.event_sequence, 1000);
+});
+
+test('indexed renderer supports backward seeks without stale or future state', () => {
+  const renderer = createProductionFrameRenderer(match, production);
+  assert.equal(renderer.renderAt(2000).presentation.finished, true);
+  const rewound = renderer.renderAt(1000);
+  assert.equal(rewound.presentation.finished, false);
+  assert.equal(rewound.event?.sequence, 1);
+  assert.equal(renderer.renderAt(2000).event?.sequence, 2);
+});
+
+test('legacy productions derive duration from cues instead of freezing at frame zero', () => {
+  const renderer = createProductionFrameRenderer(match, { ...production, duration_ms: 0 });
+  const frame = renderer.renderAt(2000);
+  assert.equal(frame.timeMs, 2000);
+  assert.equal(frame.presentation.finished, true);
+  assert.equal(frame.event?.sequence, 2);
 });

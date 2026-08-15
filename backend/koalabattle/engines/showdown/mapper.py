@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 from uuid import UUID
 
 from koalabattle.core.models import (
@@ -52,6 +52,17 @@ def _enum_name(value: object | None) -> str | None:
     return str(name).lower() if name else str(value).lower()
 
 
+def _move_category(value: object | None) -> Literal["physical", "special", "status"] | None:
+    category = _enum_name(value)
+    if category == "physical":
+        return "physical"
+    if category == "special":
+        return "special"
+    if category == "status":
+        return "status"
+    return None
+
+
 def _move_state(move: Move) -> MoveState:
     accuracy = getattr(move, "accuracy", None)
     if isinstance(accuracy, bool):
@@ -60,6 +71,7 @@ def _move_state(move: Move) -> MoveState:
         id=move.id,
         name=move.entry.get("name", move.id),
         type=_enum_name(getattr(move, "type", None)),
+        category=_move_category(getattr(move, "category", None)),
         power=getattr(move, "base_power", None),
         accuracy=accuracy,
         current_pp=getattr(move, "current_pp", None),

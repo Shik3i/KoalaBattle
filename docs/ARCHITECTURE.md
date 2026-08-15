@@ -118,7 +118,7 @@ Battle (immutable events)
   -> Production (fixed logical clock and presentation decisions)
     -> VideoExportJob (preset, backend, range, progress)
       -> OBSRecorderExporter      -> realtime OBS recording
-      -> OfflineRendererExporter -> renderAt(t) -> PNG pipe -> FFmpeg -> FFprobe
+      -> OfflineRendererExporter -> indexed renderAt(t) -> ordered JPEG pipe -> FFmpeg -> FFprobe
 ```
 
 `ProductionService` receives repository post-commit hooks. It appends only the new event's
@@ -126,7 +126,9 @@ cues and finalizes result/outro/audio without blocking battle execution. `VideoE
 owns the bounded persistent queue; exporters do not enter match/tournament orchestration.
 
 Offline frames use the same `BattleRenderer`, reducer, themes, layouts, local sprite endpoint,
-and caption overlay as live/replay/OBS. At logical time `t`, only event sequences whose visual
-cue has started are reduced. Winner, future moves, future commentary, hidden teams, and later
-series data therefore cannot enter an early frame. CSS animation state is paused at the
-logical cue offset; browser wall-clock time does not control frame sampling.
+and caption overlay as live/replay/OBS. Timeline tracks and immutable presentation snapshots
+are indexed once per page. At logical time `t`, binary search selects only event sequences
+whose visual cue has started. Winner, future moves, future commentary, hidden teams, and later
+series data therefore cannot enter an early frame. A bounded page pool captures a small batch
+concurrently, then writes it in exact frame order with pipe backpressure. Animation state is
+derived from logical cue progress; browser wall-clock time does not control frame sampling.

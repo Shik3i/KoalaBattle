@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import type { BattleEvent, BattleState, MatchArchive } from '../types.ts';
-import { createPresentationState, reduceEvents } from './reducer.ts';
+import { createPresentationState, reduceEvents, reducePresentation } from './reducer.ts';
 
 const match = {
   id: 'match-1',
@@ -55,7 +55,9 @@ test('presentation reducer restores switch, combat, status, commentary, and winn
       action_name: 'Thunderbolt',
       commentary: 'Public plan.'
     }),
-    event(9, 'battle_finished', { winner_name: 'Alpha' })
+    event(9, 'battle_finished', {
+      result: { winner: 'p1', winner_name: 'KoalaP1InternalIdentifier' }
+    })
   ];
   const state = reduceEvents(createPresentationState(match), events);
   assert.equal(state.format, 'gen9randombattle');
@@ -85,4 +87,50 @@ test('completed archive metadata does not spoil replay frame zero', () => {
   assert.equal(initial.winner, null);
   assert.equal(initial.finished, false);
   assert.equal(initial.players.p1.agentStatus, 'waiting');
+});
+
+test('move visuals use authoritative type/category with deterministic fallback', () => {
+  const initial = createPresentationState(match);
+  const physical = reducePresentation(initial, event(1, 'move_used', {
+    actor: 'p1a: Pikachu', move: 'Volt Tackle', move_type: 'electric', category: 'physical'
+  }));
+  const repeated = reducePresentation(initial, event(1, 'move_used', {
+    actor: 'p1a: Pikachu', move: 'Volt Tackle', move_type: 'electric', category: 'physical'
+  }));
+  const fallback = reducePresentation(initial, event(2, 'move_used', {
+    actor: 'p2a: Missingno', move: 'Unknown Future Move', move_type: 'cosmic'
+  }));
+  assert.equal(physical.currentMoveProfile?.type, 'electric');
+  assert.equal(physical.currentMoveProfile?.archetype, 'physical');
+  assert.equal(physical.currentMoveProfile?.seed, repeated.currentMoveProfile?.seed);
+  assert.equal(fallback.currentMoveProfile?.type, 'normal');
+  assert.equal(fallback.currentMoveProfile?.archetype, 'special');
+});
+
+test('damage, healing, effectiveness and field feedback follow visible events', () => {
+  const active = {
+    id: 'pikachu', name: 'Pikachu', species: 'pikachu', hp_fraction: 1, status: null,
+    types: ['electric'], moves: [], active: true, fainted: false
+  };
+  const withBattle = reducePresentation(createPresentationState(match), event(1, 'state_snapshot', {
+    state: {
+      ...battle,
+      player: { ...battle.player, active, team: [active] },
+      opponent: { ...battle.opponent, active: { ...active, id: 'eevee', name: 'Eevee', species: 'eevee' }, team: [] }
+    }
+  }));
+  const damaged = reducePresentation(withBattle, event(2, 'damage', { target: 'p2a: Eevee', hp: '64/100' }));
+  assert.equal(damaged.battle?.opponent.active?.hp_fraction, 0.64);
+  assert.equal(damaged.effectValue, -36);
+  assert.equal(reducePresentation(damaged, event(3, 'super_effective', { target: 'p2a: Eevee' })).effect, 'super-effective');
+  assert.equal(reducePresentation(damaged, event(4, 'terrain_started', { field: 'electricterrain' })).effect, 'terrain');
+});
+
+test('maps internal Showdown winner usernames back to participant display names', () => {
+  const state = reducePresentation(
+    createPresentationState(match),
+    event(1, 'battle_finished', { winner_name: 'KoalaP1InternalIdentifier' })
+  );
+  assert.equal(state.winner, 'p1');
+  assert.equal(state.winnerName, 'Alpha');
 });

@@ -8,6 +8,7 @@
   import {
     defaultRendererConfig,
     type CommentaryMode,
+    type EffectQuality,
     type PlaybackSpeed,
     type RendererConfig,
     type RendererLayout,
@@ -84,12 +85,9 @@
 {#if snapshot}
   <section class="transport panel" aria-label="Replay controls">
     <div class="transport-buttons">
-      <button on:click={restartPlayback} aria-label="Restart replay">↺</button>
-      <button on:click={() => timeline?.previousTurn()} disabled={snapshot.index === 0}>Previous turn</button>
-      <button on:click={() => timeline?.previousEvent()} disabled={snapshot.index === 0}>Previous event</button>
-      <button class="play" on:click={togglePlayback}>{snapshot.playing ? 'Pause' : 'Play'}</button>
-      <button on:click={() => timeline?.nextEvent()} disabled={snapshot.index >= snapshot.eventCount}>Next event</button>
-      <button on:click={() => timeline?.nextTurn()} disabled={snapshot.index >= snapshot.eventCount}>Next turn</button>
+      <div><button on:click={restartPlayback}>Restart</button><button on:click={() => timeline?.previousTurn()} disabled={snapshot.index === 0}>Previous turn</button></div>
+      <div><button on:click={() => timeline?.previousEvent()} disabled={snapshot.index === 0}>Previous event</button><button class="play" on:click={togglePlayback}>{snapshot.playing ? 'Pause' : 'Play'}</button><button on:click={() => timeline?.nextEvent()} disabled={snapshot.index >= snapshot.eventCount}>Next event</button></div>
+      <div><button on:click={() => timeline?.nextTurn()} disabled={snapshot.index >= snapshot.eventCount}>Next turn</button></div>
     </div>
     <label class="timeline">Timeline <input type="range" min="0" max={snapshot.eventCount} value={snapshot.index} on:input={(event) => timeline?.seek(Number(event.currentTarget.value))} /><output>{Math.round((snapshot.index / Math.max(1, snapshot.eventCount)) * 100)}%</output></label>
     <div class="render-settings">
@@ -97,6 +95,7 @@
       <label>Layout<select value={config.layout} on:change={(event) => updateConfig({ layout: event.currentTarget.value as RendererLayout })}><option value="standard-landscape">Landscape 16:9</option><option value="standard-vertical">Vertical 9:16</option><option value="overlay-landscape">Overlay landscape</option></select></label>
       <label>Theme<select value={config.theme} on:change={(event) => updateConfig({ theme: event.currentTarget.value as RendererTheme })}><option value="koala-dark">Koala Dark</option><option value="koala-light">Koala Light</option></select></label>
       <label>Commentary<select value={config.commentaryMode} on:change={(event) => updateConfig({ commentaryMode: event.currentTarget.value as CommentaryMode })}><option value="latest">Latest</option><option value="last-3">Last 3</option><option value="full">Full history</option><option value="hidden">Hidden</option></select></label>
+      <label>Effects<select value={config.effects} on:change={(event) => updateConfig({ effects: event.currentTarget.value as EffectQuality })}><option value="off">Off</option><option value="low">Low</option><option value="standard">Standard</option><option value="high">High</option></select></label>
     </div>
   </section>
 {/if}
@@ -104,5 +103,5 @@
 {#if error}<p class="error">{error}</p>{/if}
 
 <style>
-  .replay-head{display:flex;justify-content:space-between;align-items:end;gap:1rem;margin-bottom:1.5rem}.replay-head h1{margin:.3rem 0 0;font-size:clamp(1.7rem,4vw,3rem)}.replay-head>span{color:var(--muted);font:.72rem var(--mono);white-space:nowrap}.transport{display:grid;gap:1rem;margin-top:1rem;padding:1rem;box-shadow:none}.transport-buttons{display:flex;flex-wrap:wrap;gap:.5rem}.transport button{min-height:40px;padding:.55rem .8rem;border:1px solid var(--border);border-radius:.55rem;background:var(--panel-strong);color:var(--text);cursor:pointer}.transport button:disabled{opacity:.4;cursor:not-allowed}.transport .play{min-width:88px;border-color:var(--accent);background:var(--accent);color:var(--accent-ink);font-weight:800}.timeline{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:.8rem}.timeline input{min-height:20px;padding:0}.timeline output{min-width:3.5rem;text-align:right;font:.7rem var(--mono)}.render-settings{display:grid;grid-template-columns:repeat(4,minmax(130px,1fr));gap:.7rem}.render-settings select{min-height:40px;padding:.5rem}.error{margin-top:1rem}@media(max-width:850px){.render-settings{grid-template-columns:repeat(2,1fr)}}@media(max-width:560px){.replay-head{align-items:start;flex-direction:column}.transport-buttons{display:grid;grid-template-columns:repeat(2,1fr)}.transport-buttons button:first-child,.transport-buttons .play{grid-column:1/-1}.render-settings{grid-template-columns:1fr}}
+  .replay-head{display:flex;justify-content:space-between;align-items:end;gap:1rem;margin-bottom:1.5rem}.replay-head h1{margin:.3rem 0 0;font-size:clamp(1.7rem,4vw,3rem)}.replay-head>span{color:var(--muted);font:.72rem var(--mono);white-space:nowrap}.transport{display:grid;gap:1rem;margin-top:1rem;padding:1rem;box-shadow:none}.transport-buttons{display:grid;grid-template-columns:1fr auto 1fr;gap:.7rem}.transport-buttons>div{display:flex;gap:.4rem}.transport-buttons>div:last-child{justify-content:flex-end}.transport button{min-height:40px;padding:.55rem .8rem;border:1px solid var(--border);border-radius:.55rem;background:var(--panel-strong);color:var(--text);cursor:pointer}.transport button:disabled{opacity:.4;cursor:not-allowed}.transport .play{min-width:88px;border-color:var(--accent);background:var(--accent);color:var(--accent-ink);font-weight:800}.timeline{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:.8rem}.timeline input{min-height:20px;padding:0;accent-color:var(--accent)}.timeline output{min-width:3.5rem;text-align:right;font:.7rem var(--mono)}.render-settings{display:grid;grid-template-columns:repeat(4,minmax(130px,1fr));gap:.7rem;padding-top:1rem;border-top:1px solid var(--border)}.render-settings select{min-height:40px;padding:.5rem}.error{margin-top:1rem}@media(max-width:850px){.transport-buttons{grid-template-columns:1fr}.transport-buttons>div,.transport-buttons>div:last-child{justify-content:center}.render-settings{grid-template-columns:repeat(2,1fr)}}@media(max-width:560px){.replay-head{align-items:start;flex-direction:column}.transport-buttons>div{display:grid;grid-template-columns:1fr 1fr}.transport-buttons>div:nth-child(2){grid-template-columns:1fr}.render-settings{grid-template-columns:1fr}}
 </style>

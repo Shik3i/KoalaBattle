@@ -1,7 +1,7 @@
 import type { BattleEvent, BattleState, MatchArchive, Side } from '../types.ts';
 
 export const RENDERER_VERSION = '2.0.0';
-export const RENDERER_CONFIG_VERSION = '1.0';
+export const RENDERER_CONFIG_VERSION = '2.0';
 
 export type RendererLayout =
   | 'standard-landscape'
@@ -32,8 +32,28 @@ export type BattleEffect =
   | 'miss'
   | 'healing'
   | 'status'
+  | 'super-effective'
+  | 'resisted'
+  | 'immune'
+  | 'weather'
+  | 'terrain'
+  | 'barrier'
   | 'faint'
   | 'victory';
+
+export type PokemonType =
+  | 'normal' | 'fire' | 'water' | 'electric' | 'grass' | 'ice'
+  | 'fighting' | 'poison' | 'ground' | 'flying' | 'psychic' | 'bug'
+  | 'rock' | 'ghost' | 'dragon' | 'dark' | 'steel' | 'fairy';
+export type MoveVisualArchetype = 'physical' | 'special' | 'status';
+export type EffectQuality = 'off' | 'low' | 'standard' | 'high';
+
+export interface MoveVisualProfile {
+  type: PokemonType;
+  archetype: MoveVisualArchetype;
+  moveName: string;
+  seed: number;
+}
 
 export interface RendererConfig {
   version: typeof RENDERER_CONFIG_VERSION;
@@ -47,6 +67,9 @@ export interface RendererConfig {
   showAgentState: boolean;
   transparentBackground: boolean;
   animatedSprites: boolean;
+  effects: EffectQuality;
+  reducedMotion: boolean;
+  showDamageNumbers: boolean;
   nearSide: Side;
 }
 
@@ -86,8 +109,10 @@ export interface BattlePresentationState {
   battle: BattleState | null;
   players: Record<Side, PlayerPresentationState>;
   currentMove: string | null;
+  currentMoveProfile: MoveVisualProfile | null;
   effect: BattleEffect;
   effectSide: Side | null;
+  effectValue: number | null;
   log: SpectatorLogEntry[];
   winner: Side | null;
   winnerName: string | null;
@@ -117,6 +142,9 @@ export const defaultRendererConfig = (
   showAgentState: true,
   transparentBackground: false,
   animatedSprites: true,
+  effects: 'standard',
+  reducedMotion: false,
+  showDamageNumbers: true,
   nearSide: 'p1',
   ...overrides
 });

@@ -6,9 +6,10 @@ tournament, watch, control, and OBS interfaces. Pokémon Showdown supports Gen 9
 Battle and validated fixed-team Gen 9 OU; the tournament core consumes generic participants
 and results.
 
-Phase 7 adds incrementally finalized production timelines, persistent video export jobs,
-realtime OBS recording, and deterministic headless offline rendering. Only stored events,
-local assets, and cached audio are used; rendering never reruns Showdown or battle LLMs.
+Phase 8 adds a polished animated battle presentation, all-type/category procedural attack
+visuals, indexed deterministic replay, and a bounded parallel offline renderer. Only stored
+events, local assets, and cached audio are used; rendering never reruns Showdown or battle
+LLMs. OBS remains the realtime live/recording path.
 
 Supported agents: Random, Manual Web Chat, OpenAI, Gemini, Anthropic, DeepSeek, and generic
 OpenAI-compatible providers. Manual Web Chat needs no API key.
@@ -121,6 +122,10 @@ and FFmpeg/FFprobe must be available. CLI example:
 Details: [Video export](docs/VIDEO_EXPORT.md),
 [Offline renderer](docs/OFFLINE_RENDERER.md), and
 [OBS recording](docs/OBS_RECORDING.md).
+
+On the measured macOS development host, full 1080p60 renders improved from 70.42 s to
+51.76 s for 27.605 s of media (`0.533x` realtime). Fast Preview rendered the same media in
+14.63 s (`1.887x`). See [Performance](docs/PERFORMANCE.md) for methodology and limits.
 
 ## Persistent data and backups
 

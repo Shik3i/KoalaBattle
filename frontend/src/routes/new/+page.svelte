@@ -188,7 +188,7 @@
     <label>Total cost limit (USD)<input type="number" min="0" step="0.01" bind:value={maximumTotalCost} placeholder="No limit" /></label>
     <label>Maximum turns<input type="number" min="1" bind:value={maximumTurns} placeholder="No limit" /></label>
   </section>
-  <div class="launch">{#if error}<span class="error" role="alert">{error}</span>{/if}<button class="button" disabled={loading}>{loading ? 'Starting…' : 'Start battle →'}</button></div>
+  <div class="launch">{#if error}<span class="error" role="alert">{error}</span>{/if}<button class:loading class="button" disabled={loading}>{loading ? 'Starting…' : 'Review & start match →'}</button></div>
 </form>
 
 <style>

@@ -75,3 +75,54 @@ both produced exactly 300 frames and 5.000 s while their final SHA-256 hashes di
 would require approximately the media duration because it records in realtime; on this host,
 the current screenshot pipeline is slower than OBS realtime. The offline advantage is
 unattended queue/batch operation and explicit-time reproducibility, not speed on this machine.
+
+## Phase 8 renderer profile and result
+
+Phase 8 repeated the landscape production above on the same host with the same
+1920x1080/60 FPS, JPEG quality 92, and software `libx264` settings. The exact Phase-7
+pipeline profile took 70.420 s for 27.605 s of media (`0.392x`). Screenshot capture and
+transfer consumed 64.885 s, or 92.1% of wall time; layout was 0.034 s, style recalculation
+0.969 s, script 0.329 s, and FFmpeg pipe backpressure only 0.248 s. The dominant cost was
+therefore browser screenshot transport, not replay reduction, layout, or encoding.
+
+Candidate measurements used the same rendered page. For 180 1080p frames, Playwright JPEG
+92 captured at 29.72 FPS, JPEG 75 at 30.52 FPS, CDP JPEG 92 at 27.75 FPS, and CDP WebP 75 at
+7.40 FPS. `HeadlessExperimental.beginFrame` was unavailable in the installed Chrome, and CDP
+screencast did not provide an explicit-time frame for each request. Separate browser processes
+also regressed throughput. Four preloaded pages in one browser reached 46.19 capture FPS in
+the 360-frame prototype, versus 25.22 FPS for one page.
+
+The production implementation uses a bounded four-page pool in one isolated browser context.
+Each page receives an explicit absolute logical time; one small batch is captured concurrently,
+then written to FFmpeg in frame-index order with `drain()` after every frame. Memory is bounded
+to one batch, cancellation is checked between batches, and no frame files are written.
+Animations in offline frames are functions of logical cue progress rather than browser time.
+
+Actual full exports after the change:
+
+| Production | Output | Frames | Media duration | Wall time | Media / wall | Change |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| YouTube full | 1920x1080, 60 FPS | 1,657 | 27.605 s | 51.756 s | 0.533x | 26.5% less wall time |
+| Shorts full | 1080x1920, 60 FPS | 1,304 | 21.725 s | 45.550 s | 0.477x | 18.5% less wall time |
+| Fast Preview | 1280x720, 30 FPS | 829 | 27.605 s | 14.633 s | 1.887x | exceeds realtime |
+| Historical 31-turn replay | 1280x720, 30 FPS | 8,546 | 284.840 s | 170.939 s | 1.666x | full long-match gate |
+
+The 1080p60 target did not reach realtime on this machine. The best measured result is
+`0.533x`; reporting it as faster than realtime would be incorrect. The remaining bottleneck
+is still JPEG screenshot capture/transfer. The practical 720p30 preview exceeds realtime,
+while the added 1080p30 presets trade temporal resolution for roughly half the required
+captures without silently changing the existing 60 FPS presets.
+
+The landscape manifest measured 47.689 s in the frame loop, 11.037 worker-seconds in state
+updates, 169.698 worker-seconds in parallel capture, 0.538 s of pipe backpressure, and 0.104 s
+of encoder finalization. Worker-seconds overlap and must not be added to wall time. Run a
+stored production again with:
+
+```bash
+PYTHONPATH=backend .venv/bin/python scripts/benchmark_renderer.py PRODUCTION_ID \
+  --preset youtube-1080p60 --encoder software --workers 4
+```
+
+Three real render/cancel cycles left no owned Chromium/FFmpeg process or temporary file.
+During the long render, a Random-vs-Random match completed with 106 events; match creation,
+Admin API/UI, and WebSocket response remained 56 ms, 157/113 ms, and 75 ms respectively.

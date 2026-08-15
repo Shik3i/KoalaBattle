@@ -2,6 +2,7 @@ import type { Side } from '../types.ts';
 import {
   defaultRendererConfig,
   type CommentaryMode,
+  type EffectQuality,
   type PresentationPreset,
   type RendererConfig,
   type RendererLayout,
@@ -13,6 +14,7 @@ const layouts: RendererLayout[] = ['standard-landscape', 'standard-vertical', 'o
 const themes: RendererTheme[] = ['koala-dark', 'koala-light'];
 const presets: PresentationPreset[] = ['live', 'video', 'fast', 'instant'];
 const commentaryModes: CommentaryMode[] = ['latest', 'last-3', 'full', 'hidden'];
+const effectQualities: EffectQuality[] = ['off', 'low', 'standard', 'high'];
 
 export function loadRendererConfig(): RendererConfig {
   if (typeof localStorage === 'undefined') return defaultRendererConfig();
@@ -50,6 +52,9 @@ export function sanitizeRendererConfig(value: unknown): RendererConfig {
       defaults.transparentBackground
     ),
     animatedSprites: booleanOrDefault(candidate.animatedSprites, defaults.animatedSprites),
+    effects: includes(effectQualities, candidate.effects) ? candidate.effects : defaults.effects,
+    reducedMotion: booleanOrDefault(candidate.reducedMotion, defaults.reducedMotion),
+    showDamageNumbers: booleanOrDefault(candidate.showDamageNumbers, defaults.showDamageNumbers),
     nearSide:
       candidate.nearSide === 'p2' ? 'p2' : candidate.nearSide === 'p1' ? 'p1' : defaults.nearSide
   });
@@ -58,16 +63,23 @@ export function sanitizeRendererConfig(value: unknown): RendererConfig {
 export function configFromQuery(search: URLSearchParams): RendererConfig {
   const base = loadRendererConfig();
   const transparent = search.get('transparent');
+  const reducedMotion = search.get('reducedMotion');
+  const damageNumbers = search.get('damageNumbers');
   return sanitizeRendererConfig({
     ...base,
     layout: search.get('layout') || base.layout,
     theme: search.get('theme') || base.theme,
     preset: search.get('preset') || base.preset,
     commentaryMode: search.get('commentary') || base.commentaryMode,
+    effects: search.get('effects') || base.effects,
     nearSide: (search.get('near') as Side | null) || base.nearSide,
     transparentBackground:
       transparent === null ? base.transparentBackground : transparent === '1' || transparent === 'true',
-    showBattleLog: search.get('log') === null ? base.showBattleLog : search.get('log') !== '0'
+    showBattleLog: search.get('log') === null ? base.showBattleLog : search.get('log') !== '0',
+    reducedMotion:
+      reducedMotion === null ? base.reducedMotion : reducedMotion === '1' || reducedMotion === 'true',
+    showDamageNumbers:
+      damageNumbers === null ? base.showDamageNumbers : damageNumbers !== '0' && damageNumbers !== 'false'
   });
 }
 

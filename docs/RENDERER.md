@@ -16,8 +16,9 @@ objects, raw Showdown state, engine WebSocket, or agent connection.
 
 ## Presentation state
 
-Transient state includes Pokémon motion (`attacking`, `taking-damage`, `switching-in`,
-`fainting`, `status-flash`), generic effects, public commentary history, agent audience
+Transient state includes Pokémon motion (`idle`, `attacking`, `taking-damage`, `switching-in`,
+`switching-out`, `fainting`, `status-flash`), type/category move profiles, damage/heal values,
+effectiveness, weather, terrain, side conditions, public commentary history, agent audience
 state, current move, winner, and a normalized spectator feed. None is written back to
 `BattleState` or SQLite.
 
@@ -35,12 +36,19 @@ assume that `p1` is permanently fixed to one visual side.
 
 ## Effects and performance
 
-Generic CSS motion covers idle, attack, hit, switch, faint, status, miss, healing, critical
-hit, and victory. Playback speed controls scheduler and HP interpolation durations.
+Procedural CSS motion covers all 18 move types and physical, special, and status archetypes,
+including projectile/beam/charge layers, seeded particles, arena-local impact shake, HP ghost
+bars, damage/heal numbers, effectiveness, field states, switch/faint, and victory. It contains
+no extracted game VFX or battle backgrounds. Playback speed controls scheduler and HP
+interpolation durations.
 `prefers-reduced-motion` collapses decorative motion.
 
 Only the current presentation state and the last five spectator messages are rendered.
 History pages continue to use `MatchSummary`; heavyweight events load only for battle,
 replay, and overlay routes. Timers and listeners are destroyed on route teardown.
 
-Renderer version: `2.0.0`. Renderer configuration version: `1.0`.
+The offline route builds one indexed `ProductionFrameRenderer` per page. Timeline tracks and
+presentation snapshots are indexed once; binary search selects the current state, including
+backward seeks and future-information boundaries.
+
+Renderer version: `2.0.0`. Renderer configuration version: `2.0`.

@@ -102,7 +102,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app = FastAPI(
         title="KoalaBattle API",
-        version="0.7.0",
+        version="0.8.0",
         description="Auditable AI battle tournaments, deterministic production and video API",
         lifespan=lifespan,
     )
@@ -116,7 +116,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/healthz")
     async def health() -> dict[str, str]:
-        return {"status": "ok", "version": "0.7.0"}
+        return {"status": "ok", "version": "0.8.0"}
 
     @app.get("/api/video/presets", response_model=tuple[VideoExportPreset, ...])
     async def video_presets(request: Request) -> tuple[VideoExportPreset, ...]:
