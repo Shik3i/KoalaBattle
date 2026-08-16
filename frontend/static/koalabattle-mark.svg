@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="KoalaBattle">
+  <defs><linearGradient id="bg" x1="8" y1="4" x2="55" y2="60" gradientUnits="userSpaceOnUse"><stop stop-color="#9af0b1"/><stop offset="1" stop-color="#43ad69"/></linearGradient><linearGradient id="fur" x1="20" y1="15" x2="43" y2="51" gradientUnits="userSpaceOnUse"><stop stop-color="#f2f7f3"/><stop offset="1" stop-color="#b8c9bc"/></linearGradient></defs>
+  <rect x="2" y="2" width="60" height="60" rx="17" fill="url(#bg)"/>
+  <circle cx="17" cy="22" r="11" fill="#748c7a"/><circle cx="47" cy="22" r="11" fill="#748c7a"/>
+  <circle cx="17" cy="22" r="6.5" fill="#9fb1a3"/><circle cx="47" cy="22" r="6.5" fill="#9fb1a3"/>
+  <path d="M14 34c0-13 7.6-21 18-21s18 8 18 21c0 12-7 20-18 20s-18-8-18-20Z" fill="url(#fur)"/>
+  <path d="m42 17-7 9h5l-6 10 12-13h-5l5-6Z" fill="#43ad69" opacity=".92"/>
+  <circle cx="25" cy="33" r="2.7" fill="#102217"/><circle cx="39" cy="33" r="2.7" fill="#102217"/>
+  <ellipse cx="32" cy="42" rx="7" ry="5.5" fill="#102217"/>
+  <path d="M28 49c2.6 1.7 5.4 1.7 8 0" fill="none" stroke="#102217" stroke-width="2" stroke-linecap="round"/>
+  <path d="M10 11 7 8m47 3 3-3" stroke="#f2f7f3" stroke-width="2.3" stroke-linecap="round" opacity=".8"/>
+</svg>

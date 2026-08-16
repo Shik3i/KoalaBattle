@@ -127,6 +127,12 @@
   export function restart() {
     engine?.restart();
   }
+
+  const commandIcon = (command: string) => ({
+    'show-intro': 'ph-play-circle', 'show-team-reveal': 'ph-users-three', start: 'ph-play',
+    pause: 'ph-pause', resume: 'ph-play', 'show-result': 'ph-check-circle',
+    'show-champion': 'ph-trophy', end: 'ph-x'
+  })[command] || 'ph-sparkle';
 </script>
 
 {#if production && playback}
@@ -161,17 +167,17 @@
     <div class="setup-row">
       <label>Profile<select bind:value={selectedProfile}>{#each profiles as profile}<option value={profile.id}>{profile.display_name}</option>{/each}</select></label>
       <label>Player 1 voice<select bind:value={selectedP1}>{#each voices as voice}<option value={voice.id}>{voice.display_name}</option>{/each}</select></label>
-      <button on:click={() => preview(selectedP1)}>Preview P1</button>
+      <button on:click={() => preview(selectedP1)}><i class="ph ph-waveform" aria-hidden="true"></i>Preview P1</button>
       <label>Player 2 voice<select bind:value={selectedP2}>{#each voices as voice}<option value={voice.id}>{voice.display_name}</option>{/each}</select></label>
-      <button on:click={() => preview(selectedP2)}>Preview P2</button>
-      <button on:click={create} disabled={busy}>Create separate production</button>
-      {#if production}<button on:click={prepare} disabled={busy || production.status === 'preparing'}>Prepare speech audio</button>{/if}
-      <button class="enable" on:click={() => engine?.enable()} disabled={playback?.enabled}>{playback?.enabled ? 'Audio enabled' : 'Enable audio'}</button>
+      <button on:click={() => preview(selectedP2)}><i class="ph ph-waveform" aria-hidden="true"></i>Preview P2</button>
+      <button on:click={create} disabled={busy}><i class="ph ph-plus" aria-hidden="true"></i>Create separate production</button>
+      {#if production}<button on:click={prepare} disabled={busy || production.status === 'preparing'}><i class="ph ph-sparkle" aria-hidden="true"></i>Prepare speech audio</button>{/if}
+      <button class="enable" on:click={() => engine?.enable()} disabled={playback?.enabled}><i class={`ph ${playback?.enabled ? 'ph-check' : 'ph-waveform'}`} aria-hidden="true"></i>{playback?.enabled ? 'Audio enabled' : 'Enable audio'}</button>
     </div>
     {#if production && playback}
       <div class="transport-row">
-        <button on:click={() => { engine?.restart(); engine?.play(); }}>Restart</button>
-        <button on:click={() => playback?.playing ? engine?.pause() : engine?.play()}>{playback.playing ? 'Pause production' : 'Play production'}</button>
+        <button on:click={() => { engine?.restart(); engine?.play(); }}><i class="ph ph-arrows-clockwise" aria-hidden="true"></i>Restart</button>
+        <button on:click={() => playback?.playing ? engine?.pause() : engine?.play()}><i class={`ph ${playback.playing ? 'ph-pause' : 'ph-play'}`} aria-hidden="true"></i>{playback.playing ? 'Pause production' : 'Play production'}</button>
         <input aria-label="Production position" type="range" min="0" max={Math.max(1, playback.durationMs)} value={playback.elapsedMs} on:input={(event) => engine?.seek(Number(event.currentTarget.value))} />
         <output>{(playback.elapsedMs / 1000).toFixed(1)}s / {(playback.durationMs / 1000).toFixed(1)}s</output>
       </div>
@@ -183,7 +189,7 @@
       <div class="director">
         <strong>Director: {production.director_state}</strong>
         {#each ['show-intro', 'show-team-reveal', 'start', 'pause', 'resume', 'show-result', 'show-champion', 'end'] as command}
-          <button on:click={() => direct(command)}>{command}</button>
+          <button on:click={() => direct(command)}><i class={`ph ${commandIcon(command)}`} aria-hidden="true"></i>{command}</button>
         {/each}
       </div>
       <details>
@@ -200,5 +206,6 @@
 {/if}
 
 <style>
+  .setup-row button,.transport-row button,.director button,.compact-audio button{display:inline-flex;align-items:center;justify-content:center;gap:.38rem;min-height:40px;padding:.55rem .72rem;border:1px solid var(--border);border-radius:.58rem;background:var(--panel-strong);color:var(--text);font-size:.76rem;font-weight:700;cursor:pointer;transition:transform .16s ease,border-color .16s ease,background .16s ease,box-shadow .16s ease}.setup-row button:hover:not(:disabled),.transport-row button:hover:not(:disabled),.director button:hover:not(:disabled){transform:translateY(-1px);border-color:color-mix(in srgb,var(--accent) 42%,var(--border));background:var(--surface);box-shadow:var(--shadow-sm)}.setup-row button:active:not(:disabled),.transport-row button:active:not(:disabled),.director button:active:not(:disabled){transform:scale(.985)}.setup-row button:disabled,.transport-row button:disabled,.director button:disabled{opacity:.5;cursor:not-allowed}.setup-row button .ph,.transport-row button .ph,.director button .ph{color:var(--accent);font-size:1rem}.enable{border-color:var(--accent)!important}
   .production{position:relative;display:grid;gap:1rem;margin-top:1rem;padding:1rem}.production-head,.setup-row,.transport-row,.director{display:flex;align-items:center;justify-content:space-between;gap:.7rem;flex-wrap:wrap}.production-head h2{margin:.2rem 0 0}.setup-row label{min-width:160px}.setup-row select,.setup-row button,.transport-row button,.director button{min-height:40px}.enable{border-color:var(--accent)!important}.transport-row input{flex:1;min-width:180px}.transport-row output{font:.7rem var(--mono)}.mixer{display:grid;grid-template-columns:repeat(4,1fr);gap:.8rem}.mixer label{display:grid;gap:.35rem;text-transform:capitalize}.mixer input{padding:0}.director{justify-content:flex-start}.director strong{margin-right:auto}.cue-list{display:grid;max-height:320px;overflow:auto;margin-top:.7rem}.cue-list button{display:grid;grid-template-columns:70px 100px 1fr 30px;gap:.6rem;text-align:left;border:0;border-bottom:1px solid var(--border);border-radius:0;background:transparent;color:var(--text);font:.68rem var(--mono)}.compact-audio{position:fixed;z-index:40;left:1rem;bottom:1rem;display:flex;align-items:center;gap:.6rem;padding:.45rem .6rem;border:1px solid rgba(255,255,255,.18);border-radius:.55rem;background:rgba(8,16,11,.86);color:white;font:.65rem var(--mono)}.compact-audio button{min-height:34px}.compact-audio.overlay{bottom:1rem}@media(max-width:700px){.mixer{grid-template-columns:repeat(2,1fr)}.cue-list button{grid-template-columns:60px 80px 1fr}.cue-list button span:last-child{display:none}}
 </style>

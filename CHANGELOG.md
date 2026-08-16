@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- replaced placeholder product branding with a dedicated KoalaBattle mark and Phosphor UI icons;
+- added a reduced-motion-aware interaction system, stronger navigation, focus, loading, and
+  responsive feedback;
+- aligned battle HP/status cards with familiar competitive-battle readability while preserving
+  the original asset-free Verdant Circuit presentation;
+- corrected speech-provider labels and export-preflight status semantics; and
+- reorganized newcomer documentation and removed internal implementation-milestone terminology.
+
 ## 0.10.0 - 2026-08-16
 
 Release-candidate baseline for local dogfooding:

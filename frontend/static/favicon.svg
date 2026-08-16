@@ -1,4 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="KoalaBattle">
-  <rect width="64" height="64" rx="16" fill="#7ee09a"/>
-  <path fill="#092111" d="M14 15h8v13l11-13h10L30 30l14 19H34L24 35l-2 2v12h-8z"/>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="KoalaBattle"><rect x="2" y="2" width="60" height="60" rx="17" fill="#65cf82"/><circle cx="17" cy="22" r="11" fill="#748c7a"/><circle cx="47" cy="22" r="11" fill="#748c7a"/><path d="M14 34c0-13 7.6-21 18-21s18 8 18 21c0 12-7 20-18 20s-18-8-18-20Z" fill="#dce7de"/><path d="m42 17-7 9h5l-6 10 12-13h-5l5-6Z" fill="#43ad69"/><circle cx="25" cy="33" r="2.7" fill="#102217"/><circle cx="39" cy="33" r="2.7" fill="#102217"/><ellipse cx="32" cy="42" rx="7" ry="5.5" fill="#102217"/></svg>

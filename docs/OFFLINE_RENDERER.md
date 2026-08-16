@@ -50,7 +50,7 @@ automatically after a native failure.
 
 ## Output and audio
 
-Voice clips and operator-installed music come from the validated Phase-6 cache with fixed cue
+Voice clips and operator-installed music come from the validated production cache with fixed cue
 offsets. Generic SFX remain locally synthesized. Voice intervals apply the production profile's
 ducking gain before AAC mux. Captions are burned into Canvas frames and retained as an SRT
 sidecar. FFprobe verifies resolution, duration, stream presence, and final H.264 MP4 output
@@ -76,4 +76,4 @@ PYTHONPATH=backend .venv/bin/python scripts/benchmark_renderer.py PRODUCTION_ID 
 ```
 
 The optional Docker `renderer` profile pins the runtime shape through `Dockerfile.renderer`.
-See `docs/PERFORMANCE.md` for the measured Phase-8 comparison and Phase-9 stage profile.
+See `docs/PERFORMANCE.md` for the measured screenshot comparison and native stage profile.

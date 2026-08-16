@@ -182,7 +182,7 @@
   >
     <div class="ambient" aria-hidden="true"></div>
     <header class="scoreboard">
-      <div class="brand-lockup"><span>KB</span><strong>KOALABATTLE <em>// VERDANT CIRCUIT</em></strong></div>
+      <div class="brand-lockup"><img src="/koalabattle-mark.svg" alt="" /><strong>KOALABATTLE <em>// VERDANT CIRCUIT</em></strong></div>
       {#if config.showTurn}<div class="turn">TURN <strong>{presentation.battle?.turn ?? 0}</strong></div>{/if}
       <div class="format">{presentation.format === 'gen9ou' ? 'GEN 9 · OU' : 'GEN 9 · RANDOM BATTLE'}</div>
     </header>
@@ -246,7 +246,7 @@
               </div>
             {/key}
           </div>
-          <div class="vitals"><div><small>HP</small>{#if far.active.status}<span class="status" title={readableStatus(far.active.status)}>{far.active.status}<small>{readableStatus(far.active.status)}</small></span>{/if}</div><strong>{hpLabel(far.active)}</strong></div>
+          <div class="vitals"><span class="vital-name">{far.active.name}</span><div><small>HP</small>{#if far.active.status}<span class="status" title={readableStatus(far.active.status)}>{far.active.status}<small>{readableStatus(far.active.status)}</small></span>{/if}</div><strong>{hpLabel(far.active)}</strong></div>
           <div class="hp-track" data-tone={hpTone(far.active.hp_fraction)}><b style={`width:${previousHp(farSide, far.active.hp_fraction) * 100}%`}></b><i style={`width:${far.active.hp_fraction * 100}%`}></i></div>
         </article>
       {/if}
@@ -270,7 +270,7 @@
               </div>
             {/key}
           </div>
-          <div class="vitals"><div><small>HP</small>{#if near.active.status}<span class="status" title={readableStatus(near.active.status)}>{near.active.status}<small>{readableStatus(near.active.status)}</small></span>{/if}</div><strong>{hpLabel(near.active)}</strong></div>
+          <div class="vitals"><span class="vital-name">{near.active.name}</span><div><small>HP</small>{#if near.active.status}<span class="status" title={readableStatus(near.active.status)}>{near.active.status}<small>{readableStatus(near.active.status)}</small></span>{/if}</div><strong>{hpLabel(near.active)}</strong></div>
           <div class="hp-track" data-tone={hpTone(near.active.hp_fraction)}><b style={`width:${previousHp(nearSide, near.active.hp_fraction) * 100}%`}></b><i style={`width:${near.active.hp_fraction * 100}%`}></i></div>
         </article>
       {/if}
@@ -368,4 +368,15 @@
   .battle-renderer[data-layout='standard-vertical']{grid-template-columns:1fr;grid-template-rows:auto minmax(760px,1fr) auto;width:min(100%,680px);min-height:1100px;padding:18px}.battle-renderer[data-layout='standard-vertical'] .scoreboard{grid-column:1;grid-row:1}.battle-renderer[data-layout='standard-vertical'] .arena-stage{grid-column:1;grid-row:2;min-height:760px}.battle-renderer[data-layout='standard-vertical'] .player-card{grid-column:1;grid-row:2;width:90%;margin-top:22px}.battle-renderer[data-layout='standard-vertical'] .player-near{align-self:end;margin-bottom:25px}.battle-renderer[data-layout='standard-vertical'] .player-far{align-self:start}.battle-renderer[data-layout='standard-vertical'] .combatant{width:58%}.battle-renderer[data-layout='standard-vertical'] .combatant-far{top:29%;right:1%}.battle-renderer[data-layout='standard-vertical'] .combatant-near{bottom:16%;left:1%}.battle-renderer[data-layout='standard-vertical'] .battle-center{top:52%;width:62%}.battle-renderer[data-layout='standard-vertical'] .battle-log{grid-column:1;grid-row:3}.battle-renderer[data-layout='standard-vertical'] .commentary{display:none}
   @media(max-width:900px){.battle-renderer:not([data-layout='standard-vertical']){grid-template-columns:1fr 1fr;grid-template-rows:auto minmax(470px,1fr) auto;min-height:620px}.battle-renderer:not([data-layout='standard-vertical']) .scoreboard{grid-column:1/-1}.battle-renderer:not([data-layout='standard-vertical']) .arena-stage{grid-column:1/-1;grid-row:2}.battle-renderer:not([data-layout='standard-vertical']) .player-card{grid-row:2;width:96%;margin-top:16px}.battle-renderer:not([data-layout='standard-vertical']) .player-near{grid-column:1}.battle-renderer:not([data-layout='standard-vertical']) .player-far{grid-column:2}.battle-renderer:not([data-layout='standard-vertical']) .battle-log{grid-column:1/-1;grid-row:3}.commentary{display:none}.combatant{width:44%}.combatant-far{top:31%;right:2%}.combatant-near{left:2%}}
   @media(max-width:560px){.battle-renderer:not([data-layout='standard-vertical']){grid-template-columns:1fr;grid-template-rows:auto 520px auto;min-height:650px}.battle-renderer:not([data-layout='standard-vertical']) .player-card{grid-column:1;width:92%}.battle-renderer:not([data-layout='standard-vertical']) .player-far{justify-self:end}.battle-renderer:not([data-layout='standard-vertical']) .player-near{align-self:end;margin-bottom:12px}.battle-renderer:not([data-layout='standard-vertical']) .arena-stage{min-height:520px}.battle-renderer:not([data-layout='standard-vertical']) .battle-log{grid-column:1;grid-row:3}.combatant{width:53%}.combatant-far{top:27%}.combatant-near{bottom:17%}.battle-center{top:51%;width:58%;padding:.55rem 1rem}.player-card h2{font-size:1rem}.vitals{font-size:.65rem}}
+
+  /* Familiar battle readability with an original KoalaBattle surface language. */
+  .brand-lockup img{width:34px;aspect-ratio:1;filter:drop-shadow(0 0 12px rgba(120,255,169,.24))}.brand-lockup{display:flex;align-items:center;gap:.65rem}
+  .combatant .identity{position:relative;padding:.72rem .82rem .58rem;border:2px solid rgba(238,247,241,.78);border-bottom:0;border-left:0;border-radius:18px 18px 0 0;background:linear-gradient(145deg,rgba(248,252,249,.96),rgba(210,224,214,.93));color:#132018;clip-path:none;box-shadow:0 12px 30px rgba(0,0,0,.28)}
+  .combatant .identity::before{position:absolute;top:0;bottom:0;left:0;width:7px;border-radius:16px 0 0;background:var(--fighter-color);box-shadow:0 0 16px color-mix(in srgb,var(--fighter-color) 42%,transparent);content:''}
+  .combatant .identity strong{color:#132018;text-shadow:none}.combatant .identity small{color:color-mix(in srgb,var(--fighter-color) 72%,#102117)}.combatant .type-badge{box-shadow:inset 0 1px rgba(255,255,255,.55),0 2px 7px rgba(0,0,0,.12)}
+  .combatant .vitals{display:flex;align-items:center;justify-content:space-between;gap:.6rem;margin:0;padding:.42rem .7rem .38rem;border-inline:2px solid rgba(238,247,241,.78);background:rgba(8,14,11,.94)}.combatant .vitals>div>small{display:inline-grid;place-items:center;min-width:28px;height:20px;border-radius:999px;background:#f0bf3f;color:#172016;font-weight:950}.combatant .vitals>strong{color:#f5fbf7;font-size:.7rem;letter-spacing:.04em}.vital-name{display:none;min-width:0;overflow:hidden;color:#f5fbf7;font-size:.68rem;font-weight:950;text-overflow:ellipsis;text-transform:uppercase;white-space:nowrap}.combatant-near .vital-name{display:block}.combatant-near .vitals>div{margin-left:auto}
+  .combatant .status{padding:.18rem .45rem;border-radius:999px;background:var(--warning);color:#231b05;font:900 .52rem var(--mono);text-transform:uppercase}.combatant .status small{display:none}
+  .combatant .hp-track{height:17px;padding:3px;border:2px solid rgba(238,247,241,.78);border-top:0;border-radius:0 0 14px 14px;background:#111a15;box-shadow:inset 0 0 0 2px rgba(0,0,0,.4),0 9px 22px rgba(0,0,0,.28);overflow:hidden}.combatant .hp-track b,.combatant .hp-track i{top:3px;bottom:3px;left:3px;height:auto;border-radius:999px}.combatant .hp-track i{background:linear-gradient(180deg,color-mix(in srgb,var(--hp-color) 72%,white),var(--hp-color) 52%,color-mix(in srgb,var(--hp-color) 74%,black));box-shadow:inset 0 2px rgba(255,255,255,.48),0 0 9px color-mix(in srgb,var(--hp-color) 50%,transparent)}
+  .combatant .hp-track[data-tone='high']{--hp-color:#55d775}.combatant .hp-track[data-tone='mid']{--hp-color:#efbd3e}.combatant .hp-track[data-tone='low']{--hp-color:#eb5b55}.combatant .hp-track b{background:#fff1a8}
+  @media(max-width:560px){.brand-lockup img{width:30px}.combatant{width:50%}.combatant-far{top:21%;right:1%}.combatant-near{bottom:6%;left:1%}.combatant .identity{border-radius:12px 12px 0 0;padding:.5rem .58rem .4rem}.combatant .identity>span{flex-wrap:wrap}.combatant .type-badge{padding:.12rem .32rem;font-size:.45rem}.combatant .hp-track{border-radius:0 0 10px 10px}.vital-name{max-width:72px}}
 </style>

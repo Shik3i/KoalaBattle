@@ -34,7 +34,7 @@ Run documentation/setup checks from the repository root:
 python3 scripts/check_docs.py
 python3 scripts/setup_assets.py status
 docker compose config --quiet
-PYTHONPATH=backend .venv/bin/python scripts/benchmark_phase5.py
+PYTHONPATH=backend .venv/bin/python scripts/benchmark_orchestration.py
 PYTHONPATH=backend .venv/bin/python scripts/benchmark_renderer.py PRODUCTION_ID \
   --preset youtube-1080p60 --encoder software --workers 4
 ```

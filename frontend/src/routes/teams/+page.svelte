@@ -59,7 +59,7 @@
   }
 </script>
 
-<div class="page-head"><div><span class="eyebrow">Private local team library</span><h1>Gen 9 OU teams</h1><p>Every imported or generated team is parsed, normalized and legality-checked by the pinned Pokémon Showdown runtime.</p></div><a class="button secondary" href="/new">Use in battle →</a></div>
+<div class="page-head"><div><span class="eyebrow">Private local team library</span><h1>Gen 9 OU teams</h1><p>Every imported or generated team is parsed, normalized and legality-checked by the pinned Pokémon Showdown runtime.</p></div><a class="button secondary" href="/new"><i class="ph ph-sword" aria-hidden="true"></i>Use in battle</a></div>
 
 {#if error}<p class="error" role="alert">{error}</p>{/if}
 
@@ -68,7 +68,7 @@
     <span class="eyebrow">Import and validate</span>
     <label>Snapshot name<input bind:value={name} maxlength="120" /></label>
     <label>Pokémon Showdown export<textarea bind:value={teamText} maxlength="50000" spellcheck="false" placeholder="Great Tusk @ Leftovers&#10;Ability: Protosynthesis&#10;..."></textarea></label>
-    <button class="button" disabled={busy || !teamText.trim()} on:click={validateAndSave}>{busy ? 'Working…' : 'Validate and save immutable snapshot'}</button>
+    <button class="button" disabled={busy || !teamText.trim()} on:click={validateAndSave}><i class="ph ph-shield-check" aria-hidden="true"></i>{busy ? 'Working…' : 'Validate and save immutable snapshot'}</button>
     {#if validation}
       <div class:valid={validation.valid} class="result"><strong>{validation.valid ? '✓ Legal Gen 9 OU team' : 'Invalid team'}</strong>{#each validation.errors as item}<p>{item}</p>{/each}</div>
     {/if}
@@ -79,7 +79,7 @@
     <p>No provider is called until this button is selected. Fake is deterministic and costs nothing.</p>
     <label>Provider<select bind:value={provider}>{#each providers as item}<option value={item.id} disabled={!item.configured}>{item.id}{item.configured ? '' : ' · unavailable'}</option>{/each}</select></label>
     <label>Model<input bind:value={model} maxlength="200" /></label>
-    <button class="button secondary" disabled={busy || !model.trim()} on:click={generate}>{busy ? 'Working…' : 'Generate team explicitly'}</button>
+    <button class="button secondary" disabled={busy || !model.trim()} on:click={generate}><i class="ph ph-sparkle" aria-hidden="true"></i>{busy ? 'Working…' : 'Generate team explicitly'}</button>
     {#if buildAudit}<div class:valid={buildAudit.success} class="result"><strong>{buildAudit.success ? '✓ Generated team is legal' : 'Generation failed'}</strong><p>{buildAudit.repair_attempts} repair attempt(s) · {buildAudit.latency_ms} ms</p>{#each buildAudit.validation_errors.flat() as item}<p>{item}</p>{/each}</div>{/if}
   </article>
 </section>

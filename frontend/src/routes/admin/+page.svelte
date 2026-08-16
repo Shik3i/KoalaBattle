@@ -68,7 +68,7 @@
 
 <div class="page-head director-head">
   <div><span class="eyebrow">Game director</span><h1>Control center</h1></div>
-  <div class="head-actions"><a class="button secondary" href="/admin/prompts">Prompt playground</a><a class="button secondary" href="/tournaments/new">New tournament</a><a class="button" href="/new">New match</a></div>
+  <div class="head-actions"><a class="button secondary" href="/admin/prompts"><i class="ph ph-brackets-curly" aria-hidden="true"></i>Prompt playground</a><a class="button secondary" href="/tournaments/new"><i class="ph ph-trophy" aria-hidden="true"></i>New tournament</a><a class="button" href="/new"><i class="ph ph-plus" aria-hidden="true"></i>New match</a></div>
 </div>
 
 {#if overview}
@@ -84,7 +84,7 @@
 <section class="filters panel">
   <label>Search<input bind:value={search} on:change={load} placeholder="Match ID, name, participant, model" /></label>
   <label>Status<select bind:value={status} on:change={load}><option value="">All statuses</option><option value="running">Running</option><option value="waiting">Waiting</option><option value="paused">Paused</option><option value="queued">Queued</option><option value="completed">Completed</option><option value="failed">Failed</option><option value="interrupted">Interrupted</option></select></label>
-  <button class="button secondary" on:click={load}>Refresh</button>
+  <button class="button secondary" on:click={load}><i class="ph ph-arrows-clockwise" aria-hidden="true"></i>Refresh</button>
 </section>
 {#if error}<p class="error" role="alert">{error}</p>{/if}
 

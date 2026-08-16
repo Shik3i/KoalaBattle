@@ -184,7 +184,7 @@ async def benchmark_runtime(count: int, root: Path) -> Measurement:
 
     def config(index: int) -> MatchConfig:
         return MatchConfig(
-            name=f"Phase 5 Fake load {count}-{index}",
+            name=f"Orchestration Fake load {count}-{index}",
             players=(
                 PlayerConfig(
                     side=Side.P1,
@@ -212,7 +212,7 @@ async def benchmark_runtime(count: int, root: Path) -> Measurement:
         *(
             supervisor.create_match(
                 config(index),
-                engine_version="phase5-benchmark-v1",
+                engine_version="orchestration-benchmark-v1",
                 showdown_version=None,
                 poke_env_version=None,
             )
@@ -278,7 +278,7 @@ async def benchmark_runtime(count: int, root: Path) -> Measurement:
 
 
 class _BenchmarkEngine:
-    name = "phase5-benchmark"
+    name = "orchestration-benchmark"
     version = "1"
 
     async def run(self, context: BattleEngineContext) -> EngineOutcome:
@@ -410,7 +410,7 @@ async def main() -> None:
     parser.add_argument("--skip-runtime", action="store_true")
     args = parser.parse_args()
     measurements: list[Measurement] = []
-    with tempfile.TemporaryDirectory(prefix="koalabattle-phase5-benchmark-") as value:
+    with tempfile.TemporaryDirectory(prefix="koalabattle-orchestration-benchmark-") as value:
         root = Path(value)
         for count in (1_000, 5_000, 10_000):
             measurements.append(benchmark_replay(count))
@@ -422,7 +422,7 @@ async def main() -> None:
             for count in (1, 10, 25):
                 measurements.append(await benchmark_runtime(count, root))
     payload = {
-        "schema_version": "phase5-benchmark-v1",
+        "schema_version": "orchestration-benchmark-v1",
         "measurements": [asdict(item) for item in measurements],
     }
     rendered = json.dumps(payload, indent=2, sort_keys=True)

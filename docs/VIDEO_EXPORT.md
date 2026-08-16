@@ -20,7 +20,7 @@ a bounded hardware preference; arbitrary codec arguments are never accepted.
 An actual one-frame encode validates advertised WebCodecs support. If neither browser encoder
 works, bounded Canvas RGBA frames feed local `libx264`; static holds are expanded in the pipe.
 
-`render_engine=native` is the default. `render_engine=legacy` exposes the Phase-8 screenshot
+`render_engine=native` is the default. `render_engine=legacy` exposes the previous screenshot
 pipeline for explicit debug/compatibility work only. Native failures never silently switch to
 Legacy. OBS remains a separate realtime backend.
 

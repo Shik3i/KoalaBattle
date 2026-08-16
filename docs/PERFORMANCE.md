@@ -2,7 +2,7 @@
 
 Measured locally on 2026-08-15 on macOS with Python 3.12.13. Results are a development
 baseline, not cross-machine guarantees. Run `PYTHONPATH=backend .venv/bin/python
-scripts/benchmark_phase5.py` to repeat it.
+scripts/benchmark_orchestration.py` to repeat it.
 
 | Scenario | Scale | Elapsed | Result |
 | --- | ---: | ---: | --- |
@@ -39,7 +39,7 @@ control decision inspector intentionally loads one full selected match archive; 
 do not. Browser QA covers desktop and narrow layouts, but this baseline does not claim a
 synthetic browser FPS number.
 
-## Phase 6 audio limits
+## Audio limits
 
 Speech work is bounded independently of match concurrency by
 `KOALABATTLE_SPEECH_MAX_CONCURRENCY` (default 2). Identical cache misses share one in-flight
@@ -50,7 +50,7 @@ are capped at 16 MiB and are streamed from disk rather than SQLite.
 The offline-fallback smoke test validates an actual local system WAV. FakeSpeechProvider
 is used for repeatable concurrency/cache tests; no paid network synthesis is part of the gate.
 
-## Phase 7 video limits
+## Legacy screenshot renderer baseline
 
 Export concurrency defaults to one. Browser/FFmpeg work runs in a worker task and its expensive
 encoder/browser work lives in subprocesses; the optional Compose `renderer` service isolates it
@@ -76,10 +76,10 @@ would require approximately the media duration because it records in realtime; o
 the current screenshot pipeline is slower than OBS realtime. The offline advantage is
 unattended queue/batch operation and explicit-time reproducibility, not speed on this machine.
 
-## Phase 8 renderer profile and result
+## Optimized screenshot renderer profile
 
-Phase 8 repeated the landscape production above on the same host with the same
-1920x1080/60 FPS, JPEG quality 92, and software `libx264` settings. The exact Phase-7
+The optimized screenshot renderer repeated the landscape production above on the same host with
+1920x1080/60 FPS, JPEG quality 92, and software `libx264` settings. The earlier
 pipeline profile took 70.420 s for 27.605 s of media (`0.392x`). Screenshot capture and
 transfer consumed 64.885 s, or 92.1% of wall time; layout was 0.034 s, style recalculation
 0.969 s, script 0.329 s, and FFmpeg pipe backpressure only 0.248 s. The dominant cost was
@@ -127,10 +127,11 @@ Three real render/cancel cycles left no owned Chromium/FFmpeg process or tempora
 During the long render, a Random-vs-Random match completed with 106 events; match creation,
 Admin API/UI, and WebSocket response remained 56 ms, 157/113 ms, and 75 ms respectively.
 
-## Phase 9 native compositor profile and result
+## Native compositor profile and result
 
-Phase 9 replaces the default screenshot/JPEG round trip with `RenderPlan -> ProductionScene ->
-Canvas2D -> VideoFrame -> WebCodecs`. The same Chrome 151 / FFmpeg 8.1.2 macOS host reports
+The native compositor replaces the default screenshot/JPEG round trip with
+`RenderPlan -> ProductionScene -> Canvas2D -> VideoFrame -> WebCodecs`. The same Chrome 151 /
+FFmpeg 8.1.2 macOS host reports
 WebCodecs H.264 Annex-B and VP9 support. The old screenshot path is retained only as an explicit
 `render_engine=legacy` debug option.
 
@@ -145,7 +146,7 @@ Measured native exports:
 
 The representative 1080p60 gate therefore exceeds realtime including queue-worker setup,
 validation, hashing, and persistence. The instrumented compositor/encode/mux span exceeds the
-preferred 2x target. Fast Preview materially exceeds Phase 8's 1.887x; its full measured span
+preferred 2x target. Fast Preview materially exceeds the screenshot renderer's 1.887x; its full measured span
 is 4.493x rather than the aspirational 5x, so 5x is not claimed. The long match's browser
 compositor/encoder alone processed 284.84 s in 46.53 s (6.12x); deterministic audio synthesis
 was the largest additional stage at 14.81 s.

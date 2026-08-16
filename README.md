@@ -20,6 +20,17 @@ production remain available.
 KoalaBattle is not affiliated with Nintendo, Game Freak, The Pokémon Company, Smogon, or
 Pokémon Showdown. No Pokémon artwork, sprites, audio, or other third-party media is bundled.
 
+## What you can do
+
+- Run isolated Random, Manual Web Chat, API, or mixed-agent battles.
+- Build durable Single Elimination and Round Robin tournaments with bounded concurrency.
+- Inspect player-scoped decisions and immutable event history without exposing private context
+  to spectator or OBS clients.
+- Direct live productions with commentary, free Edge neural speech, captions, music/SFX slots,
+  and read-only browser sources.
+- Export deterministic landscape or vertical H.264/AAC video from recorded events.
+- Import or explicitly generate validated Gen 9 OU teams as immutable local snapshots.
+
 ## Docker quick start
 
 Requirements: Docker with Compose v2.
@@ -160,7 +171,7 @@ python3 scripts/check_docs.py
 
 Details: [Development](docs/DEVELOPMENT.md). Documentation index: [docs/README.md](docs/README.md).
 
-## Project map
+## Repository map
 
 - `backend/koalabattle/orchestration`: queue, isolated sessions, lifecycle, real-time hub
 - `backend/koalabattle/tournaments`: engine-independent brackets, standings, persistence
@@ -171,6 +182,7 @@ Details: [Development](docs/DEVELOPMENT.md). Documentation index: [docs/README.m
 - `backend/koalabattle/video`: export jobs, queue, OBS/offline exporters, validation, storage
 - `frontend`: SvelteKit admin, control, watch, replay, tournament, and OBS UI
 - `scripts/setup_assets.py`: explicit third-party asset installer/status tool
+- `scripts/benchmark_orchestration.py`: local replay, archive, tournament, and scheduler baseline
 - `showdown`: reproducibly pinned local engine image
 
 KoalaBattle source is licensed under the [MIT License](LICENSE). Pokémon Showdown, `poke-env`,

@@ -18,7 +18,7 @@ event sequence, so retry/reconnect delivery does not duplicate work. Each append
 updated revision and duration; it does not rebuild earlier cues.
 
 Lifecycle: `draft -> live -> finalizing -> finalized`, with `failed` for a finalization error.
-Phase-6 `preparing`, `ready`, and `partial` values remain readable for database compatibility.
+Legacy `preparing`, `ready`, and `partial` values remain readable for database compatibility.
 After match completion the result/outro cues are persisted immediately. Free Edge neural speech
 is prepared outside match execution, ordering is revalidated, duration is fixed, and a SHA-256
 seal is stored. Exports require this fixed presentation clock. New settings create a new

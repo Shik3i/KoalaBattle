@@ -39,21 +39,22 @@
   </div>
   {#if match.error}<p class="failure">{match.error}</p>{/if}
   <footer>
-    <a href={`/matches/${match.id}/control`}>Control</a>
-    <a href={`/watch/${match.id}`}>Watch</a>
-    <button on:click={copyOverlay}>{copied ? 'Copied' : 'Copy OBS URL'}</button>
-    {#if match.status === 'completed'}<a href={`/replay/${match.id}`}>Replay</a>{/if}
+    <a href={`/matches/${match.id}/control`}><i class="ph ph-sliders-horizontal" aria-hidden="true"></i>Control</a>
+    <a href={`/watch/${match.id}`}><i class="ph ph-eye" aria-hidden="true"></i>Watch</a>
+    <button on:click={copyOverlay}><i class={`ph ${copied ? 'ph-check' : 'ph-copy'}`} aria-hidden="true"></i>{copied ? 'Copied' : 'Copy OBS URL'}</button>
+    {#if match.status === 'completed'}<a href={`/replay/${match.id}`}><i class="ph ph-play-circle" aria-hidden="true"></i>Replay</a>{/if}
     {#if controls && ['running', 'waiting'].includes(match.status)}
-      <button on:click={() => onAction('pause', match)}>Pause</button>
+      <button on:click={() => onAction('pause', match)}><i class="ph ph-pause" aria-hidden="true"></i>Pause</button>
     {:else if controls && match.status === 'paused'}
-      <button on:click={() => onAction('resume', match)}>Resume</button>
+      <button on:click={() => onAction('resume', match)}><i class="ph ph-play" aria-hidden="true"></i>Resume</button>
     {/if}
     {#if controls && !['completed', 'failed', 'cancelled', 'interrupted'].includes(match.status)}
-      <button class="danger" on:click={() => onAction('cancel', match)}>Cancel</button>
+      <button class="danger" on:click={() => onAction('cancel', match)}><i class="ph ph-x" aria-hidden="true"></i>Cancel</button>
     {/if}
   </footer>
 </article>
 
 <style>
+  .match-card{transition:transform .2s cubic-bezier(.2,.8,.2,1),border-color .2s ease,box-shadow .2s ease}.match-card:hover{transform:translateY(-2px);border-color:color-mix(in srgb,var(--accent) 24%,var(--border));box-shadow:var(--shadow-sm)}.match-card footer a,.match-card footer button{display:inline-flex;align-items:center;justify-content:center;gap:.35rem}
   .match-card{padding:1rem;box-shadow:none}.match-card header,.match-card footer{display:flex;align-items:center;justify-content:space-between;gap:.7rem}.match-card h3{margin:.25rem 0 0;font-size:1rem}.summary{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;margin:1rem 0;overflow:hidden;border:1px solid var(--border);border-radius:.6rem;background:var(--border)}.summary span{display:grid;padding:.7rem;background:var(--panel-strong);color:var(--muted);font:.62rem var(--mono)}.summary strong{overflow:hidden;color:var(--text);font:700 .78rem var(--display);text-overflow:ellipsis;white-space:nowrap}.match-card footer{justify-content:flex-end;flex-wrap:wrap}.match-card footer a,.match-card footer button{min-height:38px;padding:.45rem .65rem;border:1px solid var(--border);border-radius:.55rem;background:var(--panel-strong);color:var(--text);font-size:.72rem;cursor:pointer}.match-card footer a:first-child{border-color:var(--accent);color:var(--accent)}.match-card footer .danger,.failure{color:var(--danger)}.failure{font-size:.75rem}@media(max-width:680px){.summary{grid-template-columns:1fr 1fr}.match-card header{align-items:flex-start}.match-card footer{display:grid;grid-template-columns:1fr 1fr}.match-card footer>*{text-align:center}}
 </style>
