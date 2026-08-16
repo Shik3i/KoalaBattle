@@ -21,6 +21,8 @@ export type ProductionEffectArchetype =
   | 'beam'
   | 'pulse'
   | 'status'
+  | 'buff'
+  | 'debuff'
   | 'heal'
   | 'barrier'
   | 'hazard'
@@ -50,6 +52,8 @@ export interface ProductionScene {
   weather: string[];
   fields: string[];
   effect: ProductionSceneEffect;
+  commentary: string | null;
+  commentarySide: Side | null;
   caption: string | null;
   captionSide: Side | null;
   director: ProductionCue | null;
@@ -87,6 +91,8 @@ export function createProductionScene(
   const actor = eventSide(frame.event?.payload.side) || eventSide(frame.event?.payload.actor);
   const target = eventSide(frame.event?.payload.target) || (actor ? opposite(actor) : presentation.effectSide);
   const profile = presentation.currentMoveProfile;
+  const visualKind = frame.visual?.kind || presentation.effect;
+  const visibleEffect = isVisibleBattleEffect(visualKind);
   return {
     version: '2.0',
     timeMs: frame.timeMs,
@@ -98,23 +104,37 @@ export function createProductionScene(
     weather: battle?.weather || [],
     fields: battle?.fields || [],
     effect: {
-      kind: frame.visual?.kind || presentation.effect,
-      moveName: presentation.currentMove,
+      kind: visualKind,
+      moveName: visibleEffect && /move|damage|heal|critical|effective|resisted|immune/.test(visualKind)
+        ? presentation.currentMove
+        : null,
       type: profile?.type || 'normal',
       archetype: effectArchetype(frame, profile?.archetype, profile?.type),
-      progress: frame.visualProgress,
-      impactProgress: clamp((frame.visualProgress - AUTHORITATIVE_IMPACT_PROGRESS) / (1 - AUTHORITATIVE_IMPACT_PROGRESS)),
+      progress: visibleEffect ? frame.visualProgress : 0,
+      impactProgress: visibleEffect
+        ? clamp((frame.visualProgress - AUTHORITATIVE_IMPACT_PROGRESS) / (1 - AUTHORITATIVE_IMPACT_PROGRESS))
+        : 0,
       seed: profile?.seed ?? stableSeed(`${frame.visual?.id || 'idle'}:${frame.event?.sequence || 0}`),
       actor,
       target,
       value: presentation.effectValue
     },
+    commentary: cueText(frame.commentary),
+    commentarySide: frame.commentary?.side || null,
     caption: activeCaptionText(frame.caption, frame.timeMs),
     captionSide: frame.caption?.side || null,
     director: frame.director,
     winnerName: presentation.winnerName,
     finished: presentation.finished
   };
+}
+
+function isVisibleBattleEffect(kind: string): boolean {
+  return /^(move_|damage$|healing$|critical_hit$|status_|super_effective$|resisted$|immune$|weather_|terrain_|side_condition_|pokemon_switched$|pokemon_fainted$|battle_finished$)/.test(kind);
+}
+
+function cueText(cue: ProductionCue | null): string | null {
+  return cue && typeof cue.payload.text === 'string' ? cue.payload.text : null;
 }
 
 function authoritativePresentation(frame: ProductionFrameState): BattlePresentationState {
@@ -164,6 +184,8 @@ function effectArchetype(
     return /(spike|rock|web)/.test(condition) ? 'hazard' : 'barrier';
   }
   if (kind.includes('weather') || kind.includes('terrain')) return 'field';
+  if (kind.includes('unboost') || kind.includes('debuff')) return 'debuff';
+  if (kind.includes('boost') || kind.includes('buff')) return 'buff';
   if (kind.includes('status') || category === 'status') return 'status';
   if (category === 'physical' || kind === 'damage' || kind === 'critical_hit') return 'contact';
   if (type === 'electric' || type === 'psychic' || type === 'dragon') return 'beam';

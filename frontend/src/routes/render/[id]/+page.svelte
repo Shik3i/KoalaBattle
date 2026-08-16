@@ -3,7 +3,7 @@
   import BattleRenderer from '$lib/BattleRenderer.svelte';
   import CaptionOverlay from '$lib/production/CaptionOverlay.svelte';
   import { ProductionAudioEngine } from '$lib/production/audio-engine';
-  import { renderNativeProduction, type NativeRenderMetrics, type NativeRenderRequest } from '$lib/production/native-encoder';
+  import { renderNativeFrame, renderNativeProduction, type NativeRenderMetrics, type NativeRenderRequest } from '$lib/production/native-encoder';
   import {
     createProductionFrameRenderer,
     type ProductionFrameRenderer,
@@ -63,6 +63,20 @@
       const renderWindow = window as RenderWindow;
       if (nativeMode) {
         await tick();
+        const renderParams = new URLSearchParams(location.search);
+        const frameTime = Number(renderParams.get('frame'));
+        if (renderParams.has('frame') && Number.isFinite(frameTime)) {
+          const vertical = production.profile.aspect_ratio === '9:16';
+          await renderNativeFrame(nativeCanvas, match, production, {
+            width: vertical ? 1080 : 1920,
+            height: vertical ? 1920 : 1080,
+            timeMs: frameTime,
+            assetApiBase: apiBase()
+          });
+          renderWindow.__KOALABATTLE_RENDER_READY = true;
+          ready = true;
+          return;
+        }
         renderWindow.__KOALABATTLE_NATIVE_RENDER = (request) => {
           if (!match || !production || !nativeCanvas) throw new Error('native compositor is not initialized');
           return renderNativeProduction(nativeCanvas, match, production, request);
@@ -136,6 +150,6 @@
   :global(html),:global(body){width:100%;height:100%;margin:0;overflow:hidden;background:#07120c}
   :global(body>div){width:100%;height:100%}
   .render-shell{position:fixed;inset:0;width:100vw;height:100vh;overflow:hidden;background:#07120c}
-  .native-compositor{display:block;width:100%;height:100%;background:#07120c}
+  .native-compositor{display:block;width:100%;height:100%;object-fit:contain;background:#07120c}
   .render-error{display:grid;height:100%;place-items:center;padding:2rem;color:#fff;font-family:system-ui}
 </style>

@@ -1,5 +1,5 @@
 import type { MatchArchive, ProductionTimeline } from '../types.ts';
-import { ProductionCompositor } from './compositor.ts';
+import { ProductionCompositor, type CompositorMetrics } from './compositor.ts';
 import { createProductionFrameRenderer } from './frame-state.ts';
 import { createRenderPlan } from './render-plan.ts';
 import { createProductionScene } from './scene.ts';
@@ -37,6 +37,20 @@ export interface NativeRenderMetrics {
   assetLoads: number;
   assetFailures: number;
   cachedAssets: number;
+}
+
+export async function renderNativeFrame(
+  canvas: HTMLCanvasElement,
+  match: MatchArchive,
+  production: ProductionTimeline,
+  request: { width: number; height: number; timeMs: number; assetApiBase: string }
+): Promise<CompositorMetrics> {
+  canvas.width = request.width;
+  canvas.height = request.height;
+  const compositor = new ProductionCompositor(canvas);
+  const frame = createProductionFrameRenderer(match, production).renderAt(request.timeMs);
+  await compositor.render(createProductionScene(frame, request.height > request.width, request.assetApiBase));
+  return compositor.metrics();
 }
 
 interface EncodedPacket { codecPath: 'h264-annexb' | 'vp9-ivf'; timestamp: number; type: string; data: string; }

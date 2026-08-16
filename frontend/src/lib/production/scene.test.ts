@@ -11,7 +11,7 @@ test('scene delays authoritative target HP until projectile impact', () => {
     timeMs: 1200,
     presentation: presentation(.6),
     priorPresentation: presentation(1),
-    caption: null,
+    commentary: null, caption: null,
     director: null,
     visual: { id: 'damage', kind: 'damage', start_ms: 1000, duration_ms: 500, turn: 3 },
     event: { sequence: 4, payload: { actor: 'p1a: Pikachu', target: 'p2a: Pikachu' } },
@@ -25,7 +25,7 @@ test('scene delays authoritative target HP until projectile impact', () => {
 
 test('scene sprite URLs force deterministic static local assets', () => {
   const frame = {
-    timeMs: 0, presentation: presentation(1), priorPresentation: null, caption: null, director: null,
+    timeMs: 0, presentation: presentation(1), priorPresentation: null, commentary: null, caption: null, director: null,
     visual: null, event: null, visualElapsedMs: 0, visualProgress: 0
   } as any;
   const scene = createProductionScene(frame, false, 'http://api');
@@ -35,7 +35,7 @@ test('scene sprite URLs force deterministic static local assets', () => {
 
 test('scene classifies authoritative move and field events without an LLM', () => {
   const frame = {
-    timeMs: 200, presentation: presentation(1), priorPresentation: null, caption: null, director: null,
+    timeMs: 200, presentation: presentation(1), priorPresentation: null, commentary: null, caption: null, director: null,
     visual: { id: 'move', kind: 'move_used', start_ms: 0, duration_ms: 500 },
     event: { sequence: 1, payload: { actor: 'p1a: Pikachu', target: 'p2a: Eevee' } },
     visualElapsedMs: 200, visualProgress: .4
@@ -44,4 +44,17 @@ test('scene classifies authoritative move and field events without an LLM', () =
   frame.visual.kind = 'side_condition_started';
   frame.event.payload.condition = 'move: Stealth Rock';
   assert.equal(createProductionScene(frame, false, 'http://api').effect.archetype, 'hazard');
+});
+
+test('scene does not replay the previous move during agent commentary', () => {
+  const frame = {
+    timeMs: 200, presentation: presentation(1), priorPresentation: null,
+    commentary: { side: 'p1', payload: { text: 'I will pivot.' } }, caption: null, director: null,
+    visual: { id: 'decision', kind: 'agent_decision', start_ms: 0, duration_ms: 500 },
+    event: { sequence: 2, payload: { side: 'p1' } }, visualElapsedMs: 200, visualProgress: .4
+  } as any;
+  const scene = createProductionScene(frame, false, 'http://api');
+  assert.equal(scene.effect.progress, 0);
+  assert.equal(scene.effect.moveName, null);
+  assert.equal(scene.commentary, 'I will pivot.');
 });

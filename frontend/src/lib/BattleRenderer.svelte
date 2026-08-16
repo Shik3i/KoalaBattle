@@ -163,7 +163,7 @@
   >
     <div class="ambient" aria-hidden="true"></div>
     <header class="scoreboard">
-      <div class="brand-lockup"><span>KB</span><strong>KOALA BATTLE</strong></div>
+      <div class="brand-lockup"><span>KB</span><strong>KOALABATTLE <em>// VERDANT CIRCUIT</em></strong></div>
       {#if config.showTurn}<div class="turn">TURN <strong>{presentation.battle?.turn ?? 0}</strong></div>{/if}
       <div class="format">{presentation.format === 'gen9ou' ? 'GEN 9 · OU' : 'GEN 9 · RANDOM BATTLE'}</div>
     </header>
@@ -172,6 +172,9 @@
       <div><span class="side">{farSide}</span><h2>{presentation.players[farSide].displayName}</h2></div>
       {#if config.showAgentState}<span class="agent-state">{agentStatus[farSide] || presentation.players[farSide].agentStatus}</span>{/if}
       <small>{presentation.players[farSide].providerLabel}</small>
+      <div class="team-strip" aria-label={`${far?.team.length || 0} team members`}>
+        {#each far?.team || [] as member}<i class:active={member.active} class:fainted={member.fainted}></i>{/each}
+      </div>
       <div class="commentary" aria-live="polite">
         {#each farCommentary as item}<p>{item.commentary || `${item.actionName || item.action} selected.`}</p>{/each}
         {#if farCommentary.length === 0}<p class="muted">Awaiting public commentary…</p>{/if}
@@ -182,6 +185,9 @@
       <div><span class="side">{nearSide}</span><h2>{presentation.players[nearSide].displayName}</h2></div>
       {#if config.showAgentState}<span class="agent-state">{agentStatus[nearSide] || presentation.players[nearSide].agentStatus}</span>{/if}
       <small>{presentation.players[nearSide].providerLabel}</small>
+      <div class="team-strip" aria-label={`${near?.team.length || 0} team members`}>
+        {#each near?.team || [] as member}<i class:active={member.active} class:fainted={member.fainted}></i>{/each}
+      </div>
       <div class="commentary" aria-live="polite">
         {#each nearCommentary as item}<p>{item.commentary || `${item.actionName || item.action} selected.`}</p>{/each}
         {#if nearCommentary.length === 0}<p class="muted">Awaiting public commentary…</p>{/if}
@@ -189,6 +195,11 @@
     </div>
 
     <div style={arenaStyle()} class:arena-shake={strongImpact && config.effects !== 'off' && !config.reducedMotion} class="arena-stage">
+      <div class="stage-sky" aria-hidden="true"></div>
+      <div class="stage-ridges ridge-left" aria-hidden="true"></div>
+      <div class="stage-ridges ridge-right" aria-hidden="true"></div>
+      <div class="stage-gate" aria-hidden="true"><i></i></div>
+      <div class="stage-floor" aria-hidden="true"></div>
       <div class="arena-grid" aria-hidden="true"></div>
       {#if presentation.battle?.weather.length}
         <div class="weather-layer" data-weather={presentation.battle.weather[0]} aria-hidden="true"><i></i><i></i><i></i></div>
@@ -312,4 +323,30 @@
     .battle-renderer:not([data-layout='standard-vertical']) .battle-center strong{max-width:78px;font-size:clamp(.66rem,.82vw,.86rem)}
     .battle-renderer:not([data-layout='standard-vertical']) .pulse-ring{inset:8%}
   }
+
+  /* Verdant Circuit: original broadcast-fighter presentation. */
+  .battle-renderer{--r-panel:rgba(4,7,11,.91);--r-text:#f8fbf9;--r-muted:#9bacaa;--r-line:rgba(135,255,180,.18);--r-accent:#78ffa9;--r-accent-ink:#031108;--r-p1:#6fffa8;--r-p2:#e36fff;grid-template-columns:1fr 1fr;grid-template-rows:auto minmax(500px,1fr) auto;gap:0;min-height:620px;padding:clamp(14px,1.4vw,26px);border:1px solid rgba(125,255,174,.38);border-radius:8px;background:#05070b;box-shadow:0 35px 100px rgba(0,0,0,.48);font-family:var(--display)}
+  .battle-renderer[data-renderer-theme='koala-light']{--r-panel:rgba(4,7,11,.91);--r-text:#f8fbf9;--r-muted:#9bacaa;--r-line:rgba(135,255,180,.18);--r-accent:#78ffa9;--r-accent-ink:#031108;background:#05070b}
+  .battle-renderer::before,.battle-renderer::after{position:absolute;z-index:30;width:clamp(90px,10vw,180px);height:5px;background:var(--r-accent);content:''}.battle-renderer::before{top:12px;left:12px}.battle-renderer::after{right:12px;bottom:12px}
+  .ambient{background:linear-gradient(116deg,rgba(111,255,168,.09),transparent 34%,rgba(227,111,255,.08));opacity:1}
+  .scoreboard{position:relative;z-index:20;grid-column:1/-1;grid-row:1;height:58px;padding:0 clamp(10px,1vw,18px);border:0;background:rgba(3,6,9,.96);clip-path:polygon(0 0,100% 0,98.5% 100%,1.5% 100%)}
+  .brand-lockup{font-weight:950;letter-spacing:.06em}.brand-lockup span{width:32px;border-radius:0;clip-path:polygon(18% 0,100% 0,82% 100%,0 100%)}.brand-lockup em{color:var(--r-accent);font:800 .78em var(--mono);font-style:normal}.turn{padding:.42rem 1.2rem;border-inline:1px solid rgba(125,255,174,.3);background:rgba(125,255,174,.055)}
+  .player-card{z-index:18;grid-row:2;align-self:start;width:min(88%,650px);min-height:0;margin-top:clamp(20px,2.4vw,42px);padding:clamp(12px,1.1vw,18px) clamp(18px,1.7vw,30px);border:1px solid color-mix(in srgb,var(--side-color) 48%,transparent);border-radius:0;background:rgba(3,6,10,.9);box-shadow:0 16px 35px rgba(0,0,0,.35);clip-path:polygon(4% 0,100% 0,96% 100%,0 100%);backdrop-filter:blur(10px)}
+  .player-card[data-side='p1']{--side-color:var(--r-p1);box-shadow:inset 5px 0 var(--r-p1),0 16px 35px rgba(0,0,0,.35)}.player-card[data-side='p2']{--side-color:var(--r-p2);box-shadow:inset -5px 0 var(--r-p2),0 16px 35px rgba(0,0,0,.35)}
+  .player-far{grid-column:2;justify-self:end;text-align:right}.player-near{grid-column:1;justify-self:start}.player-card h2{margin:.12rem 0;font-size:clamp(1.15rem,2vw,2.05rem);font-weight:950;letter-spacing:-.045em;text-transform:uppercase}.player-card .side{color:var(--side-color);font-weight:900;letter-spacing:.15em}.player-card>small{display:block;color:#c2ceca;font-size:.55rem;letter-spacing:.08em;text-transform:uppercase}.player-far .agent-state{right:auto;left:18px}.agent-state{top:14px;border:0;border-radius:0;background:color-mix(in srgb,var(--side-color) 12%,transparent);color:var(--side-color);font-weight:900}
+  .team-strip{position:absolute;right:24px;bottom:13px;display:flex;gap:6px}.player-far .team-strip{right:auto;left:24px}.team-strip i{width:8px;aspect-ratio:1;border:1px solid var(--side-color);border-radius:50%;background:var(--side-color);box-shadow:0 0 8px color-mix(in srgb,var(--side-color) 55%,transparent)}.team-strip i.fainted{background:transparent;opacity:.35}.team-strip i.active{outline:2px solid #fff;outline-offset:2px}
+  .commentary{max-width:82%;margin-top:.5rem}.player-far .commentary{margin-left:auto}.commentary p{display:-webkit-box;overflow:hidden;margin:.25rem 0;color:#dce5e1;font-size:clamp(.58rem,.72vw,.72rem);font-weight:650;line-height:1.38;line-clamp:2;-webkit-box-orient:vertical;-webkit-line-clamp:2}.commentary p::before{color:var(--side-color);content:'INTENT // ';font:800 .76em var(--mono);letter-spacing:.08em}.commentary .muted::before{content:''}
+  .arena-stage{z-index:1;grid-column:1/-1;grid-row:2;min-height:500px;border:0;border-radius:0;background:linear-gradient(180deg,#0a2226 0,#122935 48%,#080b10 100%);clip-path:polygon(1% 0,99% 0,100% 96%,0 100%)}
+  .stage-sky{position:absolute;inset:0;background:radial-gradient(circle at 56% 24%,rgba(126,255,174,.28),transparent 31%),linear-gradient(135deg,rgba(15,85,75,.35),transparent 48%,rgba(103,42,121,.18));opacity:.95}.stage-ridges{position:absolute;z-index:1;top:15%;bottom:35%;width:51%;background:#071113;filter:drop-shadow(0 0 12px rgba(0,0,0,.55))}.ridge-left{left:-5%;clip-path:polygon(0 13%,19% 37%,31% 17%,48% 58%,61% 32%,80% 80%,100% 64%,100% 100%,0 100%)}.ridge-right{right:-5%;clip-path:polygon(0 66%,19% 38%,34% 62%,51% 17%,65% 42%,83% 11%,100% 34%,100% 100%,0 100%)}
+  .stage-gate{position:absolute;z-index:2;top:25%;left:50%;width:15%;aspect-ratio:1;transform:translateX(-50%) rotate(45deg);border:2px solid rgba(119,255,173,.25);box-shadow:0 0 45px rgba(94,255,175,.14)}.stage-gate i{position:absolute;inset:15%;border:1px solid rgba(227,111,255,.22)}
+  .stage-floor{position:absolute;z-index:2;inset:52% 0 0;background:linear-gradient(180deg,rgba(24,54,51,.85),#07090d);clip-path:polygon(0 0,100% 0,100% 100%,0 100%)}.stage-floor::after{position:absolute;inset:0;background-image:linear-gradient(rgba(115,255,173,.12) 1px,transparent 1px),linear-gradient(90deg,rgba(115,255,173,.12) 1px,transparent 1px);background-size:8% 18%;mask-image:linear-gradient(transparent,black);content:'';transform:perspective(400px) rotateX(58deg) scale(1.6);transform-origin:center top}
+  .arena-grid{z-index:3;opacity:.08;background-size:64px 64px}.weather-layer,.terrain-layer{z-index:4}.field-state{z-index:13}
+  .combatant{z-index:8;width:min(36%,430px)}.combatant-far{top:27%;right:8%}.combatant-near{bottom:4%;left:7%}.identity{margin:0 0 .2rem;padding:.3rem .55rem;border-left:3px solid var(--fighter-color);background:rgba(3,6,10,.7);font-size:.5rem}.combatant-far{--fighter-color:var(--r-p2)}.combatant-near{--fighter-color:var(--r-p1)}.identity strong{font-size:1.25em;letter-spacing:.04em}.sprite-platform{aspect-ratio:1.38/1;background:radial-gradient(ellipse,rgba(118,255,174,.24),rgba(51,151,130,.06) 46%,transparent 70%)}.sprite{width:78%;height:105%}.sprite img{image-rendering:auto;filter:drop-shadow(0 22px 18px rgba(0,0,0,.58)) drop-shadow(0 0 5px color-mix(in srgb,var(--fighter-color) 42%,transparent))}.vitals{margin-top:0;padding:.45rem .6rem;background:rgba(3,6,10,.9);font-size:clamp(.72rem,1vw,1rem)}.hp-track{height:12px;margin:0;border-radius:0;border:1px solid rgba(255,255,255,.18);background:rgba(0,0,0,.7)}
+  .battle-center{z-index:12;top:30%;width:clamp(230px,23vw,440px);height:auto;aspect-ratio:auto;padding:.65rem 2.4rem;background:rgba(3,6,10,.9);clip-path:polygon(6% 0,100% 0,94% 100%,0 100%)}.battle-center small{color:var(--r-accent);font-weight:900}.battle-center strong{max-width:100%;font-size:clamp(.8rem,1.5vw,1.45rem);font-weight:950;text-transform:uppercase}.pulse-ring{display:none}
+  .battle-renderer:not([data-layout='standard-vertical']) .battle-center{width:clamp(230px,23vw,440px)}.battle-renderer:not([data-layout='standard-vertical']) .battle-center strong{max-width:100%;font-size:clamp(.8rem,1.5vw,1.45rem)}
+  .effect span{border:0;border-radius:0;padding:.65rem 1.6rem;background:#f7fff9;color:#05070b;font-size:clamp(.9rem,1.8vw,1.75rem);font-weight:950;letter-spacing:.08em;clip-path:polygon(8% 0,100% 0,92% 100%,0 100%);box-shadow:0 0 65px rgba(255,255,255,.3)}.effect>strong{top:62%;font-size:clamp(1.4rem,3vw,3rem);font-weight:950}.impact-burst i{width:13px;border-radius:0;box-shadow:0 0 16px var(--type-color)}
+  .battle-log{z-index:16;grid-column:1/-1;grid-row:3;margin-top:10px;border-radius:0;clip-path:polygon(1% 0,100% 0,99% 100%,0 100%)}.battle-log header span{color:var(--r-accent);font-weight:900}.winner-banner{z-index:40;background:linear-gradient(118deg,rgba(12,33,25,.95),rgba(4,6,9,.97) 48%,rgba(53,25,58,.95));backdrop-filter:blur(4px)}.winner-banner::before{position:absolute;inset:0;background:repeating-linear-gradient(116deg,transparent 0 56px,rgba(255,255,255,.04) 57px 66px);content:''}.winner-banner small{color:#ffd96a;font-weight:900}.winner-banner strong{z-index:1;color:#fff;font-weight:950;text-transform:uppercase;text-shadow:8px 8px 0 rgba(227,111,255,.25)}
+  .battle-renderer[data-layout='standard-vertical']{grid-template-columns:1fr;grid-template-rows:auto minmax(760px,1fr) auto;width:min(100%,680px);min-height:1100px;padding:18px}.battle-renderer[data-layout='standard-vertical'] .scoreboard{grid-column:1;grid-row:1}.battle-renderer[data-layout='standard-vertical'] .arena-stage{grid-column:1;grid-row:2;min-height:760px}.battle-renderer[data-layout='standard-vertical'] .player-card{grid-column:1;grid-row:2;width:90%;margin-top:22px}.battle-renderer[data-layout='standard-vertical'] .player-near{align-self:end;margin-bottom:25px}.battle-renderer[data-layout='standard-vertical'] .player-far{align-self:start}.battle-renderer[data-layout='standard-vertical'] .combatant{width:58%}.battle-renderer[data-layout='standard-vertical'] .combatant-far{top:29%;right:1%}.battle-renderer[data-layout='standard-vertical'] .combatant-near{bottom:16%;left:1%}.battle-renderer[data-layout='standard-vertical'] .battle-center{top:52%;width:62%}.battle-renderer[data-layout='standard-vertical'] .battle-log{grid-column:1;grid-row:3}.battle-renderer[data-layout='standard-vertical'] .commentary{display:none}
+  @media(max-width:900px){.battle-renderer:not([data-layout='standard-vertical']){grid-template-columns:1fr 1fr;grid-template-rows:auto minmax(470px,1fr) auto;min-height:620px}.battle-renderer:not([data-layout='standard-vertical']) .scoreboard{grid-column:1/-1}.battle-renderer:not([data-layout='standard-vertical']) .arena-stage{grid-column:1/-1;grid-row:2}.battle-renderer:not([data-layout='standard-vertical']) .player-card{grid-row:2;width:96%;margin-top:16px}.battle-renderer:not([data-layout='standard-vertical']) .player-near{grid-column:1}.battle-renderer:not([data-layout='standard-vertical']) .player-far{grid-column:2}.battle-renderer:not([data-layout='standard-vertical']) .battle-log{grid-column:1/-1;grid-row:3}.commentary{display:none}.combatant{width:44%}.combatant-far{top:31%;right:2%}.combatant-near{left:2%}}
+  @media(max-width:560px){.battle-renderer:not([data-layout='standard-vertical']){grid-template-columns:1fr;grid-template-rows:auto 520px auto;min-height:650px}.battle-renderer:not([data-layout='standard-vertical']) .player-card{grid-column:1;width:92%}.battle-renderer:not([data-layout='standard-vertical']) .player-far{justify-self:end}.battle-renderer:not([data-layout='standard-vertical']) .player-near{align-self:end;margin-bottom:12px}.battle-renderer:not([data-layout='standard-vertical']) .arena-stage{min-height:520px}.battle-renderer:not([data-layout='standard-vertical']) .battle-log{grid-column:1;grid-row:3}.combatant{width:53%}.combatant-far{top:27%}.combatant-near{bottom:17%}.battle-center{top:51%;width:58%;padding:.55rem 1rem}.player-card h2{font-size:1rem}.vitals{font-size:.65rem}}
 </style>

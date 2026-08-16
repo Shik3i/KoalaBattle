@@ -33,6 +33,7 @@ test('renderAt never exposes future winner or event', () => {
   assert.equal(early.presentation.eventSequence, 1);
   assert.equal(early.presentation.finished, false);
   assert.equal(early.caption, null);
+  assert.equal(early.commentary, null);
   const completed = renderAt(match, production, 2000);
   assert.equal(completed.presentation.finished, true);
   assert.equal(completed.presentation.winnerName, 'Alpha');

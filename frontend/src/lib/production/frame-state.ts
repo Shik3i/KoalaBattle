@@ -6,6 +6,7 @@ export interface ProductionFrameState {
   timeMs: number;
   presentation: BattlePresentationState;
   priorPresentation: BattlePresentationState | null;
+  commentary: ProductionCue | null;
   caption: ProductionCue | null;
   director: ProductionCue | null;
   visual: ProductionCue | null;
@@ -63,6 +64,7 @@ export function createProductionFrameRenderer(
       const timeMs = Math.max(0, Math.min(durationMs, Math.trunc(requestedTimeMs)));
       const snapshot = latestSnapshot(snapshots, timeMs);
       const visual = snapshot?.cue || null;
+      const commentary = active(trackCues.get('commentary') || [], timeMs);
       const caption = active(trackCues.get('captions') || [], timeMs);
       const director = activeOrLatest(trackCues.get('director') || [], timeMs);
       const visualElapsedMs = visual ? Math.max(0, timeMs - visual.start_ms) : 0;
@@ -70,6 +72,7 @@ export function createProductionFrameRenderer(
         timeMs,
         presentation: snapshot?.presentation || initial,
         priorPresentation: snapshot?.priorPresentation || null,
+        commentary,
         caption,
         director,
         visual,
