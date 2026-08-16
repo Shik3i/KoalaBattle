@@ -14,6 +14,7 @@
   let error = '';
   let stopSocket: (() => void) | null = null;
   let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+  let loading: Promise<void> | null = null;
 
   $: active = matches.filter((match) => ['starting', 'running', 'waiting', 'paused'].includes(match.status));
   $: queued = matches.filter((match) => match.status === 'queued');
@@ -37,7 +38,13 @@
     refreshTimer = setTimeout(() => { refreshTimer = null; void load(); }, 180);
   }
 
-  async function load() {
+  function load() {
+    if (loading) return loading;
+    loading = performLoad().finally(() => { loading = null; });
+    return loading;
+  }
+
+  async function performLoad() {
     error = '';
     try {
       const query = new URLSearchParams({ limit: '100' });

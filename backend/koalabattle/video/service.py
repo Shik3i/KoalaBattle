@@ -246,6 +246,7 @@ class VideoExportService:
                 else capabilities.legacy_renderer_available
             )
         speech_required = production.profile.speech_enabled and production.profile.wait_for_speech
+        degraded_speech = production.status is ProductionStatus.PARTIAL and bool(missing)
         ready = (
             production.status
             in {ProductionStatus.FINALIZED, ProductionStatus.READY, ProductionStatus.PARTIAL}
@@ -253,10 +254,15 @@ class VideoExportService:
             and capabilities.ffprobe_available
             and capabilities.output_writable
             and capabilities.free_bytes >= self.settings.video_min_free_bytes
-            and (not speech_required or not missing)
+            and (not speech_required or not missing or degraded_speech)
         )
         warnings = (
-            () if not missing or speech_required else ("Missing speech will render silently.",)
+            (
+                "Speech is unavailable for some commentary; captions remain and those cues "
+                "will render silently.",
+            )
+            if missing
+            else ()
         )
         return ExportPreflight(
             ready=ready, checks=checks, missing_speech=tuple(missing), warnings=warnings

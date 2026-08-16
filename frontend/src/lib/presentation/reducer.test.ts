@@ -126,6 +126,52 @@ test('damage, healing, effectiveness and field feedback follow visible events', 
   assert.equal(reducePresentation(damaged, event(4, 'terrain_started', { field: 'electricterrain' })).effect, 'terrain');
 });
 
+test('forward-looking snapshots cannot reveal HP or switches before their events', () => {
+  const pikachu = {
+    id: 'p1: Pikachu', name: 'Pikachu', species: 'pikachu', hp_fraction: 1, status: null,
+    types: ['electric'], moves: [], active: true, fainted: false, current_hp: 100, max_hp: 100
+  };
+  const eevee = {
+    id: 'p2: Eevee', name: 'Eevee', species: 'eevee', hp_fraction: 1, status: null,
+    types: ['normal'], moves: [], active: true, fainted: false, current_hp: 100, max_hp: 100
+  };
+  const snorlax = {
+    ...eevee, id: 'p2: Snorlax', name: 'Snorlax', species: 'snorlax', active: false
+  };
+  const initialBattle = {
+    ...battle,
+    turn: 5,
+    player: { ...battle.player, active: pikachu, team: [pikachu] },
+    opponent: { ...battle.opponent, active: eevee, team: [eevee, snorlax] }
+  };
+  const futureSnapshot = {
+    ...initialBattle,
+    turn: 6,
+    opponent: {
+      ...initialBattle.opponent,
+      active: { ...snorlax, active: true },
+      team: [{ ...eevee, active: false, hp_fraction: 0, fainted: true }, { ...snorlax, active: true }]
+    }
+  };
+  const beforeEvents = reduceEvents(createPresentationState(match), [
+    event(1, 'state_snapshot', { state: initialBattle }),
+    event(2, 'state_snapshot', { state: futureSnapshot })
+  ]);
+  assert.equal(beforeEvents.battle?.turn, 5);
+  assert.equal(beforeEvents.battle?.opponent.active?.name, 'Eevee');
+  assert.equal(beforeEvents.battle?.opponent.active?.hp_fraction, 1);
+
+  const afterEvents = reduceEvents(beforeEvents, [
+    event(3, 'damage', { target: 'p2a: Eevee', hp: '0 fnt' }),
+    event(4, 'pokemon_fainted', { target: 'p2a: Eevee' }),
+    event(5, 'pokemon_switched', { actor: 'p2a: Snorlax', hp: '100/100' }),
+    event(6, 'turn_started', { turn: 6 })
+  ]);
+  assert.equal(afterEvents.battle?.turn, 6);
+  assert.equal(afterEvents.battle?.opponent.active?.name, 'Snorlax');
+  assert.equal(afterEvents.battle?.opponent.active?.hp_fraction, 1);
+});
+
 test('maps internal Showdown winner usernames back to participant display names', () => {
   const state = reducePresentation(
     createPresentationState(match),

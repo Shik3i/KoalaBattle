@@ -67,7 +67,7 @@ export function reducePresentation(
 
   switch (event.event_type) {
     case 'state_snapshot': {
-      battle = payload.state as unknown as BattleState;
+      battle = mergeBattleSnapshot(battle, payload.state as unknown as BattleState);
       if (battle.result) {
         winner = battle.result.winner;
         winnerName = winner ? players[winner].displayName : battle.result.winner_name;
@@ -137,7 +137,11 @@ export function reducePresentation(
       break;
     }
     case 'pokemon_switched':
+      battle = switchBattleActive(battle, side, payload);
       players = setMotion(players, side, 'switching-in');
+      break;
+    case 'turn_started':
+      if (battle) battle = { ...battle, turn: numberValue(payload.turn) ?? event.turn };
       break;
     case 'pokemon_fainted':
       effect = 'faint';
@@ -385,6 +389,80 @@ function updateBattleActive(
     fainted: update.fainted ?? active.fainted
   };
   return { ...battle, [key]: { ...battle[key], active: nextActive } };
+}
+
+function mergeBattleSnapshot(
+  current: BattlePresentationState['battle'],
+  incoming: BattleState
+): BattleState {
+  if (!current) return incoming;
+  const currentBySide = new Map([
+    [current.player.side, current.player],
+    [current.opponent.side, current.opponent]
+  ]);
+  const mergeSide = (nextSide: BattleState['player']) => {
+    const previousSide = currentBySide.get(nextSide.side);
+    const previousActive = previousSide?.active;
+    const nextActive = nextSide.active;
+    if (!previousSide || !previousActive || !nextActive) return nextSide;
+    const sameActive = previousActive.id === nextActive.id
+      || previousActive.name.toLocaleLowerCase() === nextActive.name.toLocaleLowerCase();
+    const active = sameActive
+      ? {
+          ...nextActive,
+          current_hp: previousActive.current_hp,
+          max_hp: previousActive.max_hp,
+          hp_fraction: previousActive.hp_fraction,
+          status: previousActive.status,
+          fainted: previousActive.fainted,
+          active: previousActive.active
+        }
+      : previousActive;
+    const team = nextSide.team.map((member) => member.id === active.id ? active : member);
+    if (!team.some((member) => member.id === active.id)) team.push(active);
+    return { ...nextSide, active, team };
+  };
+  return {
+    ...incoming,
+    turn: current.turn,
+    last_action: current.last_action,
+    result: current.result,
+    player: mergeSide(incoming.player),
+    opponent: mergeSide(incoming.opponent)
+  };
+}
+
+function switchBattleActive(
+  battle: BattlePresentationState['battle'],
+  side: Side | null,
+  payload: Record<string, unknown>
+): BattlePresentationState['battle'] {
+  if (!battle || !side) return battle;
+  const key = battle.player.side === side ? 'player' : battle.opponent.side === side ? 'opponent' : null;
+  if (!key) return battle;
+  const battleSide = battle[key];
+  const name = actorName(payload.actor).toLocaleLowerCase();
+  const selected = battleSide.team.find((member) =>
+    member.name.toLocaleLowerCase() === name || member.id.toLocaleLowerCase().endsWith(`: ${name}`)
+  );
+  if (!selected) return battle;
+  const hp = stringValue(payload.hp);
+  const match = hp.match(/([0-9.]+)\s*\/\s*([0-9.]+)/);
+  const hpFraction = match
+    ? Math.max(0, Math.min(1, Number(match[1]) / Math.max(1, Number(match[2]))))
+    : hp.includes('fnt') ? 0 : selected.hp_fraction;
+  const active = {
+    ...selected,
+    active: true,
+    hp_fraction: hpFraction,
+    fainted: hp.includes('fnt')
+  };
+  const team = battleSide.team.map((member) => ({
+    ...member,
+    active: member.id === active.id,
+    ...(member.id === active.id ? active : {})
+  }));
+  return { ...battle, [key]: { ...battleSide, active, team } };
 }
 
 function actorName(value: unknown): string {

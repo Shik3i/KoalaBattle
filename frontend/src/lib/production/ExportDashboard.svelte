@@ -131,7 +131,7 @@
           {#if ['failed','cancelled'].includes(job.status)}<button on:click={() => retry(job)}>Retry</button>{/if}
           {#if job.status === 'completed'}<a href={`${apiBase()}/api/video/jobs/${job.id}/download`}>Open / Download</a><a href={`${apiBase()}/api/video/jobs/${job.id}/captions`}>SRT</a><button on:click={() => rerender(job)} disabled={busy}>Render again</button>{/if}
         </div>
-        {#if job.status === 'completed'}<small>Video {seconds(job.video_duration_ms)} · render {seconds(job.render_duration_ms)} · speed {job.render_duration_ms ? (((job.end_ms - job.start_ms) / job.render_duration_ms).toFixed(2)) : '—'}× · {bytes(job.output_file_size)}</small>{/if}
+        {#if job.status === 'completed'}<small>Video {seconds(job.video_duration_ms)} · total export {seconds(job.render_duration_ms)} · end-to-end {job.render_duration_ms ? (((job.end_ms - job.start_ms) / job.render_duration_ms).toFixed(2)) : '—'}× · {bytes(job.output_file_size)}</small>{/if}
         {#if job.status === 'completed' && job.output_frame_count}<details><summary>Advanced render metrics</summary><small>Output {job.output_frame_count.toLocaleString()} frames · unique {job.unique_rendered_frames?.toLocaleString() || '—'} · static held {job.static_held_frames !== null ? `${(job.static_held_frames / job.output_frame_count * 100).toFixed(1)}%` : '—'} · animated {job.animated_frames?.toLocaleString() || '—'} · encoder {job.selected_encoder || '—'} · {job.renderer_transport || job.backend}</small></details>{/if}
         {#if job.error_detail}<p class="error">{job.error_category}: {job.error_detail}</p>{/if}
       </article>

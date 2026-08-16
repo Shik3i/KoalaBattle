@@ -6,14 +6,24 @@ from uuid import uuid4
 
 import pytest
 
+from koalabattle.config import Settings
 from koalabattle.core.models import BattleEvent, MatchConfig
-from koalabattle.production.models import SpeechProviderKind, SpeechRequest
+from koalabattle.production import CreateProduction, ProductionService
+from koalabattle.production.models import (
+    PrepareSpeechRequest,
+    ProductionStatus,
+    SpeechProviderKind,
+    SpeechRequest,
+    Track,
+)
 from koalabattle.production.profiles import PRODUCTION_PROFILES
 from koalabattle.production.speech import FakeSpeechProvider, SpeechCache, SpeechGenerationQueue
 from koalabattle.production.speech.cache import speech_cache_key
 from koalabattle.production.speech.system import SystemSpeechProvider
 from koalabattle.production.timeline import build_timeline, segment_caption
 from koalabattle.storage import BattleRepository, Database
+from koalabattle.video.models import ExportBackend, RendererCapabilities
+from koalabattle.video.service import VideoExportService
 
 
 async def _archive(tmp_path: Path, match_config: MatchConfig):  # type: ignore[no-untyped-def]
@@ -150,3 +160,74 @@ async def test_installed_system_speech_produces_valid_local_wav(tmp_path: Path) 
     )
     content = await provider.synthesize(request)
     assert SpeechCache(tmp_path / "system-audio").store(speech_cache_key(request), content)
+
+
+@pytest.mark.asyncio
+async def test_speech_outage_keeps_captions_and_marks_production_partial(
+    tmp_path: Path, match_config: MatchConfig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class UnavailableSpeechProvider(SystemSpeechProvider):
+        async def synthesize(self, request: SpeechRequest) -> bytes:
+            raise RuntimeError("simulated Edge outage")
+
+    database, archive = await _archive(tmp_path, match_config)
+    battles = BattleRepository(database)
+    settings = Settings(
+        database_url=f"sqlite+aiosqlite:///{tmp_path / 'production.db'}",
+        speech_audio_root=tmp_path / "audio",
+        video_root=tmp_path / "videos",
+    )
+    service = ProductionService(
+        database,
+        battles,
+        settings,
+    )
+    await service.start()
+    service.providers[SpeechProviderKind.SYSTEM] = UnavailableSpeechProvider()
+    production = await service.create(
+        archive.id,
+        CreateProduction(
+            profile_id="live-stream",
+            voice_assignments={"p1": "edge-neural-p1", "p2": "edge-neural-p2"},
+        ),
+    )
+
+    degraded = await service.prepare(production.id, PrepareSpeechRequest())
+
+    assert degraded.status is ProductionStatus.PARTIAL
+    assert degraded.overrides["speech_failures"]
+    assert any(cue.track is Track.CAPTIONS for cue in degraded.cues)
+    assert not any(cue.track is Track.VOICE for cue in degraded.cues)
+
+    video = VideoExportService(database, battles, service, settings)
+
+    async def available_renderer() -> RendererCapabilities:
+        return RendererCapabilities(
+            offline_available=True,
+            obs_configured=False,
+            ffmpeg_available=True,
+            ffprobe_available=True,
+            chromium_available=True,
+            playwright_available=True,
+            native_compositor_available=True,
+            raw_frame_available=True,
+            output_writable=True,
+            output_root=str(tmp_path / "videos"),
+            free_bytes=2_000_000_000,
+            storage_bytes=0,
+            concurrency=1,
+            obs_host="127.0.0.1",
+            obs_port=4455,
+            obs_scene="KoalaBattle",
+        )
+
+    monkeypatch.setattr(video, "capabilities", available_renderer)
+    preflight = await video.preflight(degraded.id, ExportBackend.OFFLINE)
+    assert preflight.ready is True
+    assert preflight.missing_speech
+    assert preflight.warnings == (
+        "Speech is unavailable for some commentary; captions remain and those cues "
+        "will render silently.",
+    )
+    await service.close()
+    await database.close()

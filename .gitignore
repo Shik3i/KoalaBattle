@@ -17,6 +17,7 @@ data/*.db-*
 data/assets/
 data/audio/
 data/music/
+data/review-pack/
 data/sound-packs/
 data/videos/
 data/vendor/

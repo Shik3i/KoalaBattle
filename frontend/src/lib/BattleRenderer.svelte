@@ -305,4 +305,11 @@
   @media(max-width:900px){.battle-renderer:not([data-layout='standard-vertical']){grid-template-columns:1fr 1fr;grid-template-rows:auto minmax(420px,1fr) auto auto;aspect-ratio:auto;min-height:760px}.battle-renderer:not([data-layout='standard-vertical']) .scoreboard{grid-column:1/-1}.battle-renderer:not([data-layout='standard-vertical']) .arena-stage{grid-column:1/-1;grid-row:2}.battle-renderer:not([data-layout='standard-vertical']) .player-far{grid-column:1;grid-row:3}.battle-renderer:not([data-layout='standard-vertical']) .player-near{grid-column:2;grid-row:3}.battle-renderer:not([data-layout='standard-vertical']) .battle-log{grid-column:1/-1;grid-row:4;grid-template-columns:1fr 1fr}.battle-renderer:not([data-layout='standard-vertical']) .battle-log p:nth-of-type(-n+3){display:none}}
   @media(max-width:560px){.battle-renderer{padding:14px;border-radius:16px}.battle-renderer:not([data-layout='standard-vertical']){grid-template-columns:1fr;grid-template-rows:auto 390px auto auto auto;min-height:850px}.battle-renderer:not([data-layout='standard-vertical']) .player-far{grid-column:1;grid-row:3}.battle-renderer:not([data-layout='standard-vertical']) .player-near{grid-column:1;grid-row:4}.battle-renderer:not([data-layout='standard-vertical']) .battle-log{grid-column:1;grid-row:5}.brand-lockup strong,.format{display:none}.combatant{width:52%}.arena-stage{min-height:390px}.commentary{margin-top:.6rem}.player-card{min-height:125px}}
   @media(prefers-reduced-motion:reduce){.sprite,.pulse-ring,.effect span,.winner-banner{animation-duration:.001ms!important;animation-iteration-count:1!important}.hp-track i{transition-duration:.001ms!important}}
+  @media(min-width:901px){
+    .battle-renderer:not([data-layout='standard-vertical']) .combatant{width:min(38%,310px)}
+    .battle-renderer:not([data-layout='standard-vertical']) .battle-center{width:clamp(64px,6vw,84px)}
+    .battle-renderer:not([data-layout='standard-vertical']) .battle-center small{font-size:.46rem;letter-spacing:.1em}
+    .battle-renderer:not([data-layout='standard-vertical']) .battle-center strong{max-width:78px;font-size:clamp(.66rem,.82vw,.86rem)}
+    .battle-renderer:not([data-layout='standard-vertical']) .pulse-ring{inset:8%}
+  }
 </style>

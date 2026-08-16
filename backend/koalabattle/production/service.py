@@ -349,13 +349,9 @@ class ProductionService:
             except Exception as error:
                 failures.append(f"{cue.id}: {error}")
         cues = self._with_speech(production.cues, generated, production)
-        status = (
-            ProductionStatus.FAILED
-            if failures and not generated
-            else ProductionStatus.PARTIAL
-            if failures
-            else ProductionStatus.READY
-        )
+        # Speech is optional presentation media. Keep captions and the production
+        # exportable when an online provider is unavailable, even if every cue failed.
+        status = ProductionStatus.PARTIAL if failures else ProductionStatus.READY
         overrides = {**production.overrides, "speech_failures": failures}
         updated = production.model_copy(
             update={
