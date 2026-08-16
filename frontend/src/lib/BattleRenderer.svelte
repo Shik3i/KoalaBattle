@@ -4,7 +4,8 @@
     defaultRendererConfig,
     type AgentPresentationStatus,
     type BattlePresentationState,
-    type RendererConfig
+    type RendererConfig,
+    type SpectatorLogEntry
   } from './presentation/types';
   import type { BattleSide, Side } from './types';
 
@@ -17,16 +18,32 @@
   export let visualProgress = 0;
 
   let failedAssets = new Set<string>();
+  const particleIndexes = Array.from({ length: 12 }, (_, index) => index);
+  /**
+   * Installed Showdown battle sprites are 96px static PNGs and ~60-96px animated GIFs.
+   * Enlarging one beyond this factor turns a crisp asset into mush, so the stage caps the
+   * footprint instead of stretching sprites to fill space.
+   */
+  const NATIVE_SPRITE_PX = 96;
+  const MAX_UPSCALE = 3;
+  const RETRO_GENERATIONS = new Set([1, 2]);
+
+  interface Slot {
+    place: 'far' | 'near';
+    side: Side;
+    data: BattleSide | null;
+    perspective: 'front' | 'back';
+  }
+
   let nearSide: Side = 'p1';
   let farSide: Side = 'p2';
-  const particleIndexes = Array.from({ length: 12 }, (_, index) => index);
-
   $: nearSide = config.nearSide;
   $: farSide = nearSide === 'p1' ? 'p2' : 'p1';
   $: near = presentation ? battleSide(presentation, nearSide) : null;
   $: far = presentation ? battleSide(presentation, farSide) : null;
-  $: nearCommentary = commentary(presentation, nearSide, config.commentaryMode);
-  $: farCommentary = commentary(presentation, farSide, config.commentaryMode);
+  $: generation = presentation?.battle?.generation ?? 9;
+  // Gen 1 and 2 sprites are pixel art by intent; everything later is smoothed.
+  $: retro = RETRO_GENERATIONS.has(generation);
   $: attackerSide = presentation
     ? (['p1', 'p2'] as Side[]).find((side) => presentation?.players[side].motion === 'attacking') || null
     : null;
@@ -38,6 +55,12 @@
     config.playbackSpeed === 'instant' || config.preset === 'instant'
       ? 0
       : Math.round(650 / Number(config.playbackSpeed));
+  $: formatLabel = formatName(presentation?.format || '', generation);
+  $: feed = groupedFeed(presentation);
+  $: slots = [
+    { place: 'far', side: farSide, data: far, perspective: 'front' },
+    { place: 'near', side: nearSide, data: near, perspective: 'back' }
+  ] as Slot[];
 
   function battleSide(state: BattlePresentationState, side: Side): BattleSide | null {
     const battle = state.battle;
@@ -46,16 +69,32 @@
     return battle.opponent.side === side ? battle.opponent : null;
   }
 
-  function commentary(
-    state: BattlePresentationState | null,
-    side: Side,
-    mode: RendererConfig['commentaryMode']
-  ) {
-    if (!state || mode === 'hidden') return [];
-    const items = state.players[side].commentary;
-    if (mode === 'latest') return items.slice(-1);
-    if (mode === 'last-3') return items.slice(-3);
-    return items;
+  /** Only the commentary that belongs to the action in flight is public-facing. */
+  function currentIntent(state: BattlePresentationState | null, side: Side) {
+    if (!state || config.commentaryMode === 'hidden') return null;
+    const player = state.players[side];
+    if (player.commentaryPhase === 'resolved' || player.commentaryPhase === 'waiting') return null;
+    return player;
+  }
+
+  function formatName(id: string, gen: number) {
+    if (!id) return `GEN ${gen}`;
+    const suffix = id.replace(/^gen\d+/, '').replace(/randombattle/, 'random battle');
+    return `GEN ${gen} · ${(suffix || 'custom game').replace(/([a-z])([A-Z])/g, '$1 $2').toUpperCase()}`;
+  }
+
+  /** Spectator feed grouped by turn, newest turn last, no repeated authoritative lines. */
+  function groupedFeed(state: BattlePresentationState | null) {
+    const groups: Array<{ turn: number; lines: SpectatorLogEntry[] }> = [];
+    if (!state) return groups;
+    const recent = state.log.slice(-9);
+    for (const entry of recent) {
+      if (entry.kind === 'turn_started') continue;
+      const last = groups[groups.length - 1];
+      if (last && last.turn === entry.turn) last.lines.push(entry);
+      else groups.push({ turn: entry.turn, lines: [entry] });
+    }
+    return groups.slice(-3).map((group) => ({ ...group, lines: group.lines.slice(-3) }));
   }
 
   function assetKey(side: BattleSide, perspective: 'front' | 'back') {
@@ -66,13 +105,32 @@
     failedAssets = new Set([...failedAssets, key]);
   }
 
+  /**
+   * Record the sprite's own pixel height so the stage can cap its upscale per asset.
+   * Installed assets range from ~48px animated frames to 96px static sheets; a single
+   * fit-to-box rule would blow the small ones up six times over.
+   */
+  function onAssetLoad(event: Event) {
+    const image = event.currentTarget as HTMLImageElement;
+    if (image.naturalHeight) image.style.setProperty('--natural-h', String(image.naturalHeight));
+  }
+
+  /**
+   * Deterministic renders must not depend on wall-clock GIF playback, so the offline path
+   * always asks the asset service for the static sprite.
+   */
+  function spriteUrl(species: string, perspective: 'front' | 'back') {
+    return pokemonAssetUrl(species, perspective, config.animatedSprites && !deterministic);
+  }
+
   function hpTone(fraction: number) {
     return fraction > 0.5 ? 'high' : fraction > 0.2 ? 'mid' : 'low';
   }
 
   function previousHp(side: Side, fraction: number) {
-    if (!presentation || presentation.effectSide !== side || presentation.effectValue === null) return fraction;
-    return Math.max(0, Math.min(1, fraction - presentation.effectValue / 100));
+    const impact = presentation?.impacts[side];
+    if (!impact) return fraction;
+    return Math.max(0, Math.min(1, fraction - impact.value / 100));
   }
 
   function particleStyle(index: number, seed: number) {
@@ -85,19 +143,19 @@
     return `--particle-x:${x}px;--particle-y:${y}px;transform:translate(${x * progress}px,${y * progress}px) rotate(${150 * progress}deg) scale(${1 - progress * .85});opacity:${1 - progress}`;
   }
 
-  function spriteStyle(motion: string, near: boolean) {
+  function spriteStyle(motion: string, isNear: boolean) {
     if (!deterministic) return '';
     const progress = Math.max(0, Math.min(1, visualProgress));
     const pulse = Math.sin(progress * Math.PI);
     if (motion === 'idle') {
       const idle = Math.sin(logicalElapsedMs / 3400 * Math.PI * 2);
-      return `transform:translateY(${idle * -3}%) scale(${1 + Math.max(0, idle) * .015})`;
+      return `transform:translateY(${idle * -2}%) scale(${1 + Math.max(0, idle) * .012})`;
     }
-    if (motion === 'attacking') return `transform:translate(${(near ? 12 : -12) * pulse}%,${(near ? 7 : -7) * pulse}%) scale(${1 + .08 * pulse})`;
-    if (motion === 'taking-damage') return `transform:translateX(${Math.sin(progress * Math.PI * 8) * (1 - progress) * 7}%);filter:brightness(${1 + pulse * .8})`;
-    if (motion === 'switching-in') return `opacity:${progress};transform:translateY(${(1 - progress) * -15}%) scale(${.72 + progress * .28})`;
-    if (motion === 'switching-out') return `opacity:${1 - progress};transform:translateY(${progress * 15}%) scale(${1 - progress * .28})`;
-    if (motion === 'fainting') return `opacity:${1 - progress};transform:translateY(${progress * 25}%) rotate(${progress * 5}deg) scale(${1 - progress * .22});filter:grayscale(${progress})`;
+    if (motion === 'attacking') return `transform:translate(${(isNear ? 14 : -14) * pulse}%,${(isNear ? -9 : 9) * pulse}%) scale(${1 + .07 * pulse})`;
+    if (motion === 'taking-damage') return `transform:translateX(${Math.sin(progress * Math.PI * 8) * (1 - progress) * 8}%);filter:brightness(${1 + pulse * .9}) saturate(${1 - pulse * .5})`;
+    if (motion === 'switching-in') return `opacity:${progress};transform:translateY(${(1 - progress) * -18}%) scale(${.7 + progress * .3})`;
+    if (motion === 'switching-out') return `opacity:${1 - progress};transform:translateY(${progress * 18}%) scale(${1 - progress * .3})`;
+    if (motion === 'fainting') return `opacity:${1 - progress};transform:translateY(${progress * 30}%) scale(${1 - progress * .25});filter:grayscale(${progress}) brightness(${1 - progress * .4})`;
     if (motion === 'status-flash') return `filter:brightness(${1 + pulse * .45}) drop-shadow(0 0 ${pulse * 22}px #ffd05d)`;
     return '';
   }
@@ -106,8 +164,8 @@
     if (!deterministic) return '';
     const progress = Math.max(0, Math.min(1, visualProgress));
     const nearToFar = direction === 'near-to-far';
-    const origin = nearToFar ? [27, 72] : [73, 29];
-    const target = nearToFar ? [73, 29] : [27, 72];
+    const origin = nearToFar ? [30, 74] : [70, 40];
+    const target = nearToFar ? [70, 40] : [30, 74];
     const x = origin[0] + (target[0] - origin[0]) * progress;
     const y = origin[1] + (target[1] - origin[1]) * progress;
     return `left:${x}%;top:${y}%;opacity:${Math.sin(progress * Math.PI)};transform:translate(-50%,-50%) scale(${.45 + progress * .9})`;
@@ -116,7 +174,7 @@
   function arenaStyle() {
     if (!deterministic || !strongImpact || config.reducedMotion) return '';
     const progress = Math.max(0, Math.min(1, visualProgress));
-    const strength = (1 - progress) * Math.sin(progress * Math.PI * 8) * .45;
+    const strength = (1 - progress) * Math.sin(progress * Math.PI * 8) * .5;
     return `transform:translate(${strength}%,${strength * -.55}%)`;
   }
 
@@ -136,16 +194,15 @@
   function beamStyle(direction: 'near-to-far' | 'far-to-near') {
     if (!deterministic) return '';
     const progress = Math.max(0, Math.min(1, visualProgress));
-    const angle = direction === 'near-to-far' ? -43 : 137;
+    const angle = direction === 'near-to-far' ? -38 : 142;
     return `opacity:${Math.sin(progress * Math.PI)};transform:rotate(${angle}deg) scaleX(${Math.min(1, progress * 3)})`;
   }
 
   function readableStatus(status: string) {
     const labels: Record<string, string> = {
-      brn: 'Burned', par: 'Paralyzed', psn: 'Poisoned', tox: 'Badly poisoned',
-      slp: 'Asleep', frz: 'Frozen'
+      brn: 'BRN', par: 'PAR', psn: 'PSN', tox: 'TOX', slp: 'SLP', frz: 'FRZ'
     };
-    return labels[status.toLowerCase()] || status;
+    return labels[status.toLowerCase()] || status.toUpperCase();
   }
 
   function typeColor(type: string) {
@@ -158,13 +215,17 @@
     return colors[type.toLowerCase()] || colors.normal;
   }
 
-  function hpLabel(active: NonNullable<BattleSide['active']>) {
-    const absoluteFraction = active.current_hp != null && active.max_hp
-      ? active.current_hp / active.max_hp
-      : null;
-    return absoluteFraction != null && Math.abs(absoluteFraction - active.hp_fraction) <= 0.01
+  /** Production surfaces always show the public percentage so both sides read identically. */
+  function hpPercent(active: NonNullable<BattleSide['active']>) {
+    return Math.round(active.hp_fraction * 100);
+  }
+
+  function exactHp(active: NonNullable<BattleSide['active']>) {
+    if (active.current_hp == null || !active.max_hp) return null;
+    const absolute = active.current_hp / active.max_hp;
+    return Math.abs(absolute - active.hp_fraction) <= 0.01
       ? `${active.current_hp}/${active.max_hp}`
-      : `${Math.round(active.hp_fraction * 100)}%`;
+      : null;
   }
 </script>
 
@@ -177,103 +238,118 @@
     class="battle-renderer"
     data-layout={config.layout}
     data-renderer-theme={config.theme}
-    style={`--hp-duration:${hpDuration}ms;--logical-elapsed:-${logicalElapsedMs}ms`}
+    data-generation={generation}
+    data-retro={retro}
+    style={`--hp-duration:${hpDuration}ms;--sprite-native:${NATIVE_SPRITE_PX}px;--max-upscale:${MAX_UPSCALE}`}
     aria-label="KoalaBattle production renderer"
   >
-    <div class="ambient" aria-hidden="true"></div>
-    <header class="scoreboard">
-      <div class="brand-lockup"><img src="/koalabattle-mark.svg" alt="" /><strong>KOALABATTLE <em>// VERDANT CIRCUIT</em></strong></div>
-      {#if config.showTurn}<div class="turn">TURN <strong>{presentation.battle?.turn ?? 0}</strong></div>{/if}
-      <div class="format">{presentation.format === 'gen9ou' ? 'GEN 9 · OU' : 'GEN 9 · RANDOM BATTLE'}</div>
+    <!-- Broadcast bar: brand, turn, format. Deliberately slim so the arena dominates. -->
+    <header class="broadcast-bar">
+      <span class="brand"><img src="/koalabattle-mark.svg" alt="" /><b>KOALABATTLE</b></span>
+      {#if config.showTurn}<span class="turn">TURN <b>{presentation.battle?.turn ?? 0}</b></span>{/if}
+      <span class="format">{formatLabel}</span>
     </header>
 
-    <div class="player-card player-far" data-side={farSide}>
-      <div><span class="side">{farSide}</span><h2>{presentation.players[farSide].displayName}</h2></div>
-      {#if config.showAgentState}<span class="agent-state">{agentStatus[farSide] || presentation.players[farSide].agentStatus}</span>{/if}
-      <small>{presentation.players[farSide].providerLabel}</small>
-      <div class="team-strip" aria-label={`${far?.team.length || 0} team members`}>
-        {#each far?.team || [] as member}<i class:active={member.active} class:fainted={member.fainted}></i>{/each}
-      </div>
-      <div class="commentary" aria-live="polite">
-        {#each farCommentary as item}<p>{item.commentary || `${item.actionName || item.action} selected.`}</p>{/each}
-        {#if farCommentary.length === 0}<p class="muted">Awaiting public commentary…</p>{/if}
-      </div>
-    </div>
-
-    <div class="player-card player-near" data-side={nearSide}>
-      <div><span class="side">{nearSide}</span><h2>{presentation.players[nearSide].displayName}</h2></div>
-      {#if config.showAgentState}<span class="agent-state">{agentStatus[nearSide] || presentation.players[nearSide].agentStatus}</span>{/if}
-      <small>{presentation.players[nearSide].providerLabel}</small>
-      <div class="team-strip" aria-label={`${near?.team.length || 0} team members`}>
-        {#each near?.team || [] as member}<i class:active={member.active} class:fainted={member.fainted}></i>{/each}
-      </div>
-      <div class="commentary" aria-live="polite">
-        {#each nearCommentary as item}<p>{item.commentary || `${item.actionName || item.action} selected.`}</p>{/each}
-        {#if nearCommentary.length === 0}<p class="muted">Awaiting public commentary…</p>{/if}
-      </div>
-    </div>
-
-    <div style={arenaStyle()} class:arena-shake={strongImpact && config.effects !== 'off' && !config.reducedMotion} class="arena-stage">
+    <div style={arenaStyle()} class:arena-shake={strongImpact && config.effects !== 'off' && !config.reducedMotion} class="stage">
+      <!-- Original KoalaBattle arena: stadium bowl, crowd, lit floor plane. -->
       <div class="stage-sky" aria-hidden="true"></div>
-      <div class="stage-ridges ridge-left" aria-hidden="true"></div>
-      <div class="stage-ridges ridge-right" aria-hidden="true"></div>
-      <div class="stage-gate" aria-hidden="true"><i></i></div>
-      <div class="stage-floor" aria-hidden="true"></div>
-      <div class="arena-grid" aria-hidden="true"></div>
+      <div class="stage-bowl" aria-hidden="true"><i class="crowd"></i><i class="rail"></i></div>
+      <div class="stage-lights" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+      <div class="stage-floor" aria-hidden="true"><i class="floor-grid"></i><i class="floor-glow"></i></div>
       {#if presentation.battle?.weather.length}
-        <div class="weather-layer" data-weather={presentation.battle.weather[0]} aria-hidden="true"><i></i><i></i><i></i></div>
+        <div class="weather-layer" data-weather={presentation.battle.weather[0]} aria-hidden="true"></div>
       {/if}
       {#if presentation.battle?.fields.length}
         <div class="terrain-layer" data-terrain={presentation.battle.fields[0]} aria-hidden="true"></div>
       {/if}
-      <div class="field-state field-far" aria-label={`${farSide} field conditions`}>
-        {#each far?.side_conditions || [] as condition}<span>{condition.replaceAll('_', ' ')}</span>{/each}
-      </div>
-      <div class="field-state field-near" aria-label={`${nearSide} field conditions`}>
-        {#each near?.side_conditions || [] as condition}<span>{condition.replaceAll('_', ' ')}</span>{/each}
-      </div>
-      {#if far?.active}
-        <article class="combatant combatant-far" aria-label={`${far.active.name}, ${Math.round(far.active.hp_fraction * 100)} percent health`}>
-          <div class="identity"><div><strong>{far.active.name}</strong><small>ACTIVE</small></div><span>{#each far.active.types as type}<i class="type-badge" style={`--type-color:${typeColor(type)}`}>{type}</i>{/each}</span></div>
-          <div class="sprite-platform">
-            {#key `${presentation.eventSequence}:${farSide}:${presentation.players[farSide].motion}`}
-              <div style={spriteStyle(presentation.players[farSide].motion, false)} class={`sprite ${presentation.players[farSide].motion}`}>
-                {#if !failedAssets.has(assetKey(far, 'front'))}
-                  <img src={pokemonAssetUrl(far.active.species, 'front', config.animatedSprites)} alt={far.active.name} on:error={() => onAssetError(assetKey(far!, 'front'))} />
-                {:else}
-                  <div class="placeholder"><span>{far.active.name.slice(0, 1)}</span><small>NO SPRITE</small></div>
-                {/if}
-              </div>
-            {/key}
-          </div>
-          <div class="vitals"><span class="vital-name">{far.active.name}</span><div><small>HP</small>{#if far.active.status}<span class="status" title={readableStatus(far.active.status)}>{far.active.status}<small>{readableStatus(far.active.status)}</small></span>{/if}</div><strong>{hpLabel(far.active)}</strong></div>
-          <div class="hp-track" data-tone={hpTone(far.active.hp_fraction)}><b style={`width:${previousHp(farSide, far.active.hp_fraction) * 100}%`}></b><i style={`width:${far.active.hp_fraction * 100}%`}></i></div>
-        </article>
-      {/if}
 
-      <div class="battle-center">
-        <span class="pulse-ring"></span>
-        {#if presentation.currentMove}<small>LAST ACTION</small><strong>{presentation.currentMove}</strong>{:else}<strong>VS</strong>{/if}
-      </div>
+      <!-- Compact player identity, fighting-game style: name first, role as metadata. -->
+      {#each slots as slot (slot.side)}
+        <div class={`player-hud hud-${slot.place}`} data-side={slot.side}>
+          <span class="player-name">{presentation.players[slot.side].displayName}</span>
+          <span class="player-meta">
+            <b>{slot.side.toUpperCase()}</b>
+            <span>{presentation.players[slot.side].providerLabel}</span>
+            {#if config.showAgentState}
+              <em class={`agent-state ${agentStatus[slot.side] || presentation.players[slot.side].agentStatus}`}
+                >{agentStatus[slot.side] || presentation.players[slot.side].agentStatus}</em>
+            {/if}
+          </span>
+          <span class="team-strip" aria-label={`${slot.data?.team.length || 0} Pokémon remaining`}>
+            {#each slot.data?.team || [] as member}
+              <i class:active={member.active} class:fainted={member.fainted}></i>
+            {/each}
+          </span>
+        </div>
+      {/each}
 
-      {#if near?.active}
-        <article class="combatant combatant-near" aria-label={`${near.active.name}, ${Math.round(near.active.hp_fraction * 100)} percent health`}>
-          <div class="identity"><div><strong>{near.active.name}</strong><small>ACTIVE</small></div><span>{#each near.active.types as type}<i class="type-badge" style={`--type-color:${typeColor(type)}`}>{type}</i>{/each}</span></div>
-          <div class="sprite-platform">
-            {#key `${presentation.eventSequence}:${nearSide}:${presentation.players[nearSide].motion}`}
-              <div style={spriteStyle(presentation.players[nearSide].motion, true)} class={`sprite ${presentation.players[nearSide].motion}`}>
-                {#if !failedAssets.has(assetKey(near, 'back'))}
-                  <img src={pokemonAssetUrl(near.active.species, 'back', config.animatedSprites)} alt={near.active.name} on:error={() => onAssetError(assetKey(near!, 'back'))} />
-                {:else}
-                  <div class="placeholder"><span>{near.active.name.slice(0, 1)}</span><small>NO SPRITE</small></div>
-                {/if}
+      <!-- Combatants. Far uses the front sprite, near the back sprite, as in a real battle. -->
+      {#each slots as slot (slot.side)}
+        {#if slot.data?.active}
+          <article
+            class={`combatant combatant-${slot.place}`}
+            data-side={slot.side}
+            aria-label={`${slot.data.active.name}, ${hpPercent(slot.data.active)} percent health`}
+          >
+            <div class="sprite-slot">
+              <div class="platform" aria-hidden="true"><i></i></div>
+              <div class="contact-shadow" aria-hidden="true"></div>
+              {#key `${presentation.eventSequence}:${slot.side}:${presentation.players[slot.side].motion}`}
+                <div
+                  style={spriteStyle(presentation.players[slot.side].motion, slot.place === 'near')}
+                  class={`sprite ${presentation.players[slot.side].motion}`}
+                >
+                  {#if !failedAssets.has(assetKey(slot.data, slot.perspective))}
+                    <img
+                      src={spriteUrl(slot.data.active.species, slot.perspective)}
+                      alt={slot.data.active.name}
+                      on:load={onAssetLoad}
+                      on:error={() => slot.data && onAssetError(assetKey(slot.data, slot.perspective))}
+                    />
+                  {:else}
+                    <div class="placeholder"><span>{slot.data.active.name.slice(0, 1)}</span></div>
+                  {/if}
+                </div>
+              {/key}
+              {#if config.showDamageNumbers && presentation.impacts[slot.side]}
+                {#key presentation.impacts[slot.side]?.sequence}
+                  <strong
+                    class="hp-delta"
+                    class:positive={(presentation.impacts[slot.side]?.value ?? 0) > 0}
+                    style={transientStyle()}
+                  >{(presentation.impacts[slot.side]?.value ?? 0) > 0 ? '+' : ''}{presentation.impacts[slot.side]?.value}%</strong>
+                {/key}
+              {/if}
+            </div>
+
+            <!-- Both sides get an identical HP plate: species, level, types, bar, percent. -->
+            <div class="hp-plate">
+              <div class="plate-head">
+                <b class="species">{slot.data.active.name}</b>
+                {#if slot.data.active.level}<span class="level">Lv{slot.data.active.level}</span>{/if}
+                {#if slot.data.active.status}<span class="status">{readableStatus(slot.data.active.status)}</span>{/if}
               </div>
-            {/key}
-          </div>
-          <div class="vitals"><span class="vital-name">{near.active.name}</span><div><small>HP</small>{#if near.active.status}<span class="status" title={readableStatus(near.active.status)}>{near.active.status}<small>{readableStatus(near.active.status)}</small></span>{/if}</div><strong>{hpLabel(near.active)}</strong></div>
-          <div class="hp-track" data-tone={hpTone(near.active.hp_fraction)}><b style={`width:${previousHp(nearSide, near.active.hp_fraction) * 100}%`}></b><i style={`width:${near.active.hp_fraction * 100}%`}></i></div>
-        </article>
-      {/if}
+              <div class="hp-track" data-tone={hpTone(slot.data.active.hp_fraction)}>
+                <b style={`width:${previousHp(slot.side, slot.data.active.hp_fraction) * 100}%`}></b>
+                <i style={`width:${slot.data.active.hp_fraction * 100}%`}></i>
+              </div>
+              <div class="plate-foot">
+                <span class="types">
+                  {#each slot.data.active.types as type}
+                    <i class="type-badge" style={`--type-color:${typeColor(type)}`}>{type}</i>
+                  {/each}
+                </span>
+                <span class="hp-value">
+                  {hpPercent(slot.data.active)}%
+                  {#if config.commentaryMode === 'full' && exactHp(slot.data.active)}
+                    <small>{exactHp(slot.data.active)}</small>
+                  {/if}
+                </span>
+              </div>
+            </div>
+          </article>
+        {/if}
+      {/each}
 
       {#if moveProfile && config.effects !== 'off'}
         <div
@@ -284,33 +360,74 @@
           data-quality={config.effects}
           aria-hidden="true"
         >
-          <div style={chargeStyle()} class="charge-ring"></div><div style={projectileStyle(attackerSide === nearSide ? 'near-to-far' : 'far-to-near')} class="move-projectile"></div><div style={beamStyle(attackerSide === nearSide ? 'near-to-far' : 'far-to-near')} class="move-beam"></div>
+          <div style={chargeStyle()} class="charge-ring"></div>
+          <div style={projectileStyle(attackerSide === nearSide ? 'near-to-far' : 'far-to-near')} class="move-projectile"></div>
+          <div style={beamStyle(attackerSide === nearSide ? 'near-to-far' : 'far-to-near')} class="move-beam"></div>
         </div>
       {/if}
 
       {#key `${presentation.eventSequence}:${presentation.effect}`}
-        {#if presentation.effect !== 'none'}
+        {#if presentation.effect !== 'none' && presentation.effect !== 'impact'}
           <div class={`effect effect-${presentation.effect}`} data-side={presentation.effectSide || ''} data-move-type={presentation.currentMoveProfile?.type || 'normal'}>
-            {#if config.effects !== 'off'}<div class="impact-burst" aria-hidden="true">{#each particleIndexes.slice(0, config.effects === 'low' ? 6 : config.effects === 'high' ? 12 : 9) as index}<i style={particleStyle(index, presentation.currentMoveProfile?.seed || presentation.eventSequence)}></i>{/each}</div>{/if}
+            {#if config.effects !== 'off'}
+              <div class="impact-burst" aria-hidden="true">
+                {#each particleIndexes.slice(0, config.effects === 'low' ? 6 : config.effects === 'high' ? 12 : 9) as index}
+                  <i style={particleStyle(index, presentation.currentMoveProfile?.seed || presentation.eventSequence)}></i>
+                {/each}
+              </div>
+            {/if}
             <span style={transientStyle()}>{presentation.effect === 'super-effective' ? 'SUPER EFFECTIVE' : presentation.effect === 'resisted' ? 'NOT VERY EFFECTIVE' : presentation.effect === 'immune' ? 'NO EFFECT' : presentation.effect.replace('-', ' ')}</span>
-            {#if config.showDamageNumbers && presentation.effectValue !== null}<strong style={transientStyle()} class:positive={presentation.effectValue > 0}>{presentation.effectValue > 0 ? '+' : ''}{presentation.effectValue}%</strong>{/if}
           </div>
         {/if}
       {/key}
+
+      <!-- One unambiguous headline: is this action running now, or already resolved? -->
+      {#if presentation.currentMove}
+        <div class="action-banner" data-phase={presentation.currentMovePhase} data-side={presentation.currentMoveSide || ''}>
+          <small>{presentation.currentMovePhase === 'executing' ? 'NOW' : 'LAST ACTION'}</small>
+          <b>{presentation.currentMove}</b>
+          {#if moveProfile && presentation.currentMovePhase === 'executing'}
+            <em>{moveProfile.type.toUpperCase()} · {moveProfile.archetype.toUpperCase()}</em>
+          {/if}
+        </div>
+      {/if}
+
+      <!-- Intent panels only exist while their action is pending or executing. -->
+      {#each slots as slot (slot.side)}
+        {@const player = currentIntent(presentation, slot.side)}
+        {#if player}
+          <div class={`intent intent-${slot.place}`} data-side={slot.side} aria-live="polite">
+            <small>{player.commentaryPhase === 'thinking' ? 'THINKING' : 'INTENT'}</small>
+            {#if player.commentaryPhase === 'thinking'}
+              <p class="thinking">Thinking…</p>
+            {:else}
+              <p>{player.currentCommentary?.commentary || `${player.currentCommentary?.actionName || player.currentCommentary?.action || 'Action'} selected.`}</p>
+            {/if}
+          </div>
+        {/if}
+      {/each}
     </div>
 
     {#if config.showBattleLog}
-      <aside class="battle-log" aria-label="Spectator battle feed" aria-live="polite">
-        <header><span>LIVE FEED</span><small>EVENT #{presentation.eventSequence}</small></header>
-        {#each presentation.log.slice(-5) as entry}
-          <p data-emphasis={entry.emphasis}><span>{entry.turn}</span>{entry.text}</p>
+      <aside class="battle-feed" aria-label="Spectator battle feed" aria-live="polite">
+        {#each feed as group (group.turn)}
+          <div class="feed-turn">
+            <span class="feed-label">Turn {group.turn}</span>
+            {#each group.lines as entry (entry.sequence)}
+              <p data-emphasis={entry.emphasis}>{entry.text}</p>
+            {/each}
+          </div>
         {/each}
-        {#if presentation.log.length === 0}<p class="muted"><span>—</span>Battle feed ready.</p>{/if}
+        {#if !feed.length}<div class="feed-turn"><span class="feed-label">Ready</span><p>Waiting for the first turn.</p></div>{/if}
       </aside>
     {/if}
 
     {#if presentation.finished}
-      <div class="winner-banner" role="status"><small>BATTLE COMPLETE</small><strong>{presentation.winnerName || presentation.battle?.result?.winner_name || 'DRAW'}</strong><span>{presentation.winner || '—'}</span></div>
+      <div class="winner-banner" role="status">
+        <small>BATTLE COMPLETE</small>
+        <strong>{presentation.winnerName || presentation.battle?.result?.winner_name || 'DRAW'}</strong>
+        <span>{presentation.winner || 'no winner'}</span>
+      </div>
     {/if}
   </section>
 {:else}
@@ -318,65 +435,256 @@
 {/if}
 
 <style>
-  .battle-renderer{--r-panel:rgba(10,21,14,.88);--r-text:#f5fff7;--r-muted:#96aa9b;--r-line:rgba(255,255,255,.12);--r-accent:#8cf2a7;--r-accent-ink:#06160b;--r-p1:#72e39a;--r-p2:#d09bff;position:relative;isolation:isolate;display:grid;grid-template-columns:minmax(220px,.78fr) minmax(480px,2fr) minmax(220px,.78fr);grid-template-rows:auto 1fr auto;gap:clamp(10px,1.2vw,22px);width:100%;aspect-ratio:16/9;min-height:520px;overflow:hidden;padding:clamp(18px,2.4vw,44px);border:1px solid var(--r-line);border-radius:clamp(18px,2vw,32px);background:radial-gradient(circle at 50% 40%,rgba(76,180,111,.16),transparent 35%),linear-gradient(145deg,#07120c,#0c1810 48%,#08100b);color:var(--r-text);box-shadow:0 40px 120px rgba(0,0,0,.35);font-family:var(--display)}
-  .battle-renderer[data-renderer-theme='koala-light']{--r-panel:rgba(255,255,255,.88);--r-text:#132418;--r-muted:#617166;--r-line:rgba(24,58,35,.14);--r-accent:#187a40;--r-accent-ink:#fff;background:radial-gradient(circle at 50% 35%,rgba(57,181,100,.16),transparent 38%),linear-gradient(145deg,#f8fcf9,#e5f1e8 52%,#f3f7f4)}
-  .battle-renderer.deterministic .sprite,.battle-renderer.deterministic .pulse-ring,.battle-renderer.deterministic .effect span,.battle-renderer.deterministic .effect strong,.battle-renderer.deterministic .impact-burst i,.battle-renderer.deterministic .move-projectile,.battle-renderer.deterministic .move-beam,.battle-renderer.deterministic .charge-ring,.battle-renderer.deterministic .arena-shake,.battle-renderer.deterministic .weather-layer,.battle-renderer.deterministic .winner-banner{animation:none!important}.battle-renderer.deterministic .hp-track i{transition:none!important}
-  .battle-renderer.transparent{background:transparent!important;border-color:transparent;box-shadow:none}.ambient{position:absolute;z-index:-2;inset:0;background:linear-gradient(115deg,color-mix(in srgb,var(--r-p1) 8%,transparent),transparent 32%,color-mix(in srgb,var(--r-p2) 8%,transparent));pointer-events:none}.scoreboard{grid-column:1/-1;display:grid;grid-template-columns:1fr auto 1fr;align-items:center;padding-bottom:clamp(8px,1vw,16px);border-bottom:1px solid var(--r-line);letter-spacing:.08em}.brand-lockup{display:flex;align-items:center;gap:.7rem;font-size:clamp(.66rem,.8vw,.82rem)}.brand-lockup span{display:grid;place-items:center;width:34px;aspect-ratio:1;border-radius:10px;background:var(--r-accent);color:var(--r-accent-ink);font:800 .68rem var(--mono)}.turn{text-align:center;color:var(--r-muted);font:600 clamp(.62rem,.8vw,.76rem) var(--mono)}.turn strong{margin-left:.35rem;color:var(--r-text);font-size:1.35em}.format{text-align:right;color:var(--r-muted);font:500 clamp(.55rem,.7vw,.7rem) var(--mono)}.player-card{position:relative;align-self:stretch;padding:clamp(14px,1.6vw,24px);border:1px solid var(--r-line);border-radius:18px;background:var(--r-panel);backdrop-filter:blur(16px)}.player-card[data-side='p1']{box-shadow:inset 3px 0 var(--r-p1)}.player-card[data-side='p2']{box-shadow:inset 3px 0 var(--r-p2)}.player-card h2{margin:.28rem 0;font-size:clamp(1rem,1.6vw,1.55rem);line-height:1}.side{color:var(--r-muted);font:600 .56rem var(--mono);text-transform:uppercase}.player-card small{color:var(--r-muted);font:.6rem var(--mono)}.agent-state{position:absolute;top:16px;right:16px;padding:.3rem .45rem;border:1px solid var(--r-line);border-radius:999px;color:var(--r-accent);font:600 .52rem var(--mono);text-transform:uppercase}.commentary{margin-top:1.1rem}.commentary p{margin:.45rem 0;color:var(--r-text);font-size:clamp(.65rem,.85vw,.85rem);line-height:1.5}.commentary .muted,.muted{color:var(--r-muted);font-style:italic}.player-far{grid-column:1;grid-row:2}.player-near{grid-column:3;grid-row:2}.arena-stage{position:relative;grid-column:2;grid-row:2;min-height:350px;overflow:hidden;border:1px solid var(--r-line);border-radius:22px;background:radial-gradient(ellipse at center bottom,rgba(120,255,163,.13),transparent 48%),linear-gradient(180deg,rgba(255,255,255,.035),rgba(0,0,0,.1))}.arena-grid{position:absolute;inset:0;opacity:.22;background-image:linear-gradient(var(--r-line) 1px,transparent 1px),linear-gradient(90deg,var(--r-line) 1px,transparent 1px);background-size:42px 42px;mask-image:linear-gradient(transparent,black 30%,black)}.combatant{position:absolute;width:min(45%,310px)}.combatant-far{top:5%;right:5%}.combatant-near{bottom:5%;left:5%}.identity{display:flex;justify-content:space-between;gap:.5rem;margin-bottom:.4rem;color:var(--r-muted);font:.54rem var(--mono);text-transform:uppercase}.identity strong{overflow:hidden;color:var(--r-text);text-overflow:ellipsis}.sprite-platform{position:relative;display:grid;place-items:center;aspect-ratio:1.6/1;border-radius:50%;background:radial-gradient(ellipse,rgba(255,255,255,.14),transparent 65%)}.sprite{display:grid;place-items:center;width:62%;height:85%;transform-origin:center bottom}.sprite img{display:block;width:100%;height:100%;object-fit:contain;filter:drop-shadow(0 16px 15px rgba(0,0,0,.38))}.placeholder{display:grid;place-items:center;width:100%;height:100%;border:1px solid var(--r-line);border-radius:50% 50% 44% 44%;background:radial-gradient(circle at 38% 30%,color-mix(in srgb,var(--r-accent) 22%,transparent),transparent 38%),var(--r-panel);box-shadow:inset 0 0 40px rgba(255,255,255,.04)}.placeholder span{font-size:clamp(2rem,5vw,5rem);font-weight:800;opacity:.9}.placeholder small{position:absolute;bottom:12%;color:var(--r-muted);font:.45rem var(--mono);letter-spacing:.15em}.vitals{display:flex;justify-content:space-between;gap:.5rem;margin-top:.4rem;font-size:clamp(.66rem,.9vw,.88rem)}.vitals>div{display:flex;align-items:center;gap:.45rem}.status{padding:.15rem .3rem;border:1px solid currentColor;border-radius:4px;color:#ffce62;font:.52rem var(--mono);text-transform:uppercase}.hp-track{height:7px;margin-top:.35rem;overflow:hidden;border-radius:999px;background:rgba(0,0,0,.34)}.hp-track i{display:block;width:0;height:100%;border-radius:inherit;background:#60dc84;transition:width var(--hp-duration) cubic-bezier(.2,.8,.2,1),background var(--hp-duration)}.hp-track[data-tone='mid'] i{background:#f0bc4f}.hp-track[data-tone='low'] i{background:#ff716c}.battle-center{position:absolute;top:50%;left:50%;display:grid;place-items:center;width:120px;aspect-ratio:1;transform:translate(-50%,-50%);text-align:center}.battle-center small{color:var(--r-muted);font:.5rem var(--mono);letter-spacing:.13em}.battle-center strong{z-index:1;max-width:120px;font-size:clamp(.72rem,1vw,1rem);line-height:1.15}.pulse-ring{position:absolute;inset:10%;border:1px solid var(--r-accent);border-radius:50%;opacity:.28;animation:pulse 2.8s infinite}.effect{position:absolute;z-index:8;inset:0;display:grid;place-items:center;pointer-events:none}.effect span{padding:.45rem .8rem;border:1px solid var(--r-line);border-radius:999px;background:var(--r-panel);color:var(--r-text);font:800 clamp(.65rem,1vw,.9rem) var(--mono);letter-spacing:.12em;text-transform:uppercase;animation:effect-pop .55s both}.effect-critical-hit span{border-color:#ffd262;color:#ffd262;box-shadow:0 0 50px rgba(255,202,85,.25)}.effect-healing span{color:#89f2a6}.effect-miss span{color:var(--r-muted)}.winner-banner{position:absolute;z-index:15;inset:0;display:grid;place-content:center;text-align:center;background:rgba(4,10,6,.78);color:#f5fff7;backdrop-filter:blur(12px);animation:winner-in .7s both}.winner-banner small{color:#8cf2a7;font:.62rem var(--mono);letter-spacing:.22em}.winner-banner strong{margin:.4rem 0;color:#f5fff7;font-size:clamp(2rem,6vw,6rem);line-height:.9;letter-spacing:-.06em}.winner-banner span{color:#b7c5ba;font:.7rem var(--mono);text-transform:uppercase}.battle-log{grid-column:1/-1;display:grid;grid-template-columns:1.2fr repeat(5,minmax(0,1fr));gap:1px;min-height:62px;overflow:hidden;border:1px solid var(--r-line);border-radius:14px;background:var(--r-line)}.battle-log>*{margin:0;padding:.7rem;background:var(--r-panel)}.battle-log header{display:grid;align-content:center}.battle-log header span{color:var(--r-accent);font:700 .57rem var(--mono);letter-spacing:.12em}.battle-log header small{margin-top:.25rem;color:var(--r-muted);font:.48rem var(--mono)}.battle-log p{display:flex;gap:.5rem;align-items:center;color:var(--r-muted);font-size:clamp(.5rem,.65vw,.65rem);line-height:1.3}.battle-log p span{color:var(--r-accent);font:.52rem var(--mono)}.battle-log p[data-emphasis='critical']{color:#ffd262}.battle-log p[data-emphasis='positive']{color:#8cf2a7}.battle-log p[data-emphasis='negative']{color:#ff9d98}.sprite.attacking{animation:attack .5s cubic-bezier(.2,.8,.2,1)}.combatant-near .sprite.attacking{animation-name:attack-near}.sprite.taking-damage{animation:hit .42s}.sprite.switching-in{animation:switch-in .62s}.sprite.switching-out{animation:switch-out .5s}.sprite.fainting{animation:faint .75s both}.sprite.status-flash{animation:status-flash .45s}.sprite.idle{animation:idle 3.4s ease-in-out infinite}
-  .hp-track{position:relative}.hp-track b,.hp-track i{position:absolute;inset:0 auto 0 0;display:block;border-radius:inherit}.hp-track b{background:#fff1a8;opacity:.78;transition:width calc(var(--hp-duration) * 1.45) ease-out}.hp-track i{z-index:1}.status{display:inline-flex;align-items:center;gap:.25rem}.status small{display:none}
-  .field-state{position:absolute;z-index:5;display:flex;flex-wrap:wrap;gap:.25rem;max-width:42%}.field-state span{padding:.22rem .38rem;border:1px solid color-mix(in srgb,var(--r-accent) 45%,var(--r-line));border-radius:999px;background:var(--r-panel);color:var(--r-muted);font:600 .42rem var(--mono);text-transform:uppercase}.field-far{top:2.5%;left:2.5%}.field-near{right:2.5%;bottom:2.5%;justify-content:flex-end}
-  .terrain-layer{position:absolute;inset:48% 5% 3%;border-radius:50%;background:radial-gradient(ellipse,color-mix(in srgb,var(--type-color,#78e09a) 20%,transparent),transparent 68%);opacity:.8}.weather-layer{position:absolute;z-index:1;inset:0;overflow:hidden;opacity:.34;pointer-events:none}.weather-layer[data-weather*='rain']{background:repeating-linear-gradient(105deg,transparent 0 27px,rgba(156,211,255,.55) 28px 29px,transparent 30px 58px);animation:weather-drift .7s linear infinite}.weather-layer[data-weather*='sun']{background:radial-gradient(circle at 78% 8%,rgba(255,215,107,.5),transparent 35%)}.weather-layer[data-weather*='sand']{background:repeating-linear-gradient(170deg,transparent 0 36px,rgba(226,188,117,.28) 38px 41px);animation:weather-drift 1.4s linear infinite}.weather-layer[data-weather*='snow'],.weather-layer[data-weather*='hail']{background-image:radial-gradient(circle,#fff 0 2px,transparent 3px);background-size:38px 38px;animation:weather-fall 2s linear infinite}
-  .arena-shake{animation:arena-shake .42s cubic-bezier(.2,.8,.2,1) both}.move-visual{--type-color:#e9f2ea;position:absolute;z-index:7;inset:0;pointer-events:none}.move-visual[data-direction='near-to-far']{--origin-x:27%;--origin-y:72%;--target-x:73%;--target-y:29%;--beam-angle:-43deg}.move-visual[data-direction='far-to-near']{--origin-x:73%;--origin-y:29%;--target-x:27%;--target-y:72%;--beam-angle:137deg}.move-projectile{position:absolute;top:var(--origin-y);left:var(--origin-x);width:clamp(18px,3vw,44px);aspect-ratio:1;border:2px solid color-mix(in srgb,var(--type-color) 80%,white);border-radius:50%;background:radial-gradient(circle at 35% 30%,#fff,var(--type-color) 28%,transparent 70%);box-shadow:0 0 18px var(--type-color);animation:projectile-flight .52s cubic-bezier(.22,.7,.2,1) both}.move-beam{position:absolute;top:var(--origin-y);left:var(--origin-x);width:62%;height:6px;transform-origin:left center;transform:rotate(var(--beam-angle)) scaleX(0);border-radius:999px;background:linear-gradient(90deg,#fff,var(--type-color),transparent);box-shadow:0 0 14px var(--type-color);opacity:0;animation:beam-fire .48s ease-out both}.charge-ring{position:absolute;top:var(--origin-y);left:var(--origin-x);width:74px;aspect-ratio:1;transform:translate(-50%,-50%);border:2px solid var(--type-color);border-radius:50%;opacity:0;animation:charge-ring .52s ease-out both}.move-visual[data-archetype='physical'] .move-projectile,.move-visual[data-archetype='physical'] .move-beam{display:none}.move-visual[data-archetype='status'] .move-projectile,.move-visual[data-archetype='status'] .move-beam{display:none}.move-visual[data-archetype='status'] .charge-ring{top:50%;left:50%;width:34%;animation:status-aura .52s ease-out both}.move-visual[data-move-type='electric'] .move-beam,.move-visual[data-move-type='psychic'] .move-beam,.move-visual[data-move-type='dragon'] .move-beam{opacity:1}.move-visual[data-quality='low'] .charge-ring{display:none}
-  .impact-burst{position:absolute;top:50%;left:50%;width:1px;height:1px}.effect[data-side='p1'] .impact-burst{top:70%;left:29%}.effect[data-side='p2'] .impact-burst{top:31%;left:71%}.impact-burst i{position:absolute;width:9px;aspect-ratio:1;border-radius:50% 10%;background:var(--type-color);box-shadow:0 0 10px var(--type-color);animation:particle-burst .55s ease-out both;animation-delay:var(--particle-delay)}.effect>strong{position:absolute;top:56%;left:50%;transform:translateX(-50%);color:#ff918a;font:900 clamp(.9rem,2vw,1.5rem) var(--mono);text-shadow:0 2px 12px #000;animation:value-pop .7s both}.effect>strong.positive{color:#8ef3a9}.effect-super-effective span{border-color:#ffd267;color:#ffd267}.effect-resisted span,.effect-immune span{color:#c6d0c8}
-  .effect[data-move-type],.move-visual[data-move-type]{--type-color:#e4e7df}.effect[data-move-type='fire'],.move-visual[data-move-type='fire']{--type-color:#ff704f}.effect[data-move-type='water'],.move-visual[data-move-type='water']{--type-color:#55b8ff}.effect[data-move-type='electric'],.move-visual[data-move-type='electric']{--type-color:#ffe45e}.effect[data-move-type='grass'],.move-visual[data-move-type='grass']{--type-color:#75df6d}.effect[data-move-type='ice'],.move-visual[data-move-type='ice']{--type-color:#8feaff}.effect[data-move-type='fighting'],.move-visual[data-move-type='fighting']{--type-color:#ef7558}.effect[data-move-type='poison'],.move-visual[data-move-type='poison']{--type-color:#d073e5}.effect[data-move-type='ground'],.move-visual[data-move-type='ground']{--type-color:#d6a65e}.effect[data-move-type='flying'],.move-visual[data-move-type='flying']{--type-color:#9fb9ff}.effect[data-move-type='psychic'],.move-visual[data-move-type='psychic']{--type-color:#ff70b1}.effect[data-move-type='bug'],.move-visual[data-move-type='bug']{--type-color:#a8cf55}.effect[data-move-type='rock'],.move-visual[data-move-type='rock']{--type-color:#c6b477}.effect[data-move-type='ghost'],.move-visual[data-move-type='ghost']{--type-color:#9e88df}.effect[data-move-type='dragon'],.move-visual[data-move-type='dragon']{--type-color:#7e79ff}.effect[data-move-type='dark'],.move-visual[data-move-type='dark']{--type-color:#88766e}.effect[data-move-type='steel'],.move-visual[data-move-type='steel']{--type-color:#b5c4cb}.effect[data-move-type='fairy'],.move-visual[data-move-type='fairy']{--type-color:#ff9bd1}
-  .battle-renderer.reduced-motion .sprite,.battle-renderer.reduced-motion .pulse-ring,.battle-renderer.reduced-motion .move-visual,.battle-renderer.reduced-motion .impact-burst,.battle-renderer.reduced-motion .arena-shake{animation:none!important;transform:none!important}
-  .battle-renderer[data-layout='standard-vertical']{grid-template-columns:1fr;grid-template-rows:auto auto minmax(520px,1fr) auto auto;width:min(100%,620px);aspect-ratio:9/16;min-height:900px;margin-inline:auto;padding:24px}.battle-renderer[data-layout='standard-vertical'] .scoreboard{grid-column:1;grid-row:1}.battle-renderer[data-layout='standard-vertical'] .player-far{grid-column:1;grid-row:2;min-height:142px}.battle-renderer[data-layout='standard-vertical'] .arena-stage{grid-column:1;grid-row:3;min-height:520px}.battle-renderer[data-layout='standard-vertical'] .player-near{grid-column:1;grid-row:4;min-height:142px}.battle-renderer[data-layout='standard-vertical'] .battle-log{grid-column:1;grid-row:5;grid-template-columns:1fr}.battle-renderer[data-layout='standard-vertical'] .battle-log p{display:none}.battle-renderer[data-layout='standard-vertical'] .battle-log p:nth-last-child(-n+2){display:flex}.battle-renderer[data-layout='standard-vertical'] .combatant{width:54%}.battle-renderer[data-layout='standard-vertical'] .combatant-far{top:4%;right:3%}.battle-renderer[data-layout='standard-vertical'] .combatant-near{bottom:4%;left:3%}.battle-renderer[data-layout='standard-vertical'] .format{display:none}.battle-renderer[data-layout='standard-vertical'] .scoreboard{grid-template-columns:1fr auto}.battle-renderer[data-layout='standard-vertical'] .turn{text-align:right}.battle-renderer[data-layout='overlay-landscape']{border-radius:0}.battle-renderer.overlay{width:100vw;height:100vh;min-height:0;aspect-ratio:auto;border-radius:0}.battle-renderer.overlay[data-layout='standard-vertical']{width:100vw;max-width:none;height:100vh;min-height:0;margin:0}.renderer-loading{display:grid;place-content:center;min-height:420px;padding:2rem;text-align:center}.renderer-loading h2{margin:.5rem 0}.renderer-loading p{color:var(--muted)}
-  @keyframes idle{50%{transform:translateY(-3%) scale(1.015)}}@keyframes attack{45%{transform:translate(-12%,-7%) scale(1.08)}}@keyframes attack-near{45%{transform:translate(12%,7%) scale(1.08)}}@keyframes hit{20%,60%{transform:translateX(-7%);filter:brightness(1.8)}40%,80%{transform:translateX(7%)}}@keyframes switch-in{from{opacity:0;transform:translateY(-15%) scale(.72)}55%{opacity:1;transform:translateY(2%) scale(1.06)}}@keyframes switch-out{to{opacity:0;transform:translateY(15%) scale(.72)}}@keyframes faint{to{opacity:0;transform:translateY(25%) rotate(5deg) scale(.78);filter:grayscale(1)}}@keyframes status-flash{50%{filter:drop-shadow(0 0 22px #ffd05d) brightness(1.4)}}@keyframes pulse{50%{transform:scale(1.18);opacity:.08}}@keyframes effect-pop{from{opacity:0;transform:scale(.7)}35%{opacity:1;transform:scale(1.08)}to{opacity:0;transform:scale(1.2)}}@keyframes winner-in{from{opacity:0;clip-path:inset(50% 0)}to{opacity:1;clip-path:inset(0)}}
-  @keyframes arena-shake{0%,100%{transform:translate(0)}25%{transform:translate(-.45%,.25%)}50%{transform:translate(.38%,-.2%)}75%{transform:translate(-.18%,.12%)}}@keyframes projectile-flight{0%{transform:translate(-50%,-50%) scale(.45);opacity:0}18%{opacity:1}82%{opacity:1}100%{top:var(--target-y);left:var(--target-x);transform:translate(-50%,-50%) scale(1.35);opacity:0}}@keyframes beam-fire{0%,18%{transform:rotate(var(--beam-angle)) scaleX(0);opacity:0}38%,65%{transform:rotate(var(--beam-angle)) scaleX(1);opacity:.9}100%{transform:rotate(var(--beam-angle)) scaleX(1);opacity:0}}@keyframes charge-ring{0%{transform:translate(-50%,-50%) scale(1.5);opacity:0}30%{opacity:.8}70%{transform:translate(-50%,-50%) scale(.35);opacity:.8}100%{opacity:0}}@keyframes status-aura{from{transform:translate(-50%,-50%) scale(.25);opacity:.8}to{transform:translate(-50%,-50%) scale(1.5);opacity:0}}@keyframes particle-burst{from{transform:translate(0) scale(1);opacity:1}to{transform:translate(var(--particle-x),var(--particle-y)) rotate(150deg) scale(.15);opacity:0}}@keyframes value-pop{from{opacity:0;transform:translate(-50%,10px) scale(.8)}25%{opacity:1;transform:translate(-50%,-4px) scale(1.1)}to{opacity:0;transform:translate(-50%,-20px)}}@keyframes weather-drift{to{background-position:72px 20px}}@keyframes weather-fall{to{background-position:18px 38px}}
-  @media(max-width:900px){.battle-renderer:not([data-layout='standard-vertical']){grid-template-columns:1fr 1fr;grid-template-rows:auto minmax(420px,1fr) auto auto;aspect-ratio:auto;min-height:760px}.battle-renderer:not([data-layout='standard-vertical']) .scoreboard{grid-column:1/-1}.battle-renderer:not([data-layout='standard-vertical']) .arena-stage{grid-column:1/-1;grid-row:2}.battle-renderer:not([data-layout='standard-vertical']) .player-far{grid-column:1;grid-row:3}.battle-renderer:not([data-layout='standard-vertical']) .player-near{grid-column:2;grid-row:3}.battle-renderer:not([data-layout='standard-vertical']) .battle-log{grid-column:1/-1;grid-row:4;grid-template-columns:1fr 1fr}.battle-renderer:not([data-layout='standard-vertical']) .battle-log p:nth-of-type(-n+3){display:none}}
-  @media(max-width:560px){.battle-renderer{padding:14px;border-radius:16px}.battle-renderer:not([data-layout='standard-vertical']){grid-template-columns:1fr;grid-template-rows:auto 390px auto auto auto;min-height:850px}.battle-renderer:not([data-layout='standard-vertical']) .player-far{grid-column:1;grid-row:3}.battle-renderer:not([data-layout='standard-vertical']) .player-near{grid-column:1;grid-row:4}.battle-renderer:not([data-layout='standard-vertical']) .battle-log{grid-column:1;grid-row:5}.brand-lockup strong,.format{display:none}.combatant{width:52%}.arena-stage{min-height:390px}.commentary{margin-top:.6rem}.player-card{min-height:125px}}
-  @media(prefers-reduced-motion:reduce){.sprite,.pulse-ring,.effect span,.winner-banner{animation-duration:.001ms!important;animation-iteration-count:1!important}.hp-track i{transition-duration:.001ms!important}}
-  @media(min-width:901px){
-    .battle-renderer:not([data-layout='standard-vertical']) .combatant{width:min(38%,310px)}
-    .battle-renderer:not([data-layout='standard-vertical']) .battle-center{width:clamp(64px,6vw,84px)}
-    .battle-renderer:not([data-layout='standard-vertical']) .battle-center small{font-size:.46rem;letter-spacing:.1em}
-    .battle-renderer:not([data-layout='standard-vertical']) .battle-center strong{max-width:78px;font-size:clamp(.66rem,.82vw,.86rem)}
-    .battle-renderer:not([data-layout='standard-vertical']) .pulse-ring{inset:8%}
+  /* ── Shell ──────────────────────────────────────────────────────────────── */
+  .battle-renderer{
+    --r-ink:#f4fbf6;--r-dim:#93a89b;--r-line:rgba(140,255,186,.16);--r-accent:#78ffa9;
+    --r-p1:#5fe39a;--r-p2:#c98cff;--r-panel:rgba(6,12,10,.88);
+    position:relative;isolation:isolate;display:grid;grid-template-rows:auto 1fr auto;
+    width:100%;aspect-ratio:16/9;min-height:480px;overflow:hidden;
+    border:1px solid var(--r-line);border-radius:14px;background:#050a08;color:var(--r-ink);
+    box-shadow:0 30px 90px rgba(0,0,0,.42);font-family:var(--display)
+  }
+  .battle-renderer.transparent{background:transparent;border-color:transparent;box-shadow:none}
+  .battle-renderer.overlay{width:100vw;height:100vh;min-height:0;aspect-ratio:auto;border:0;border-radius:0;box-shadow:none}
+
+  /* ── Broadcast bar ──────────────────────────────────────────────────────── */
+  .broadcast-bar{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;height:clamp(34px,4.4%,46px);padding:0 clamp(10px,1.2vw,20px);background:rgba(4,9,7,.92);border-bottom:1px solid var(--r-line)}
+  .brand{display:flex;align-items:center;gap:.45rem;color:var(--r-dim);font:800 clamp(.52rem,.72vw,.68rem) var(--display);letter-spacing:.14em}
+  .brand img{width:clamp(17px,1.5vw,22px);aspect-ratio:1}
+  .turn{color:var(--r-dim);font:600 clamp(.5rem,.68vw,.64rem) var(--mono);letter-spacing:.14em}
+  .turn b{margin-left:.3rem;color:var(--r-ink);font-size:1.5em;letter-spacing:0}
+  .format{justify-self:end;color:var(--r-dim);font:500 clamp(.46rem,.62vw,.6rem) var(--mono);letter-spacing:.1em}
+
+  /* ── Arena ──────────────────────────────────────────────────────────────── */
+  .stage{position:relative;overflow:hidden;background:#060d0b;container-type:size}
+  .stage-sky{position:absolute;inset:0;background:radial-gradient(120% 80% at 50% 6%,#1a4a54 0,#0d2733 42%,#060d0b 78%)}
+  .stage-sky::after{content:'';position:absolute;inset:0;background:radial-gradient(70% 48% at 50% 34%,rgba(122,255,183,.13),transparent 70%)}
+  /* Stadium bowl with a procedural crowd. No copyrighted artwork is used. */
+  .stage-bowl{position:absolute;inset:4% 0 38%;overflow:hidden}
+  .stage-bowl .crowd{position:absolute;inset:12% -8% 18%;border-radius:50% 50% 42% 42%/70% 70% 30% 30%;background:
+    radial-gradient(circle at 50% 50%,rgba(255,255,255,.055) 0 1.1px,transparent 1.6px) 0 0/13px 11px,
+    linear-gradient(180deg,#0a1c22,#0b262c 62%,#08161a);opacity:.95}
+  .stage-bowl .rail{position:absolute;right:-8%;bottom:16%;left:-8%;height:8%;border-radius:50%;background:linear-gradient(180deg,rgba(126,255,175,.2),rgba(6,14,11,.9));box-shadow:0 0 26px rgba(94,255,175,.16)}
+  .stage-lights{position:absolute;inset:0;pointer-events:none}
+  .stage-lights i{position:absolute;top:-6%;width:22%;height:74%;background:linear-gradient(180deg,rgba(190,255,220,.14),transparent 72%);filter:blur(6px)}
+  .stage-lights i:nth-child(1){left:6%;transform:rotate(9deg)}
+  .stage-lights i:nth-child(2){left:29%;transform:rotate(3deg)}
+  .stage-lights i:nth-child(3){right:29%;transform:rotate(-3deg)}
+  .stage-lights i:nth-child(4){right:6%;transform:rotate(-9deg)}
+  /* Ground plane: a real perspective floor so Pokémon stand on something. */
+  .stage-floor{position:absolute;inset:58% 0 0;background:linear-gradient(180deg,#154238 0,#0b241f 38%,#050c0a)}
+  .stage-floor::after{content:'';position:absolute;inset:0;background:radial-gradient(120% 90% at 50% 0,transparent 40%,rgba(3,8,6,.72))}
+  .floor-grid{position:absolute;inset:0;background-image:
+    linear-gradient(rgba(126,255,175,.13) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(126,255,175,.1) 1px,transparent 1px);
+    background-size:100% 15%,7% 100%;transform:perspective(360px) rotateX(62deg);transform-origin:center top;
+    mask-image:linear-gradient(rgba(0,0,0,.9),transparent 88%)}
+  .floor-glow{position:absolute;inset:-20% 10% 30%;border-radius:50%;background:radial-gradient(ellipse,rgba(126,255,175,.16),transparent 66%)}
+  .weather-layer{position:absolute;z-index:2;inset:0;overflow:hidden;opacity:.32;pointer-events:none}
+  .weather-layer[data-weather*='rain']{background:repeating-linear-gradient(104deg,transparent 0 26px,rgba(156,211,255,.5) 27px 28px,transparent 29px 56px);animation:weather-drift .7s linear infinite}
+  .weather-layer[data-weather*='sun']{background:radial-gradient(circle at 76% 8%,rgba(255,215,107,.44),transparent 36%)}
+  .weather-layer[data-weather*='sand']{background:repeating-linear-gradient(168deg,transparent 0 34px,rgba(226,188,117,.26) 36px 39px);animation:weather-drift 1.4s linear infinite}
+  .weather-layer[data-weather*='snow'],.weather-layer[data-weather*='hail']{background-image:radial-gradient(circle,#fff 0 2px,transparent 3px);background-size:36px 36px;animation:weather-fall 2s linear infinite}
+  .terrain-layer{position:absolute;z-index:2;inset:60% 8% 6%;border-radius:50%;background:radial-gradient(ellipse,rgba(122,255,183,.2),transparent 66%);opacity:.8}
+
+  /* ── Compact player HUD ─────────────────────────────────────────────────── */
+  .player-hud{position:absolute;z-index:12;display:grid;gap:.12rem;max-width:30%;padding:.4rem .7rem;border-radius:6px;background:linear-gradient(90deg,rgba(4,9,7,.92),rgba(4,9,7,.55));border-left:3px solid var(--side-color)}
+  .player-hud[data-side='p1']{--side-color:var(--r-p1)}
+  .player-hud[data-side='p2']{--side-color:var(--r-p2)}
+  .hud-far{top:2.5%;left:2.5%}
+  .hud-near{right:2.5%;bottom:2.5%;justify-items:end;text-align:right;border-right:3px solid var(--side-color);border-left:0;background:linear-gradient(270deg,rgba(4,9,7,.92),rgba(4,9,7,.55))}
+  .player-name{overflow:hidden;font:800 clamp(.72rem,1.15vw,1.15rem)/1 var(--display);letter-spacing:-.02em;text-overflow:ellipsis;text-transform:uppercase;white-space:nowrap}
+  .player-meta{display:flex;align-items:center;gap:.4rem;color:var(--r-dim);font:600 clamp(.44rem,.6vw,.56rem) var(--mono);letter-spacing:.08em;text-transform:uppercase}
+  .player-meta b{color:var(--side-color)}
+  .player-meta span{overflow:hidden;max-width:11ch;text-overflow:ellipsis;white-space:nowrap}
+  .agent-state{padding:.08rem .3rem;border-radius:3px;background:rgba(255,255,255,.08);font-style:normal}
+  .agent-state.thinking{background:rgba(242,193,95,.2);color:#ffd679}
+  .agent-state.decided,.agent-state.executing{background:rgba(120,255,169,.16);color:var(--r-accent)}
+  .agent-state.error{background:rgba(255,139,135,.18);color:#ff9d98}
+  .team-strip{display:flex;gap:4px;margin-top:.12rem}
+  .team-strip i{width:clamp(6px,.62vw,9px);aspect-ratio:1;border:1px solid rgba(255,255,255,.55);border-radius:50%;background:var(--side-color)}
+  .team-strip i.fainted{border-color:rgba(255,255,255,.2);background:transparent}
+  .team-strip i.active{outline:1.5px solid #fff;outline-offset:1.5px}
+
+  /* ── Combatants ─────────────────────────────────────────────────────────── */
+  .combatant{position:absolute;z-index:8;display:flex;flex-direction:column;align-items:center;gap:.25rem;width:min(38%,420px)}
+  .combatant-far{top:9%;right:8%;flex-direction:column-reverse}
+  .combatant-near{bottom:13%;left:8%}
+  .combatant-far{--fighter-color:var(--r-p2)}
+  .combatant-near{--fighter-color:var(--r-p1)}
+  .platform{position:absolute;bottom:-6%;left:50%;width:86%;aspect-ratio:3.4/1;transform:translateX(-50%);pointer-events:none}
+  .platform i{position:absolute;inset:0;border-radius:50%;background:radial-gradient(ellipse at 50% 44%,rgba(150,255,200,.26),rgba(20,74,62,.44) 56%,transparent 74%);box-shadow:0 0 34px rgba(122,255,183,.14)}
+  .combatant-far .platform{width:72%}
+  .sprite-slot{position:relative;display:grid;align-items:end;justify-items:center;width:100%;height:min(34cqh,calc(var(--sprite-native) * var(--max-upscale) * var(--depth,1)))}
+  .combatant-far .sprite-slot{--depth:.82}
+  .contact-shadow{position:absolute;bottom:-1%;left:50%;z-index:1;width:46%;height:11%;transform:translateX(-50%);border-radius:50%;background:radial-gradient(ellipse,rgba(0,0,0,.6),transparent 68%);filter:blur(2.5px);pointer-events:none}
+  .sprite{position:relative;z-index:2;display:grid;place-items:end center;width:100%;height:100%;transform-origin:center bottom}
+  /* Never scale a 96px sprite past MAX_UPSCALE; cap the footprint instead of stretching. */
+  /* Height is the smaller of the slot and this asset's own size times the upscale cap, so a
+     48px animated frame is never stretched as far as a 96px sheet. */
+  .sprite img{display:block;width:auto;max-width:100%;height:min(100%,calc(var(--natural-h,96) * var(--max-upscale) * 1px));object-fit:contain;image-rendering:auto;filter:drop-shadow(0 10px 12px rgba(0,0,0,.5))}
+  .battle-renderer[data-retro='true'] .sprite img{image-rendering:pixelated}
+  .placeholder{display:grid;place-items:center;width:70%;aspect-ratio:1;border:1px solid var(--r-line);border-radius:50%;background:rgba(10,26,20,.9)}
+  .placeholder span{font-size:clamp(1.4rem,3.4vw,3rem);font-weight:800;opacity:.85}
+  .hp-delta{position:absolute;top:4%;left:50%;z-index:4;transform:translateX(-50%);color:#ff9089;font:900 clamp(1rem,2.3vw,2.1rem) var(--mono);text-shadow:0 2px 10px #000,0 0 22px rgba(0,0,0,.7);animation:value-pop .6s both}
+  .hp-delta.positive{color:#8ef3a9}
+
+  /* ── HP plate: identical hierarchy on both sides ────────────────────────── */
+  .hp-plate{z-index:3;display:grid;gap:.22rem;width:min(100%,340px);padding:.4rem .55rem;border:1px solid rgba(240,250,244,.24);border-radius:9px;background:rgba(5,12,10,.93);box-shadow:0 8px 22px rgba(0,0,0,.4)}
+  .plate-head{display:flex;align-items:baseline;gap:.4rem}
+  .species{flex:1;overflow:hidden;font:800 clamp(.66rem,1vw,1rem)/1.1 var(--display);letter-spacing:-.02em;text-overflow:ellipsis;white-space:nowrap}
+  .level{color:var(--r-dim);font:600 clamp(.46rem,.62vw,.6rem) var(--mono)}
+  .status{padding:.08rem .3rem;border-radius:3px;background:#f0bf3f;color:#20180a;font:900 clamp(.42rem,.58vw,.55rem) var(--mono);letter-spacing:.06em}
+  .hp-track{position:relative;height:clamp(7px,.85vh,11px);overflow:hidden;border-radius:999px;background:#12201a;box-shadow:inset 0 1px 2px rgba(0,0,0,.7)}
+  .hp-track b,.hp-track i{position:absolute;inset:0 auto 0 0;display:block;height:100%;border-radius:inherit}
+  .hp-track b{background:#fff1a8;opacity:.7;transition:width calc(var(--hp-duration) * 1.5) ease-out}
+  .hp-track i{z-index:1;background:linear-gradient(180deg,color-mix(in srgb,var(--hp-color) 78%,white),var(--hp-color));transition:width var(--hp-duration) cubic-bezier(.2,.8,.2,1),background var(--hp-duration)}
+  .hp-track[data-tone='high']{--hp-color:#55d775}
+  .hp-track[data-tone='mid']{--hp-color:#efbd3e}
+  .hp-track[data-tone='low']{--hp-color:#eb5b55}
+  .plate-foot{display:flex;align-items:center;justify-content:space-between;gap:.4rem}
+  .types{display:flex;gap:.22rem}
+  .type-badge{padding:.06rem .34rem;border-radius:999px;background:var(--type-color);color:#0a140d;font:900 clamp(.4rem,.55vw,.52rem) var(--mono);font-style:normal;text-transform:uppercase}
+  .hp-value{display:flex;align-items:baseline;gap:.3rem;font:800 clamp(.6rem,.85vw,.82rem) var(--mono)}
+  .hp-value small{color:var(--r-dim);font-size:.72em;font-weight:500}
+
+  /* ── Headline action and intent ─────────────────────────────────────────── */
+  .action-banner{position:absolute;z-index:13;top:44%;left:50%;display:grid;justify-items:center;gap:.1rem;padding:.35rem 1.4rem;transform:translate(-50%,-50%);border-radius:6px;background:rgba(4,9,7,.9);border:1px solid var(--r-line);text-align:center}
+  .action-banner small{color:var(--r-accent);font:900 clamp(.42rem,.58vw,.55rem) var(--mono);letter-spacing:.18em}
+  .action-banner[data-phase='resolved'] small{color:var(--r-dim)}
+  .action-banner b{font:800 clamp(.76rem,1.35vw,1.35rem)/1.1 var(--display);letter-spacing:-.02em;text-transform:uppercase}
+  .action-banner em{color:var(--r-dim);font:600 clamp(.4rem,.55vw,.52rem) var(--mono);font-style:normal;letter-spacing:.1em}
+  .action-banner[data-phase='resolved']{opacity:.62}
+  .intent{position:absolute;z-index:11;display:grid;gap:.15rem;width:min(30%,340px);padding:.42rem .6rem;border-radius:7px;background:rgba(4,9,7,.86);border-left:3px solid var(--side-color)}
+  .intent[data-side='p1']{--side-color:var(--r-p1)}
+  .intent[data-side='p2']{--side-color:var(--r-p2)}
+  .intent-far{top:16%;left:2.5%}
+  .intent-near{right:2.5%;bottom:17%;justify-items:end;text-align:right;border-right:3px solid var(--side-color);border-left:0}
+  .intent small{color:var(--side-color);font:900 clamp(.4rem,.55vw,.52rem) var(--mono);letter-spacing:.16em}
+  .intent p{display:-webkit-box;overflow:hidden;margin:0;color:#dfeae3;font-size:clamp(.55rem,.78vw,.78rem);line-height:1.4;line-clamp:3;-webkit-box-orient:vertical;-webkit-line-clamp:3}
+  .intent .thinking{color:var(--r-dim);font-style:italic}
+
+  /* ── Effects ────────────────────────────────────────────────────────────── */
+  .effect{position:absolute;z-index:9;inset:0;display:grid;place-items:center;pointer-events:none}
+  .effect span{padding:.4rem 1.1rem;border-radius:4px;background:#f7fff9;color:#05100b;font:900 clamp(.7rem,1.3vw,1.35rem) var(--mono);letter-spacing:.08em;animation:effect-pop .6s both}
+  .effect-critical-hit span{background:#ffd262}
+  .effect-healing span{background:#8ef3a9}
+  .effect-miss span,.effect-immune span,.effect-resisted span{background:#c6d0c8}
+  .impact-burst{position:absolute;top:50%;left:50%;width:1px;height:1px}
+  .effect[data-side='p1'] .impact-burst{top:72%;left:28%}
+  .effect[data-side='p2'] .impact-burst{top:30%;left:72%}
+  .impact-burst i{position:absolute;width:11px;aspect-ratio:1;border-radius:50% 10%;background:var(--type-color,#e4e7df);box-shadow:0 0 14px var(--type-color,#e4e7df);animation:particle-burst .58s ease-out both;animation-delay:var(--particle-delay)}
+  .move-visual{--type-color:#e9f2ea;position:absolute;z-index:7;inset:0;pointer-events:none}
+  .move-visual[data-direction='near-to-far']{--origin-x:30%;--origin-y:74%;--target-x:70%;--target-y:40%;--beam-angle:-38deg}
+  .move-visual[data-direction='far-to-near']{--origin-x:70%;--origin-y:40%;--target-x:30%;--target-y:74%;--beam-angle:142deg}
+  .move-projectile{position:absolute;top:var(--origin-y);left:var(--origin-x);width:clamp(16px,2.6vw,38px);aspect-ratio:1;border:2px solid color-mix(in srgb,var(--type-color) 80%,white);border-radius:50%;background:radial-gradient(circle at 35% 30%,#fff,var(--type-color) 28%,transparent 70%);box-shadow:0 0 18px var(--type-color);animation:projectile-flight .5s cubic-bezier(.22,.7,.2,1) both}
+  .move-beam{position:absolute;top:var(--origin-y);left:var(--origin-x);width:52%;height:6px;transform-origin:left center;transform:rotate(var(--beam-angle)) scaleX(0);border-radius:999px;background:linear-gradient(90deg,#fff,var(--type-color),transparent);box-shadow:0 0 14px var(--type-color);opacity:0;animation:beam-fire .46s ease-out both}
+  .charge-ring{position:absolute;top:var(--origin-y);left:var(--origin-x);width:70px;aspect-ratio:1;transform:translate(-50%,-50%);border:2px solid var(--type-color);border-radius:50%;opacity:0;animation:charge-ring .5s ease-out both}
+  .move-visual[data-archetype='physical'] .move-projectile,.move-visual[data-archetype='physical'] .move-beam{display:none}
+  .move-visual[data-archetype='status'] .move-projectile,.move-visual[data-archetype='status'] .move-beam{display:none}
+  .move-visual[data-archetype='status'] .charge-ring{top:50%;left:50%;width:30%;animation:status-aura .5s ease-out both}
+  .move-visual[data-move-type='electric'] .move-beam,.move-visual[data-move-type='psychic'] .move-beam,.move-visual[data-move-type='dragon'] .move-beam,.move-visual[data-move-type='ice'] .move-beam{opacity:1}
+  .move-visual[data-quality='low'] .charge-ring{display:none}
+  .effect[data-move-type],.move-visual[data-move-type]{--type-color:#e4e7df}
+  .effect[data-move-type='fire'],.move-visual[data-move-type='fire']{--type-color:#ff704f}
+  .effect[data-move-type='water'],.move-visual[data-move-type='water']{--type-color:#55b8ff}
+  .effect[data-move-type='electric'],.move-visual[data-move-type='electric']{--type-color:#ffe45e}
+  .effect[data-move-type='grass'],.move-visual[data-move-type='grass']{--type-color:#75df6d}
+  .effect[data-move-type='ice'],.move-visual[data-move-type='ice']{--type-color:#8feaff}
+  .effect[data-move-type='fighting'],.move-visual[data-move-type='fighting']{--type-color:#ef7558}
+  .effect[data-move-type='poison'],.move-visual[data-move-type='poison']{--type-color:#d073e5}
+  .effect[data-move-type='ground'],.move-visual[data-move-type='ground']{--type-color:#d6a65e}
+  .effect[data-move-type='flying'],.move-visual[data-move-type='flying']{--type-color:#9fb9ff}
+  .effect[data-move-type='psychic'],.move-visual[data-move-type='psychic']{--type-color:#ff70b1}
+  .effect[data-move-type='bug'],.move-visual[data-move-type='bug']{--type-color:#a8cf55}
+  .effect[data-move-type='rock'],.move-visual[data-move-type='rock']{--type-color:#c6b477}
+  .effect[data-move-type='ghost'],.move-visual[data-move-type='ghost']{--type-color:#9e88df}
+  .effect[data-move-type='dragon'],.move-visual[data-move-type='dragon']{--type-color:#7e79ff}
+  .effect[data-move-type='dark'],.move-visual[data-move-type='dark']{--type-color:#88766e}
+  .effect[data-move-type='steel'],.move-visual[data-move-type='steel']{--type-color:#b5c4cb}
+  .effect[data-move-type='fairy'],.move-visual[data-move-type='fairy']{--type-color:#ff9bd1}
+
+  /* ── Spectator feed ─────────────────────────────────────────────────────── */
+  .battle-feed{display:flex;gap:1px;height:clamp(64px,10.5%,112px);overflow:hidden;background:var(--r-line);border-top:1px solid var(--r-line)}
+  .feed-turn{flex:1;min-width:0;overflow:hidden;padding:.4rem .8rem;background:rgba(5,11,9,.95)}
+  .feed-label{display:block;margin-bottom:.16rem;color:var(--r-accent);font:900 clamp(.42rem,.56vw,.54rem) var(--mono);letter-spacing:.12em;text-transform:uppercase}
+  .battle-feed p{overflow:hidden;margin:.06rem 0;color:var(--r-dim);font-size:clamp(.5rem,.68vw,.68rem);line-height:1.35;text-overflow:ellipsis;white-space:nowrap}
+  .battle-feed p[data-emphasis='critical']{color:#ffd262}
+  .battle-feed p[data-emphasis='positive']{color:#8cf2a7}
+  .battle-feed p[data-emphasis='negative']{color:#ff9d98}
+
+  /* ── Winner ─────────────────────────────────────────────────────────────── */
+  .winner-banner{position:absolute;z-index:40;inset:0;display:grid;place-content:center;background:rgba(4,10,7,.86);text-align:center;backdrop-filter:blur(8px);animation:winner-in .7s both}
+  .winner-banner small{color:var(--r-accent);font:900 .62rem var(--mono);letter-spacing:.24em}
+  .winner-banner strong{margin:.35rem 0;font-size:clamp(2rem,6vw,5.5rem);font-weight:900;line-height:.92;letter-spacing:-.05em;text-transform:uppercase}
+  .winner-banner span{color:var(--r-dim);font:.7rem var(--mono);text-transform:uppercase}
+
+  /* ── Motion ─────────────────────────────────────────────────────────────── */
+  .sprite.attacking{animation:attack-far .5s cubic-bezier(.2,.8,.2,1)}
+  .combatant-near .sprite.attacking{animation-name:attack-near}
+  .sprite.taking-damage{animation:hit .44s}
+  .sprite.switching-in{animation:switch-in .6s}
+  .sprite.switching-out{animation:switch-out .5s}
+  .sprite.fainting{animation:faint .78s both}
+  .sprite.status-flash{animation:status-flash .45s}
+  .sprite.idle{animation:idle 3.6s ease-in-out infinite}
+  .arena-shake{animation:arena-shake .44s cubic-bezier(.2,.8,.2,1) both}
+  @keyframes idle{50%{transform:translateY(-2%) scale(1.012)}}
+  @keyframes attack-far{45%{transform:translate(-14%,9%) scale(1.07)}}
+  @keyframes attack-near{45%{transform:translate(14%,-9%) scale(1.07)}}
+  @keyframes hit{20%,60%{transform:translateX(-8%);filter:brightness(1.9) saturate(.5)}40%,80%{transform:translateX(8%)}}
+  @keyframes switch-in{from{opacity:0;transform:translateY(-18%) scale(.7)}55%{opacity:1;transform:translateY(2%) scale(1.05)}}
+  @keyframes switch-out{to{opacity:0;transform:translateY(18%) scale(.7)}}
+  @keyframes faint{to{opacity:0;transform:translateY(30%) scale(.75);filter:grayscale(1) brightness(.6)}}
+  @keyframes status-flash{50%{filter:drop-shadow(0 0 22px #ffd05d) brightness(1.4)}}
+  @keyframes effect-pop{from{opacity:0;transform:scale(.72)}32%{opacity:1;transform:scale(1.06)}to{opacity:0;transform:scale(1.16)}}
+  @keyframes value-pop{from{opacity:0;transform:translate(-50%,14px) scale(.8)}22%{opacity:1;transform:translate(-50%,-4px) scale(1.12)}to{opacity:.95;transform:translate(-50%,-10px) scale(1)}}
+  @keyframes winner-in{from{opacity:0;clip-path:inset(50% 0)}to{opacity:1;clip-path:inset(0)}}
+  @keyframes arena-shake{0%,100%{transform:translate(0)}25%{transform:translate(-.5%,.28%)}50%{transform:translate(.42%,-.22%)}75%{transform:translate(-.2%,.13%)}}
+  @keyframes projectile-flight{0%{transform:translate(-50%,-50%) scale(.45);opacity:0}18%{opacity:1}82%{opacity:1}100%{top:var(--target-y);left:var(--target-x);transform:translate(-50%,-50%) scale(1.3);opacity:0}}
+  @keyframes beam-fire{0%,18%{transform:rotate(var(--beam-angle)) scaleX(0);opacity:0}38%,65%{transform:rotate(var(--beam-angle)) scaleX(1);opacity:.9}100%{transform:rotate(var(--beam-angle)) scaleX(1);opacity:0}}
+  @keyframes charge-ring{0%{transform:translate(-50%,-50%) scale(1.5);opacity:0}30%{opacity:.8}70%{transform:translate(-50%,-50%) scale(.35);opacity:.8}100%{opacity:0}}
+  @keyframes status-aura{from{transform:translate(-50%,-50%) scale(.25);opacity:.8}to{transform:translate(-50%,-50%) scale(1.5);opacity:0}}
+  @keyframes particle-burst{from{transform:translate(0) scale(1);opacity:1}to{transform:translate(var(--particle-x),var(--particle-y)) rotate(150deg) scale(.15);opacity:0}}
+  @keyframes weather-drift{to{background-position:70px 20px}}
+  @keyframes weather-fall{to{background-position:18px 36px}}
+  .battle-renderer.deterministic .sprite,.battle-renderer.deterministic .effect span,.battle-renderer.deterministic .impact-burst i,.battle-renderer.deterministic .move-projectile,.battle-renderer.deterministic .move-beam,.battle-renderer.deterministic .charge-ring,.battle-renderer.deterministic .arena-shake,.battle-renderer.deterministic .weather-layer,.battle-renderer.deterministic .winner-banner,.battle-renderer.deterministic .hp-delta{animation:none!important}
+  .battle-renderer.deterministic .hp-track i,.battle-renderer.deterministic .hp-track b{transition:none!important}
+  .battle-renderer.reduced-motion .sprite,.battle-renderer.reduced-motion .move-visual,.battle-renderer.reduced-motion .impact-burst,.battle-renderer.reduced-motion .arena-shake{animation:none!important;transform:none!important}
+  @media(prefers-reduced-motion:reduce){.sprite,.effect span,.winner-banner{animation-duration:.001ms!important;animation-iteration-count:1!important}.hp-track i{transition-duration:.001ms!important}}
+
+  /* ── Vertical (1080×1920) ───────────────────────────────────────────────── */
+  .battle-renderer[data-layout='standard-vertical']{width:min(100%,620px);aspect-ratio:9/16;margin-inline:auto}
+  .battle-renderer.overlay[data-layout='standard-vertical']{width:100vw;max-width:none;height:100vh;margin:0}
+  .battle-renderer[data-layout='standard-vertical'] .combatant{width:min(64%,460px)}
+  .battle-renderer[data-layout='standard-vertical'] .combatant-far{top:14%;right:3%}
+  .battle-renderer[data-layout='standard-vertical'] .combatant-near{bottom:16%;left:3%}
+  .battle-renderer[data-layout='standard-vertical'] .player-hud{max-width:46%}
+  .battle-renderer[data-layout='standard-vertical'] .intent{width:min(52%,420px)}
+  .battle-renderer[data-layout='standard-vertical'] .intent-far{top:26%}
+  .battle-renderer[data-layout='standard-vertical'] .intent-near{bottom:28%}
+  .battle-renderer[data-layout='standard-vertical'] .action-banner{top:48%}
+  .battle-renderer[data-layout='standard-vertical'] .battle-feed{flex-direction:column;height:clamp(72px,11%,132px)}
+  .battle-renderer[data-layout='standard-vertical'] .feed-turn:not(:last-child){display:none}
+  .battle-renderer[data-layout='overlay-landscape']{border-radius:0}
+
+  /* ── Narrow desktop and mobile ──────────────────────────────────────────── */
+  @media(max-width:900px){
+    .battle-renderer:not([data-layout='standard-vertical']){aspect-ratio:auto;min-height:620px}
+    .combatant{width:46%}
+    .intent{width:44%}
+  }
+  @media(max-width:560px){
+    .battle-renderer{border-radius:10px}
+    .combatant{width:56%}
+    .combatant-far{top:10%;right:2%}
+    .combatant-near{bottom:6%;left:2%}
+    .player-hud{max-width:44%}
+    .intent{display:none}
+    .battle-feed .feed-turn:not(:last-child){display:none}
   }
 
-  /* Verdant Circuit: original broadcast-fighter presentation. */
-  .battle-renderer{--r-panel:rgba(4,7,11,.91);--r-text:#f8fbf9;--r-muted:#9bacaa;--r-line:rgba(135,255,180,.18);--r-accent:#78ffa9;--r-accent-ink:#031108;--r-p1:#6fffa8;--r-p2:#e36fff;grid-template-columns:1fr 1fr;grid-template-rows:auto minmax(500px,1fr) auto;gap:0;min-height:620px;padding:clamp(14px,1.4vw,26px);border:1px solid rgba(125,255,174,.38);border-radius:8px;background:#05070b;box-shadow:0 35px 100px rgba(0,0,0,.48);font-family:var(--display)}
-  .battle-renderer[data-renderer-theme='koala-light']{--r-panel:rgba(4,7,11,.91);--r-text:#f8fbf9;--r-muted:#9bacaa;--r-line:rgba(135,255,180,.18);--r-accent:#78ffa9;--r-accent-ink:#031108;background:#05070b}
-  .battle-renderer::before,.battle-renderer::after{position:absolute;z-index:30;width:clamp(90px,10vw,180px);height:5px;background:var(--r-accent);content:''}.battle-renderer::before{top:12px;left:12px}.battle-renderer::after{right:12px;bottom:12px}
-  .ambient{background:linear-gradient(116deg,rgba(111,255,168,.09),transparent 34%,rgba(227,111,255,.08));opacity:1}
-  .scoreboard{position:relative;z-index:20;grid-column:1/-1;grid-row:1;height:58px;padding:0 clamp(10px,1vw,18px);border:0;background:rgba(3,6,9,.96);clip-path:polygon(0 0,100% 0,98.5% 100%,1.5% 100%)}
-  .brand-lockup{font-weight:950;letter-spacing:.06em}.brand-lockup span{width:32px;border-radius:0;clip-path:polygon(18% 0,100% 0,82% 100%,0 100%)}.brand-lockup em{color:var(--r-accent);font:800 .78em var(--mono);font-style:normal}.turn{padding:.42rem 1.2rem;border-inline:1px solid rgba(125,255,174,.3);background:rgba(125,255,174,.055)}
-  .player-card{z-index:18;grid-row:2;align-self:start;width:min(88%,650px);min-height:0;margin-top:clamp(20px,2.4vw,42px);padding:clamp(12px,1.1vw,18px) clamp(18px,1.7vw,30px);border:1px solid color-mix(in srgb,var(--side-color) 48%,transparent);border-radius:0;background:rgba(3,6,10,.9);box-shadow:0 16px 35px rgba(0,0,0,.35);clip-path:polygon(4% 0,100% 0,96% 100%,0 100%);backdrop-filter:blur(10px)}
-  .player-card[data-side='p1']{--side-color:var(--r-p1);box-shadow:inset 5px 0 var(--r-p1),0 16px 35px rgba(0,0,0,.35)}.player-card[data-side='p2']{--side-color:var(--r-p2);box-shadow:inset -5px 0 var(--r-p2),0 16px 35px rgba(0,0,0,.35)}
-  .player-far{grid-column:2;justify-self:end;text-align:right}.player-near{grid-column:1;justify-self:start}.player-card h2{margin:.12rem 0;font-size:clamp(1.15rem,2vw,2.05rem);font-weight:950;letter-spacing:-.045em;text-transform:uppercase}.player-card .side{color:var(--side-color);font-weight:900;letter-spacing:.15em}.player-card>small{display:block;color:#c2ceca;font-size:.55rem;letter-spacing:.08em;text-transform:uppercase}.player-far .agent-state{right:auto;left:18px}.agent-state{top:14px;border:0;border-radius:0;background:color-mix(in srgb,var(--side-color) 12%,transparent);color:var(--side-color);font-weight:900}
-  .team-strip{position:absolute;right:24px;bottom:13px;display:flex;gap:7px}.player-far .team-strip{right:auto;left:24px}.team-strip i{position:relative;width:12px;aspect-ratio:1;border:1px solid rgba(255,255,255,.72);border-radius:50%;background:linear-gradient(180deg,var(--side-color) 0 44%,#10151a 45% 55%,#edf4ef 56%);box-shadow:0 0 9px color-mix(in srgb,var(--side-color) 45%,transparent)}.team-strip i::after{position:absolute;inset:3px;border:1px solid #111;border-radius:50%;background:#f7faf8;content:''}.team-strip i.fainted{filter:grayscale(1);opacity:.3}.team-strip i.active{outline:2px solid #fff;outline-offset:2px}
-  .commentary{max-width:82%;margin-top:.5rem}.player-far .commentary{margin-left:auto}.commentary p{display:-webkit-box;overflow:hidden;margin:.25rem 0;color:#dce5e1;font-size:clamp(.58rem,.72vw,.72rem);font-weight:650;line-height:1.38;line-clamp:2;-webkit-box-orient:vertical;-webkit-line-clamp:2}.commentary p::before{color:var(--side-color);content:'INTENT // ';font:800 .76em var(--mono);letter-spacing:.08em}.commentary .muted::before{content:''}
-  .arena-stage{z-index:1;grid-column:1/-1;grid-row:2;min-height:500px;border:0;border-radius:0;background:linear-gradient(180deg,#0a2226 0,#122935 48%,#080b10 100%);clip-path:polygon(1% 0,99% 0,100% 96%,0 100%)}
-  .stage-sky{position:absolute;inset:0;background:radial-gradient(circle at 56% 24%,rgba(126,255,174,.28),transparent 31%),linear-gradient(135deg,rgba(15,85,75,.35),transparent 48%,rgba(103,42,121,.18));opacity:.95}.stage-ridges{position:absolute;z-index:1;top:15%;bottom:35%;width:51%;background:#071113;filter:drop-shadow(0 0 12px rgba(0,0,0,.55))}.ridge-left{left:-5%;clip-path:polygon(0 13%,19% 37%,31% 17%,48% 58%,61% 32%,80% 80%,100% 64%,100% 100%,0 100%)}.ridge-right{right:-5%;clip-path:polygon(0 66%,19% 38%,34% 62%,51% 17%,65% 42%,83% 11%,100% 34%,100% 100%,0 100%)}
-  .stage-gate{position:absolute;z-index:2;top:25%;left:50%;width:15%;aspect-ratio:1;transform:translateX(-50%) rotate(45deg);border:2px solid rgba(119,255,173,.25);box-shadow:0 0 45px rgba(94,255,175,.14)}.stage-gate i{position:absolute;inset:15%;border:1px solid rgba(227,111,255,.22)}
-  .stage-floor{position:absolute;z-index:2;inset:52% 0 0;background:linear-gradient(180deg,rgba(24,54,51,.85),#07090d);clip-path:polygon(0 0,100% 0,100% 100%,0 100%)}.stage-floor::after{position:absolute;inset:0;background-image:linear-gradient(rgba(115,255,173,.12) 1px,transparent 1px),linear-gradient(90deg,rgba(115,255,173,.12) 1px,transparent 1px);background-size:8% 18%;mask-image:linear-gradient(transparent,black);content:'';transform:perspective(400px) rotateX(58deg) scale(1.6);transform-origin:center top}
-  .arena-grid{z-index:3;opacity:.08;background-size:64px 64px}.weather-layer,.terrain-layer{z-index:4}.field-state{z-index:13}
-  .combatant{z-index:8;width:min(37%,450px)}.combatant-far{top:28%;right:7%}.combatant-near{bottom:3%;left:6%}.identity{margin:0;padding:.58rem .72rem;border:2px solid rgba(255,255,255,.7);border-bottom:0;border-left:7px solid var(--fighter-color);background:rgba(4,7,12,.94);font-size:.65rem;clip-path:polygon(0 0,100% 0,96% 100%,0 100%)}.identity>div{display:flex;align-items:center;justify-content:space-between;gap:.5rem}.identity strong{font-size:clamp(1rem,1.55vw,1.5rem);font-weight:950;letter-spacing:-.025em;text-transform:uppercase}.identity small{color:var(--fighter-color);font:900 .58rem var(--mono);letter-spacing:.14em}.identity>span{display:flex;gap:.32rem;margin-top:.34rem}.type-badge{padding:.18rem .52rem;border-radius:999px;background:var(--type-color);color:#07100b;font:950 .55rem var(--mono);font-style:normal;text-transform:uppercase}.combatant-far{--fighter-color:var(--r-p2)}.combatant-near{--fighter-color:var(--r-p1)}.sprite-platform{aspect-ratio:1.38/1;background:radial-gradient(ellipse,rgba(118,255,174,.24),rgba(51,151,130,.06) 46%,transparent 70%)}.sprite{width:82%;height:108%}.sprite img{image-rendering:auto;filter:drop-shadow(0 22px 18px rgba(0,0,0,.62)) drop-shadow(0 0 7px color-mix(in srgb,var(--fighter-color) 44%,transparent))}.vitals{margin-top:0;padding:.5rem .7rem .25rem;border-inline:2px solid rgba(255,255,255,.7);background:rgba(4,7,12,.95);font-size:clamp(.72rem,1vw,1rem)}.vitals>div{display:flex;align-items:center;gap:.5rem}.vitals>div>small{color:#f2f8f4;font:950 .66rem var(--mono);letter-spacing:.08em}.vitals>strong{font:950 .76rem var(--mono)}.hp-track{height:18px;margin:0;border:2px solid rgba(255,255,255,.75);border-top:0;border-radius:0;background:#151a20;box-shadow:inset 0 0 0 2px rgba(0,0,0,.5)}.hp-track b{background:#f5c64e}.hp-track i{box-shadow:inset 0 3px rgba(255,255,255,.28)}
-  .battle-center{z-index:12;top:30%;width:clamp(230px,23vw,440px);height:auto;aspect-ratio:auto;padding:.65rem 2.4rem;background:rgba(3,6,10,.9);clip-path:polygon(6% 0,100% 0,94% 100%,0 100%)}.battle-center small{color:var(--r-accent);font-weight:900}.battle-center strong{max-width:100%;font-size:clamp(.8rem,1.5vw,1.45rem);font-weight:950;text-transform:uppercase}.pulse-ring{display:none}
-  .battle-renderer:not([data-layout='standard-vertical']) .battle-center{width:clamp(230px,23vw,440px)}.battle-renderer:not([data-layout='standard-vertical']) .battle-center strong{max-width:100%;font-size:clamp(.8rem,1.5vw,1.45rem)}
-  .effect span{border:0;border-radius:0;padding:.65rem 1.6rem;background:#f7fff9;color:#05070b;font-size:clamp(.9rem,1.8vw,1.75rem);font-weight:950;letter-spacing:.08em;clip-path:polygon(8% 0,100% 0,92% 100%,0 100%);box-shadow:0 0 65px rgba(255,255,255,.3)}.effect>strong{top:62%;font-size:clamp(1.4rem,3vw,3rem);font-weight:950}.impact-burst i{width:13px;border-radius:0;box-shadow:0 0 16px var(--type-color)}
-  .battle-log{z-index:16;grid-column:1/-1;grid-row:3;margin-top:10px;border-radius:0;clip-path:polygon(1% 0,100% 0,99% 100%,0 100%)}.battle-log header span{color:var(--r-accent);font-weight:900}.winner-banner{z-index:40;background:linear-gradient(118deg,rgba(12,33,25,.95),rgba(4,6,9,.97) 48%,rgba(53,25,58,.95));backdrop-filter:blur(4px)}.winner-banner::before{position:absolute;inset:0;background:repeating-linear-gradient(116deg,transparent 0 56px,rgba(255,255,255,.04) 57px 66px);content:''}.winner-banner small{color:#ffd96a;font-weight:900}.winner-banner strong{z-index:1;color:#fff;font-weight:950;text-transform:uppercase;text-shadow:8px 8px 0 rgba(227,111,255,.25)}
-  .battle-renderer[data-layout='standard-vertical']{grid-template-columns:1fr;grid-template-rows:auto minmax(760px,1fr) auto;width:min(100%,680px);min-height:1100px;padding:18px}.battle-renderer[data-layout='standard-vertical'] .scoreboard{grid-column:1;grid-row:1}.battle-renderer[data-layout='standard-vertical'] .arena-stage{grid-column:1;grid-row:2;min-height:760px}.battle-renderer[data-layout='standard-vertical'] .player-card{grid-column:1;grid-row:2;width:90%;margin-top:22px}.battle-renderer[data-layout='standard-vertical'] .player-near{align-self:end;margin-bottom:25px}.battle-renderer[data-layout='standard-vertical'] .player-far{align-self:start}.battle-renderer[data-layout='standard-vertical'] .combatant{width:58%}.battle-renderer[data-layout='standard-vertical'] .combatant-far{top:29%;right:1%}.battle-renderer[data-layout='standard-vertical'] .combatant-near{bottom:16%;left:1%}.battle-renderer[data-layout='standard-vertical'] .battle-center{top:52%;width:62%}.battle-renderer[data-layout='standard-vertical'] .battle-log{grid-column:1;grid-row:3}.battle-renderer[data-layout='standard-vertical'] .commentary{display:none}
-  @media(max-width:900px){.battle-renderer:not([data-layout='standard-vertical']){grid-template-columns:1fr 1fr;grid-template-rows:auto minmax(470px,1fr) auto;min-height:620px}.battle-renderer:not([data-layout='standard-vertical']) .scoreboard{grid-column:1/-1}.battle-renderer:not([data-layout='standard-vertical']) .arena-stage{grid-column:1/-1;grid-row:2}.battle-renderer:not([data-layout='standard-vertical']) .player-card{grid-row:2;width:96%;margin-top:16px}.battle-renderer:not([data-layout='standard-vertical']) .player-near{grid-column:1}.battle-renderer:not([data-layout='standard-vertical']) .player-far{grid-column:2}.battle-renderer:not([data-layout='standard-vertical']) .battle-log{grid-column:1/-1;grid-row:3}.commentary{display:none}.combatant{width:44%}.combatant-far{top:31%;right:2%}.combatant-near{left:2%}}
-  @media(max-width:560px){.battle-renderer:not([data-layout='standard-vertical']){grid-template-columns:1fr;grid-template-rows:auto 520px auto;min-height:650px}.battle-renderer:not([data-layout='standard-vertical']) .player-card{grid-column:1;width:92%}.battle-renderer:not([data-layout='standard-vertical']) .player-far{justify-self:end}.battle-renderer:not([data-layout='standard-vertical']) .player-near{align-self:end;margin-bottom:12px}.battle-renderer:not([data-layout='standard-vertical']) .arena-stage{min-height:520px}.battle-renderer:not([data-layout='standard-vertical']) .battle-log{grid-column:1;grid-row:3}.combatant{width:53%}.combatant-far{top:27%}.combatant-near{bottom:17%}.battle-center{top:51%;width:58%;padding:.55rem 1rem}.player-card h2{font-size:1rem}.vitals{font-size:.65rem}}
-
-  /* Familiar battle readability with an original KoalaBattle surface language. */
-  .brand-lockup img{width:34px;aspect-ratio:1;filter:drop-shadow(0 0 12px rgba(120,255,169,.24))}.brand-lockup{display:flex;align-items:center;gap:.65rem}
-  .combatant .identity{position:relative;padding:.72rem .82rem .58rem;border:2px solid rgba(238,247,241,.78);border-bottom:0;border-left:0;border-radius:18px 18px 0 0;background:linear-gradient(145deg,rgba(248,252,249,.96),rgba(210,224,214,.93));color:#132018;clip-path:none;box-shadow:0 12px 30px rgba(0,0,0,.28)}
-  .combatant .identity::before{position:absolute;top:0;bottom:0;left:0;width:7px;border-radius:16px 0 0;background:var(--fighter-color);box-shadow:0 0 16px color-mix(in srgb,var(--fighter-color) 42%,transparent);content:''}
-  .combatant .identity strong{color:#132018;text-shadow:none}.combatant .identity small{color:color-mix(in srgb,var(--fighter-color) 72%,#102117)}.combatant .type-badge{box-shadow:inset 0 1px rgba(255,255,255,.55),0 2px 7px rgba(0,0,0,.12)}
-  .combatant .vitals{display:flex;align-items:center;justify-content:space-between;gap:.6rem;margin:0;padding:.42rem .7rem .38rem;border-inline:2px solid rgba(238,247,241,.78);background:rgba(8,14,11,.94)}.combatant .vitals>div>small{display:inline-grid;place-items:center;min-width:28px;height:20px;border-radius:999px;background:#f0bf3f;color:#172016;font-weight:950}.combatant .vitals>strong{color:#f5fbf7;font-size:.7rem;letter-spacing:.04em}.vital-name{display:none;min-width:0;overflow:hidden;color:#f5fbf7;font-size:.68rem;font-weight:950;text-overflow:ellipsis;text-transform:uppercase;white-space:nowrap}.combatant-near .vital-name{display:block}.combatant-near .vitals>div{margin-left:auto}
-  .combatant .status{padding:.18rem .45rem;border-radius:999px;background:var(--warning);color:#231b05;font:900 .52rem var(--mono);text-transform:uppercase}.combatant .status small{display:none}
-  .combatant .hp-track{height:17px;padding:3px;border:2px solid rgba(238,247,241,.78);border-top:0;border-radius:0 0 14px 14px;background:#111a15;box-shadow:inset 0 0 0 2px rgba(0,0,0,.4),0 9px 22px rgba(0,0,0,.28);overflow:hidden}.combatant .hp-track b,.combatant .hp-track i{top:3px;bottom:3px;left:3px;height:auto;border-radius:999px}.combatant .hp-track i{background:linear-gradient(180deg,color-mix(in srgb,var(--hp-color) 72%,white),var(--hp-color) 52%,color-mix(in srgb,var(--hp-color) 74%,black));box-shadow:inset 0 2px rgba(255,255,255,.48),0 0 9px color-mix(in srgb,var(--hp-color) 50%,transparent)}
-  .combatant .hp-track[data-tone='high']{--hp-color:#55d775}.combatant .hp-track[data-tone='mid']{--hp-color:#efbd3e}.combatant .hp-track[data-tone='low']{--hp-color:#eb5b55}.combatant .hp-track b{background:#fff1a8}
-  @media(max-width:560px){.brand-lockup img{width:30px}.combatant{width:50%}.combatant-far{top:21%;right:1%}.combatant-near{bottom:6%;left:1%}.combatant .identity{border-radius:12px 12px 0 0;padding:.5rem .58rem .4rem}.combatant .identity>span{flex-wrap:wrap}.combatant .type-badge{padding:.12rem .32rem;font-size:.45rem}.combatant .hp-track{border-radius:0 0 10px 10px}.vital-name{max-width:72px}}
+  .renderer-loading{display:grid;place-content:center;min-height:420px;padding:2rem;text-align:center}
+  .renderer-loading h2{margin:.5rem 0}
+  .renderer-loading p{color:var(--muted)}
 </style>

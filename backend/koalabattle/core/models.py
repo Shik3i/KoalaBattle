@@ -8,7 +8,16 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from koalabattle.formats import FormatMechanics, describe_format
+
 SCHEMA_VERSION = "1.0"
+
+#: Public commentary is read on the overlay and spoken by TTS: one sentence, not an essay.
+MAX_COMMENTARY_CHARACTERS = 240
+#: Private strategy memory the agent carries between turns. Never shown to spectators.
+MAX_STRATEGY_MEMORY_CHARACTERS = 400
+#: Historical archives predate the shorter public limit and must still load.
+MAX_STORED_COMMENTARY_CHARACTERS = 1_000
 
 
 class FrozenModel(BaseModel):
@@ -223,6 +232,8 @@ class MoveState(FrozenModel):
     accuracy: float | int | None = None
     current_pp: int | None = Field(default=None, ge=0)
     max_pp: int | None = Field(default=None, ge=0)
+    # Absent on archives recorded before move metadata was enriched.
+    priority: int | None = None
     disabled: bool = False
 
 
@@ -286,6 +297,8 @@ class PlayerKnowledgeState(FrozenModel):
     own_side: BattleSide
     opponent_active: KnownPokemon | None = None
     known_opponent: tuple[KnownPokemon, ...] = ()
+    # Hazards and screens on the opponent's half of the field are public information.
+    opponent_side_conditions: tuple[str, ...] = ()
     weather: tuple[str, ...] = ()
     fields: tuple[str, ...] = ()
 
@@ -304,6 +317,11 @@ class AgentContextSnapshot(FrozenModel):
     schema_version: str = "1.0"
     match_id: UUID
     format: str
+    # Format presentation and mechanics come from the pinned Showdown registry. Historical
+    # archives predate these fields, so they stay optional with Gen 9 singles defaults.
+    format_name: str | None = None
+    game_type: str = "singles"
+    mechanics: FormatMechanics = Field(default_factory=FormatMechanics)
     generation: int
     turn: int = Field(ge=0)
     side: Side
@@ -352,6 +370,18 @@ class BattleAction(FrozenModel):
     name: str
     slot: int = Field(ge=1)
     terastallize: bool = False
+    # Optional public metadata so an agent can compare choices without cross-referencing
+    # another part of the prompt. Absent on archives recorded before this pass.
+    move_type: str | None = None
+    category: Literal["physical", "special", "status"] | None = None
+    power: int | None = Field(default=None, ge=0)
+    accuracy: float | int | None = None
+    current_pp: int | None = Field(default=None, ge=0)
+    max_pp: int | None = Field(default=None, ge=0)
+    priority: int | None = None
+    species: str | None = None
+    hp_fraction: float | None = Field(default=None, ge=0, le=1)
+    status: str | None = None
 
     @model_validator(mode="after")
     def id_matches_fields(self) -> BattleAction:
@@ -385,7 +415,11 @@ class AgentRequest(FrozenModel):
     decision_sequence: int = Field(ge=1)
     state: BattleState
     legal_actions: tuple[BattleAction, ...] = Field(min_length=1)
+    #: Self-contained prompt for Manual Web Chat: one block that can be pasted into a fresh chat.
     prompt: str
+    #: The same prompt split for providers with a real system channel. Absent on old archives.
+    system_prompt: str | None = None
+    user_prompt: str | None = None
     knowledge: PlayerKnowledgeState | None = None
     context: AgentContextSnapshot | None = None
     context_metrics: ContextMetrics | None = None
@@ -409,8 +443,10 @@ class AgentDecision(FrozenModel):
     turn: int = Field(ge=0)
     decision_sequence: int = Field(ge=1)
     action: str
-    commentary: str = Field(default="", max_length=1000)
-    strategy_memory: str | None = Field(default=None, max_length=400)
+    # Stored archives keep the historical ceiling; new decisions are trimmed to
+    # MAX_COMMENTARY_CHARACTERS when the response is parsed.
+    commentary: str = Field(default="", max_length=MAX_STORED_COMMENTARY_CHARACTERS)
+    strategy_memory: str | None = Field(default=None, max_length=MAX_STRATEGY_MEMORY_CHARACTERS)
     raw_response: str | None = None
     provider_metadata: dict[str, Any] = Field(default_factory=dict)
     latency_ms: int | None = Field(default=None, ge=0)
@@ -476,8 +512,8 @@ class PlayerConfig(FrozenModel):
 
 class MatchConfig(FrozenModel):
     name: str | None = Field(default=None, min_length=1, max_length=120)
-    format: Literal["gen9randombattle", "gen9ou"] = "gen9randombattle"
-    generation: Literal[9] = 9
+    format: str = Field(default="gen9randombattle", min_length=1, max_length=80)
+    generation: int = Field(default=9, ge=1, le=9)
     players: tuple[PlayerConfig, PlayerConfig]
     random_seed: int | None = None
     fair_prompt_mode: bool = True
@@ -487,22 +523,45 @@ class MatchConfig(FrozenModel):
     team_policy: TeamPolicy = TeamPolicy.SHOWDOWN_RANDOM
     limits: MatchLimits = Field(default_factory=MatchLimits)
 
+    @model_validator(mode="before")
+    @classmethod
+    def derive_generation(cls, data: Any) -> Any:
+        """Take the generation from Showdown's registry so callers never have to supply it."""
+        if not isinstance(data, dict):
+            return data
+        descriptor = describe_format(str(data.get("format") or "gen9randombattle"))
+        if descriptor is not None:
+            data = {**data, "generation": descriptor.generation}
+        return data
+
     @model_validator(mode="after")
-    def has_two_sides(self) -> MatchConfig:
+    def format_and_teams_are_consistent(self) -> MatchConfig:
         if {player.side for player in self.players} != {Side.P1, Side.P2}:
             raise ValueError("players must contain exactly p1 and p2")
-        if self.format == "gen9randombattle":
+        descriptor = describe_format(self.format)
+        if descriptor is None:
+            raise ValueError(
+                f"{self.format!r} is not a format in the pinned Pokemon Showdown registry"
+            )
+        if not descriptor.supported:
+            raise ValueError(f"{descriptor.name} is not runnable: {descriptor.unsupported_reason}")
+        random_sources = [
+            player.team_source is TeamSource.SHOWDOWN_RANDOM for player in self.players
+        ]
+        if descriptor.random_team:
             if self.team_policy is not TeamPolicy.SHOWDOWN_RANDOM:
-                raise ValueError("Random Battle must use Showdown Random teams")
-            if any(player.team_source is not TeamSource.SHOWDOWN_RANDOM for player in self.players):
-                raise ValueError("Random Battle players cannot supply custom teams")
+                raise ValueError(f"{descriptor.name} supplies its own teams; use showdown-random")
+            if not all(random_sources):
+                raise ValueError(f"{descriptor.name} players cannot supply custom teams")
         else:
             if self.team_policy is TeamPolicy.SHOWDOWN_RANDOM:
-                raise ValueError("Gen 9 OU requires validated custom teams")
-            if self.team_policy is not TeamPolicy.FIXED:
-                raise ValueError("Gen 9 OU matches currently support fixed teams only")
+                raise ValueError(f"{descriptor.name} requires validated custom teams")
+            if self.team_policy not in {TeamPolicy.FIXED, TeamPolicy.FIXED_PER_TOURNAMENT}:
+                raise ValueError(f"{descriptor.name} matches currently support fixed teams only")
             if any(player.team_snapshot_id is None for player in self.players):
-                raise ValueError("Gen 9 OU requires a validated team snapshot for each player")
+                raise ValueError(
+                    f"{descriptor.name} requires a validated team snapshot for each player"
+                )
         return self
 
     @field_validator("name")

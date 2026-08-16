@@ -5,7 +5,9 @@ import json
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-from .models import MAX_TEAM_TEXT_LENGTH, SUPPORTED_CUSTOM_FORMAT, TeamValidationResult
+from koalabattle.formats import describe_format
+
+from .models import MAX_TEAM_TEXT_LENGTH, TeamValidationResult
 
 
 class ShowdownTeamValidator:
@@ -39,8 +41,11 @@ class ShowdownTeamValidator:
 
 
 def _validate_input(team_text: str, format_id: str) -> None:
-    if format_id != SUPPORTED_CUSTOM_FORMAT:
-        raise ValueError(f"only {SUPPORTED_CUSTOM_FORMAT} custom teams are supported")
+    descriptor = describe_format(format_id)
+    if descriptor is None:
+        raise ValueError(f"{format_id!r} is not a format in the pinned Showdown registry")
+    if descriptor.random_team:
+        raise ValueError(f"{descriptor.name} generates its own teams and takes no custom import")
     encoded = team_text.encode("utf-8")
     if not encoded or len(encoded) > MAX_TEAM_TEXT_LENGTH:
         raise ValueError(f"team text must be 1-{MAX_TEAM_TEXT_LENGTH} UTF-8 bytes")

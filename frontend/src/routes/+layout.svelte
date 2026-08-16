@@ -4,9 +4,14 @@
   import '../app.css';
 
   let theme: 'light' | 'dark' = 'dark';
-  $: overlayRoute = $page.url.pathname.startsWith('/overlay/') || $page.url.pathname.startsWith('/render/');
+  /**
+   * Routes that render the battle and nothing else. `/watch` joined this list so the
+   * viewer/stream workflow has no navigation, no controls and no page scroll.
+   */
+  const CLEAN_ROUTES = ['/overlay/', '/render/', '/watch/'];
+  $: cleanRoute = CLEAN_ROUTES.some((prefix) => $page.url.pathname.startsWith(prefix));
   $: if (typeof document !== 'undefined') {
-    document.documentElement.dataset.overlay = String(overlayRoute);
+    document.documentElement.dataset.overlay = String(cleanRoute);
   }
   onMount(() => {
     theme = (localStorage.getItem('koalabattle-theme') as 'light' | 'dark') ||
@@ -23,7 +28,7 @@
 
 <svelte:head><title>KoalaBattle</title><meta name="description" content="Local-first AI battle production" /></svelte:head>
 
-{#if overlayRoute}
+{#if cleanRoute}
   <div class="overlay-shell"><slot /></div>
 {:else}
   <a class="skip-link" href="#main-content">Skip to main content</a>
@@ -39,5 +44,5 @@
     <div class="header-actions"><a class="button compact" href="/new"><i class="ph ph-plus" aria-hidden="true"></i>New match</a><button class="icon-button" on:click={toggleTheme} aria-label={`Use ${theme === 'dark' ? 'light' : 'dark'} application theme`}><i class={`ph ${theme === 'dark' ? 'ph-sun' : 'ph-moon'}`} aria-hidden="true"></i></button></div>
   </header>
   <main id="main-content"><slot /></main>
-  <footer><span class="footer-brand"><img src="/koalabattle-mark.svg" alt="" />KoalaBattle 0.10.0</span><span>Local-first · Auditable context · Event-sourced · No Pokémon assets included</span></footer>
+  <footer><span class="footer-brand"><img src="/koalabattle-mark.svg" alt="" />KoalaBattle 0.11.0</span><span>Local-first · Auditable context · Event-sourced · No Pokémon assets included</span></footer>
 {/if}

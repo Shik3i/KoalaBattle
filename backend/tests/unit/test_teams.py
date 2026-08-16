@@ -88,8 +88,13 @@ async def test_fake_provider_team_build_persists_audit_without_paid_calls(tmp_pa
 @pytest.mark.asyncio
 async def test_team_input_rejects_size_format_and_control_characters_before_network() -> None:
     validator = ShowdownTeamValidator("http://127.0.0.1:9")
-    with pytest.raises(ValueError, match="only gen9ou"):
-        await validator.validate("Pikachu", "gen8ou")
+    with pytest.raises(ValueError, match="pinned Showdown registry"):
+        await validator.validate("Pikachu", "not-a-real-format")
+    with pytest.raises(ValueError, match="generates its own teams"):
+        await validator.validate("Pikachu", "gen9randombattle")
+    # Past-generation custom formats now reach the validator instead of being refused locally.
+    with pytest.raises(ValueError, match="UTF-8 bytes"):
+        await validator.validate("x" * (MAX_TEAM_TEXT_LENGTH + 1), "gen1ou")
     with pytest.raises(ValueError, match="UTF-8 bytes"):
         await validator.validate("x" * (MAX_TEAM_TEXT_LENGTH + 1), "gen9ou")
     with pytest.raises(ValueError, match="control characters"):

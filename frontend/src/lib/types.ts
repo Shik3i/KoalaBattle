@@ -33,6 +33,70 @@ export interface BattleAction {
   name: string;
   slot: number;
   terastallize: boolean;
+  // Public metadata attached by the engine. Absent on archives recorded before this pass.
+  move_type?: string | null;
+  category?: 'physical' | 'special' | 'status' | null;
+  power?: number | null;
+  accuracy?: number | null;
+  current_pp?: number | null;
+  max_pp?: number | null;
+  priority?: number | null;
+  species?: string | null;
+  hp_fraction?: number | null;
+  status?: string | null;
+}
+
+export type GameType = 'singles' | 'doubles' | 'triples' | 'multi' | 'freeforall';
+
+export interface FormatMechanics {
+  items: boolean;
+  abilities: boolean;
+  physical_special_split: boolean;
+  mega_evolution: boolean;
+  z_moves: boolean;
+  dynamax: boolean;
+  terastallization: boolean;
+  hidden_power_types: boolean;
+  natures: boolean;
+  held_item_switching: boolean;
+}
+
+export interface FormatDescriptor {
+  id: string;
+  name: string;
+  display_name: string;
+  generation: number;
+  mod: string;
+  section: string;
+  game_type: GameType;
+  player_count: number;
+  team_source: string;
+  random_team: boolean;
+  custom_team_required: boolean;
+  challenge_visible: boolean;
+  tournament_visible: boolean;
+  search_visible: boolean;
+  rated: boolean;
+  best_of_default: boolean | null;
+  mechanics: FormatMechanics;
+  supported: boolean;
+  unsupported_reason: string | null;
+}
+
+export interface FormatGroup {
+  generation: number;
+  label: string;
+  formats: FormatDescriptor[];
+}
+
+export interface FormatCatalog {
+  schema_version: string;
+  source: 'showdown-live' | 'showdown-snapshot';
+  showdown_version: string;
+  format_count: number;
+  supported_count: number;
+  supported_game_types: GameType[];
+  formats: FormatDescriptor[];
 }
 
 export interface MoveState {
@@ -44,6 +108,7 @@ export interface MoveState {
   accuracy: number | null;
   current_pp: number | null;
   max_pp: number | null;
+  priority?: number | null;
   disabled: boolean;
 }
 
@@ -51,6 +116,7 @@ export interface PokemonState {
   id: string;
   name: string;
   species: string;
+  level?: number | null;
   hp_fraction: number;
   current_hp?: number | null;
   max_hp?: number | null;
@@ -137,6 +203,8 @@ export interface AgentContextSnapshot {
 
 export interface BattleState {
   match_id: string;
+  format?: string;
+  generation?: number;
   turn: number;
   perspective: Side;
   player: BattleSide;
@@ -191,6 +259,8 @@ export interface AgentRequest {
   state: BattleState;
   legal_actions: BattleAction[];
   prompt: string;
+  system_prompt?: string | null;
+  user_prompt?: string | null;
   knowledge: PlayerKnowledgeState | null;
   context: AgentContextSnapshot | null;
   context_metrics: ContextMetrics | null;
@@ -207,7 +277,7 @@ export interface AgentRequest {
 }
 
 export interface TeamValidationResult {
-  format: 'gen9ou';
+  format: string;
   valid: boolean;
   errors: string[];
   normalized_export: string | null;
@@ -218,7 +288,7 @@ export interface TeamValidationResult {
 export interface TeamSnapshot {
   id: string;
   name: string;
-  format: 'gen9ou';
+  format: string;
   source: 'imported' | 'agent-generated' | 'preset';
   submitted_text: string;
   normalized_export: string;

@@ -28,9 +28,13 @@ class OpenAICompatibleProvider:
         )
 
     async def generate(self, request: ProviderRequest) -> ProviderResponse:
+        messages: list[dict[str, str]] = []
+        if request.system_prompt:
+            messages.append({"role": "system", "content": request.system_prompt})
+        messages.append({"role": "user", "content": request.prompt})
         common: dict[str, Any] = {
             "model": request.model,
-            "messages": [{"role": "user", "content": request.prompt}],
+            "messages": messages,
             "max_tokens": request.max_output_tokens,
             "timeout": request.timeout_seconds,
         }

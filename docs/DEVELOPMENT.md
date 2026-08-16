@@ -20,7 +20,9 @@ surfaces must not escape `engines/showdown`.
 
 - unit: contracts, lifecycle, scheduling races, generic tournaments, validation, agents, assets
 - storage: SQLite migrations, ordering, audit, tournament persistence, reopen/recovery
-- integration: two concurrent real Gen 9 Random Battles plus one validated fixed-team Gen 9 OU
+- integration: two concurrent real Gen 9 Random Battles, real Gen 1 and Gen 9 Random Battles,
+  a validated imported-team Gen 1 OU battle, a live-vs-snapshot format catalog check, plus one
+  validated fixed-team Gen 9 OU
   battle with parse/pack/completion/persistence/replay
 - presentation: Node tests for reducer restoration and deterministic scheduler operations
 - frontend: `npm test`, Svelte diagnostics, production build, and rendered browser QA

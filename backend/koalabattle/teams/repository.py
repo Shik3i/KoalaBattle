@@ -97,14 +97,12 @@ class TeamRepository:
             row = await session.get(TeamBuildAuditRow, str(audit_id))
             if row is None:
                 return None
-            if row.format != "gen9ou":
-                raise ValueError(f"unsupported stored team format: {row.format}")
             return TeamBuildAudit(
                 id=UUID(row.id),
                 participant=row.participant,
                 provider=row.provider,
                 model=row.model,
-                format="gen9ou",
+                format=row.format,
                 prompt_profile_version=row.prompt_profile_version,
                 rendered_prompt=row.rendered_prompt,
                 raw_responses=tuple(json.loads(row.raw_responses_json)),
@@ -123,12 +121,10 @@ class TeamRepository:
 
     @staticmethod
     def _snapshot(row: TeamSnapshotRow) -> TeamSnapshot:
-        if row.format != "gen9ou":
-            raise ValueError(f"unsupported stored team format: {row.format}")
         return TeamSnapshot(
             id=UUID(row.id),
             name=row.name,
-            format="gen9ou",
+            format=row.format,
             source=TeamSource(row.source),
             submitted_text=row.submitted_text,
             normalized_export=row.normalized_export,

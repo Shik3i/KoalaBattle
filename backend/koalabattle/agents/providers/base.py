@@ -22,6 +22,9 @@ class ProviderRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     prompt: str
+    #: Stable behaviour and output rules. Providers that support a dedicated system channel
+    #: put it there so the rules are never buried under thousands of tokens of battle state.
+    system_prompt: str | None = None
     model: str
     timeout_seconds: float = Field(ge=1, le=600)
     max_output_tokens: int = Field(ge=32, le=8192)

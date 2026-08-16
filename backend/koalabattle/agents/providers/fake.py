@@ -40,9 +40,7 @@ class FakeProvider:
                 finish_reason="stop",
             )
         if self._action is None:
-            prompt = json.loads(request.prompt)
-            action = prompt["legal_actions"][0]
-            self._action = (action["id"], action["name"])
+            self._action = _first_legal_action(request.prompt)
         if self.scenario == "timeout":
             await asyncio.sleep(request.timeout_seconds + 1)
         if self.scenario == "provider_error":
@@ -80,6 +78,23 @@ class FakeProvider:
 
     async def list_models(self) -> tuple[ProviderModel, ...]:
         return (ProviderModel(id="fake-battle-v1", display_name="Deterministic Fake"),)
+
+
+def _first_legal_action(prompt: str) -> tuple[str, str]:
+    """Read the first action out of the rendered LEGAL ACTIONS block deterministically."""
+    lines = prompt.splitlines()
+    for index, line in enumerate(lines):
+        if line.strip() != "LEGAL ACTIONS":
+            continue
+        for offset in range(index + 1, len(lines)):
+            candidate = lines[offset].strip()
+            if not candidate:
+                continue
+            if candidate.startswith(("move:", "switch:")):
+                detail = lines[offset + 1].strip() if offset + 1 < len(lines) else candidate
+                return candidate, detail.split(" · ")[0].removeprefix("Switch to ") or candidate
+            break
+    raise ValueError("rendered prompt contains no LEGAL ACTIONS block")
 
 
 _FAKE_GEN9OU_TEAM = """Great Tusk @ Leftovers

@@ -1,13 +1,13 @@
 'use strict';
 
 const http = require('node:http');
-const { Teams } = require('./dist/sim');
+const { Dex, Teams } = require('./dist/sim');
 const { TeamValidator } = require('./dist/sim/team-validator');
 
 const HOST = '0.0.0.0';
 const PORT = Number(process.env.KOALABATTLE_TEAM_VALIDATOR_PORT || 8002);
 const MAX_BODY_BYTES = 55_000;
-const SUPPORTED_FORMAT = 'gen9ou';
+const CATALOG_SCHEMA_VERSION = '1.0';
 
 function reply(response, status, payload) {
   const body = JSON.stringify(payload);
@@ -19,26 +19,118 @@ function reply(response, status, payload) {
   response.end(body);
 }
 
+/** Strip the leading "[Gen N] " marker Showdown puts in front of every format name. */
+function shortName(name) {
+  return name.replace(/^\[[^\]]*\]\s*/, '').trim() || name;
+}
+
+function ruleTable(format) {
+  try {
+    return Dex.formats.getRuleTable(format);
+  } catch {
+    return null;
+  }
+}
+
+function hasRule(rules, name) {
+  return Boolean(rules && rules.has(Dex.toID(name)));
+}
+
+/**
+ * Report which battle mechanics actually exist in a format. Generation availability is the
+ * floor; the format's own rule table can still remove a mechanic (for example Dynamax Clause).
+ */
+function mechanics(format, generation) {
+  const rules = ruleTable(format);
+  const megaEvolution = generation >= 6 && generation <= 7;
+  return {
+    items: generation >= 2,
+    abilities: generation >= 3,
+    physical_special_split: generation >= 4,
+    mega_evolution: megaEvolution && !hasRule(rules, 'Mega Rayquaza Clause'),
+    z_moves: generation === 7,
+    dynamax: generation === 8 && !hasRule(rules, 'Dynamax Clause'),
+    terastallization: generation >= 9 && !hasRule(rules, 'Terastal Clause'),
+    hidden_power_types: generation >= 2 && generation <= 7,
+    natures: generation >= 3,
+    held_item_switching: generation >= 2
+  };
+}
+
+function teamType(format) {
+  if (typeof format.team === 'string' && format.team.length) return format.team;
+  return 'custom';
+}
+
+function describe(format) {
+  const generation = Dex.forFormat(format).gen;
+  const team = teamType(format);
+  return {
+    id: format.id,
+    name: format.name,
+    display_name: shortName(format.name),
+    generation,
+    mod: format.mod,
+    section: format.section || 'Other',
+    game_type: format.gameType || 'singles',
+    player_count: format.playerCount || 2,
+    team_source: team,
+    random_team: team !== 'custom',
+    custom_team_required: team === 'custom',
+    challenge_visible: format.challengeShow !== false,
+    tournament_visible: format.tournamentShow !== false,
+    search_visible: format.searchShow !== false,
+    rated: Boolean(format.rated),
+    best_of_default: format.bestOfDefault || null,
+    mechanics: mechanics(format, generation)
+  };
+}
+
+let cachedCatalog = null;
+
+function catalog() {
+  if (cachedCatalog) return cachedCatalog;
+  const formats = Dex.formats
+    .all()
+    .filter((format) => format.effectType === 'Format')
+    .map(describe)
+    .sort((left, right) => right.generation - left.generation || left.id.localeCompare(right.id));
+  cachedCatalog = {
+    schema_version: CATALOG_SCHEMA_VERSION,
+    showdown_version: process.env.KOALABATTLE_SHOWDOWN_VERSION || 'pinned-local-build',
+    format_count: formats.length,
+    formats
+  };
+  return cachedCatalog;
+}
+
+function knownFormat(formatId) {
+  if (typeof formatId !== 'string' || !formatId) return null;
+  const format = Dex.formats.get(formatId);
+  return format && format.exists && format.effectType === 'Format' ? format : null;
+}
+
 function validate(payload) {
-  if (!payload || payload.format !== SUPPORTED_FORMAT || typeof payload.team !== 'string') {
-    return { status: 422, body: { detail: `format must be ${SUPPORTED_FORMAT} and team must be text` } };
+  const format = knownFormat(payload && payload.format);
+  if (!format || typeof (payload && payload.team) !== 'string') {
+    return { status: 422, body: { detail: 'format must be a known Showdown format and team must be text' } };
   }
   if (!payload.team || Buffer.byteLength(payload.team, 'utf8') > 50_000) {
     return { status: 413, body: { detail: 'team must be 1-50000 UTF-8 bytes' } };
   }
   const team = Teams.import(payload.team);
-  const errors = TeamValidator.get(SUPPORTED_FORMAT).validateTeam(team) || [];
+  const errors = TeamValidator.get(format.id).validateTeam(team) || [];
   if (errors.length) {
     return {
       status: 200,
-      body: { schema_version: '1.0', format: SUPPORTED_FORMAT, valid: false, errors }
+      body: { schema_version: '1.0', format: format.id, valid: false, errors }
     };
   }
   return {
     status: 200,
     body: {
       schema_version: '1.0',
-      format: SUPPORTED_FORMAT,
+      format: format.id,
       valid: true,
       errors: [],
       normalized_export: Teams.export(team),
@@ -50,7 +142,11 @@ function validate(payload) {
 
 const server = http.createServer((request, response) => {
   if (request.method === 'GET' && request.url === '/healthz') {
-    reply(response, 200, { status: 'ok', format: SUPPORTED_FORMAT });
+    reply(response, 200, { status: 'ok', format_count: catalog().format_count });
+    return;
+  }
+  if (request.method === 'GET' && request.url === '/formats') {
+    reply(response, 200, catalog());
     return;
   }
   if (request.method !== 'POST' || request.url !== '/validate') {
@@ -79,5 +175,5 @@ const server = http.createServer((request, response) => {
 });
 
 server.listen(PORT, HOST, () => {
-  process.stdout.write(`KoalaBattle team validator listening on ${HOST}:${PORT}\n`);
+  process.stdout.write(`KoalaBattle Showdown tools listening on ${HOST}:${PORT}\n`);
 });

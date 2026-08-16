@@ -1,8 +1,17 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
   import { onMount } from 'svelte';
-  import { api } from '$lib/api';
-  import type { AgentType, MatchArchive, ProviderKind, ProviderStatus, TeamSnapshot } from '$lib/types';
+  import FormatSelector from '$lib/FormatSelector.svelte';
+  import { api, getFormatGroups } from '$lib/api';
+  import type {
+    AgentType,
+    FormatDescriptor,
+    FormatGroup,
+    MatchArchive,
+    ProviderKind,
+    ProviderStatus,
+    TeamSnapshot
+  } from '$lib/types';
 
   interface PlayerDraft {
     name: string; agentType: AgentType; provider: ProviderKind; model: string; baseUrl: string;
@@ -24,28 +33,65 @@
     reasoning: '', maximumCost: '', fakeScenario: 'valid', teamSnapshotId: ''
   });
 
+  /**
+   * Agent resource profiles. These are LLM cost/latency settings only — they never touch
+   * Pokemon stats, battle mechanics or Showdown legality.
+   */
+  const RESOURCE_PROFILES = {
+    economy: { label: 'Economy', hint: 'Cheapest: short timeout, no retry, 128 output tokens', timeout: 25, retries: 0, maxTokens: 128 },
+    balanced: { label: 'Balanced', hint: 'Default: 45s timeout, one retry, 256 output tokens', timeout: 45, retries: 1, maxTokens: 256 },
+    power: { label: 'Power', hint: 'Most headroom: 90s timeout, two retries, 512 output tokens', timeout: 90, retries: 2, maxTokens: 512 }
+  } as const;
+  type ResourceProfile = keyof typeof RESOURCE_PROFILES;
+
   let players = [draft('Player One'), draft('Player Two')];
   let matchName = '';
   let providers: ProviderStatus[] = [];
   let teams: TeamSnapshot[] = [];
-  let format: 'gen9randombattle' | 'gen9ou' = 'gen9randombattle';
+  let formatGroups: FormatGroup[] = [];
+  let formatsLoading = true;
+  let format = 'gen9randombattle';
+  let descriptor: FormatDescriptor | null = null;
   let seed = ''; let maximumTotalCost = ''; let maximumTurns = '200';
-  let preset: 'economy' | 'balanced' | 'power' = 'balanced';
+  let resourceProfile: ResourceProfile = 'balanced';
   let loading = false; let error = ''; let discovering: number | null = null;
   let discoveredModels: Record<number, string[]> = {};
+
+  $: allFormats = formatGroups.flatMap((group) => group.formats);
+  $: descriptor = allFormats.find((item) => item.id === format) || descriptor;
+  $: needsCustomTeam = descriptor?.custom_team_required ?? false;
+  $: usesApi = players.some((player) => player.agentType === 'api');
+  $: eligibleTeams = teams.filter((team) => team.format === format);
 
   onMount(() => {
     const controller = new AbortController();
     void Promise.all([
       api<{ providers: ProviderStatus[] }>('/api/providers', { signal: controller.signal }),
-      api<TeamSnapshot[]>('/api/teams', { signal: controller.signal })
-    ]).then(([providerResult, teamResult]) => {
-      providers = providerResult.providers; teams = teamResult;
+      api<TeamSnapshot[]>('/api/teams', { signal: controller.signal }),
+      getFormatGroups(false, controller.signal)
+    ]).then(([providerResult, teamResult, groups]) => {
+      providers = providerResult.providers; teams = teamResult; formatGroups = groups;
+      formatsLoading = false;
     }).catch((caught) => {
-      if (!controller.signal.aborted) error = caught instanceof Error ? caught.message : String(caught);
+      if (!controller.signal.aborted) {
+        error = caught instanceof Error ? caught.message : String(caught);
+        formatsLoading = false;
+      }
     });
     return () => controller.abort();
   });
+
+  function selectFormat(next: FormatDescriptor) {
+    format = next.id;
+    descriptor = next;
+    // Team snapshots are format-specific; clear any that no longer apply.
+    players = players.map((player) => ({
+      ...player,
+      teamSnapshotId: teams.some((team) => team.id === player.teamSnapshotId && team.format === next.id)
+        ? player.teamSnapshotId
+        : ''
+    }));
+  }
   function selectProvider(index: number, value: ProviderKind) {
     players[index].provider = value; players[index].model = defaultModels[value]; players = [...players];
   }
@@ -59,12 +105,10 @@
     }
     players = [...players];
   }
-  function applyPreset(value: typeof preset) {
-    preset = value;
-    const values = value === 'economy' ? { timeout: 25, retries: 0, maxTokens: 128 }
-      : value === 'power' ? { timeout: 90, retries: 2, maxTokens: 512 }
-      : { timeout: 45, retries: 1, maxTokens: 256 };
-    players = players.map((player) => ({ ...player, ...values }));
+  function applyResourceProfile(value: ResourceProfile) {
+    resourceProfile = value;
+    const { timeout, retries, maxTokens } = RESOURCE_PROFILES[value];
+    players = players.map((player) => ({ ...player, timeout, retries, maxTokens }));
   }
   async function discover(index: number) {
     discovering = index; error = '';
@@ -93,14 +137,14 @@
         maximum_cost: player.maximumCost === '' ? null : Number(player.maximumCost),
         fake_scenario: player.fakeScenario
       },
-      team_source: format === 'gen9ou' ? 'preset' : 'showdown-random',
-      team_snapshot_id: format === 'gen9ou' ? player.teamSnapshotId : null
+      team_source: needsCustomTeam ? 'preset' : 'showdown-random',
+      team_snapshot_id: needsCustomTeam ? player.teamSnapshotId : null
     };
   }
   async function createBattle() {
     if (loading) return;
-    if (format === 'gen9ou' && players.some((player) => !player.teamSnapshotId)) {
-      error = 'Select one validated team snapshot for each player.'; return;
+    if (needsCustomTeam && players.some((player) => !player.teamSnapshotId)) {
+      error = `Select one validated ${descriptor?.display_name || format} team for each player.`; return;
     }
     loading = true; error = '';
     try {
@@ -113,7 +157,7 @@
           random_seed: seed ? Number(seed) : null, fair_prompt_mode: true,
           prompt_profile: 'benchmark-fair', context_profile: 'pokemon-standard',
           memory_policy: 'strategy-note',
-          team_policy: format === 'gen9ou' ? 'fixed' : 'showdown-random',
+          team_policy: needsCustomTeam ? 'fixed' : 'showdown-random',
           limits: {
             maximum_total_cost: maximumTotalCost ? Number(maximumTotalCost) : null,
             maximum_turns: maximumTurns ? Number(maximumTurns) : null
@@ -126,82 +170,193 @@
 </script>
 
 <div class="page-head">
-  <div><span class="eyebrow">New match</span><h1>Start a battle</h1></div>
-  <span class="status-pill">Standard information · {format === 'gen9ou' ? 'Gen 9 OU' : 'Gen 9 Random Battle'}</span>
-</div>
-<form class="builder" on:submit|preventDefault={createBattle}>
-  <section class="panel match-name"><label>Optional match name<input bind:value={matchName} maxlength="120" placeholder="Benchmark Run 14" /></label><span>Stable URLs continue to use the match UUID.</span></section>
-  <section class="panel format-picker">
-    <div><span class="eyebrow">Battle format</span><strong>{format === 'gen9ou' ? 'Custom validated teams' : 'Showdown random teams'}</strong></div>
-    <label>Format<select bind:value={format}><option value="gen9randombattle">Gen 9 Random Battle</option><option value="gen9ou">Gen 9 OU</option></select></label>
-    {#if format === 'gen9ou'}<a href="/teams">Import or generate teams →</a>{/if}
-  </section>
-  <div class="preset-bar panel">
-    <div><span class="eyebrow">Run preset</span><strong>{preset}</strong></div>
-    <div class="segmented">
-      <button type="button" class:active={preset === 'economy'} on:click={() => applyPreset('economy')}>Economy</button>
-      <button type="button" class:active={preset === 'balanced'} on:click={() => applyPreset('balanced')}>Balanced</button>
-      <button type="button" class:active={preset === 'power'} on:click={() => applyPreset('power')}>Power</button>
-    </div>
+  <div>
+    <span class="eyebrow">New match</span>
+    <h1>Create match</h1>
+    <p>A Random Battle needs nothing but two agents. Everything else is optional.</p>
   </div>
-  <div class="players">
+</div>
+
+<form class="builder" on:submit|preventDefault={createBattle}>
+  <div class="row players">
     {#each players as player, index}
-      <section class:second={index === 1} class="player panel">
-        <header><span class="player-number">P{index + 1}</span><h2>{index ? 'Player two' : 'Player one'}</h2></header>
-        <label>Display name<input bind:value={player.name} required maxlength="80" /></label>
-        <label>Control mode
-          <select value={player.agentType} on:change={(event) => selectAgentType(index, event.currentTarget.value as AgentType)}><option value="random">Random agent · free local baseline</option><option value="manual">Manual Web Chat · copy and paste</option><option value="api">Provider API · full auto</option></select>
+      <section class:second={index === 1} class="card player">
+        <header>
+          <span class="slot">Player {index + 1}</span>
+          <input class="name" bind:value={player.name} required maxlength="80" aria-label={`Player ${index + 1} display name`} />
+        </header>
+        <label>Agent
+          <select value={player.agentType} on:change={(event) => selectAgentType(index, event.currentTarget.value as AgentType)}>
+            <option value="random">Random agent · free local baseline</option>
+            <option value="manual">Manual Web Chat · copy and paste</option>
+            <option value="api">Provider API · full auto</option>
+          </select>
         </label>
-        {#if format === 'gen9ou'}
-          <label>Validated team snapshot
-            <select bind:value={player.teamSnapshotId} required>
-              <option value="">Select a saved team…</option>
-              {#each teams as team}<option value={team.id}>{team.name} · {team.source}</option>{/each}
-            </select>
-          </label>
-          {#if teams.length === 0}<div class="mode-note"><strong>No team snapshots</strong><span>Open Team Lab, validate a full Gen 9 OU team, then return here.</span></div>{/if}
-        {/if}
-        {#if player.agentType === 'manual'}
-          <div class="mode-note"><strong>Manual Web Chat</strong><span>Each turn pauses. Copy the prompt to any chat, then paste its JSON response.</span></div>
-        {:else if player.agentType === 'random'}
-          <div class="mode-note"><strong>Local random</strong><span>No provider, credentials, or network request.</span></div>
-        {:else}
-          <div class="provider-grid">
-            <label>Provider<select value={player.provider} on:change={(event) => selectProvider(index, event.currentTarget.value as ProviderKind)}>
+        {#if player.agentType === 'api'}
+          <label>Provider
+            <select value={player.provider} on:change={(event) => selectProvider(index, event.currentTarget.value as ProviderKind)}>
               <optgroup label="Providers">{#each providers.filter((status) => status.id !== 'fake') as status}<option value={status.id} disabled={!status.configured && status.id !== 'openai-compatible'}>{providerLabels[status.id]}{status.configured ? ' · ready' : status.id === 'openai-compatible' ? ' · configure URL below' : ' · not configured'}</option>{/each}</optgroup>
               {#if providers.some((status) => status.id === 'fake')}<optgroup label="Development / Testing">{#each providers.filter((status) => status.id === 'fake') as status}<option value={status.id} disabled={!status.configured}>{providerLabels[status.id]}{status.configured ? ' · enabled' : ' · disabled'}</option>{/each}</optgroup>{/if}
-            </select></label>
-            <label>Model ID<input bind:value={player.model} required list={`models-${index}`} /></label>
-            <datalist id={`models-${index}`}>{#each discoveredModels[index] || [] as model}<option value={model}></option>{/each}</datalist>
-            {#if player.provider === 'openai-compatible'}<label class="wide">Base URL<input type="url" bind:value={player.baseUrl} required placeholder="http://localhost:11434/v1" /></label>{/if}
-            <button type="button" class="discover" on:click={() => discover(index)} disabled={discovering === index}>{discovering === index ? 'Discovering…' : 'Discover models'}</button>
-          </div>
-          <details>
-            <summary>Advanced run controls</summary>
-            <div class="advanced">
-              <label>Timeout (seconds)<input type="number" min="1" max="600" bind:value={player.timeout} /></label>
-              <label>Retries<input type="number" min="0" max="5" bind:value={player.retries} /></label>
-              <label>Fallback<select bind:value={player.fallback}><option value="random">Random</option><option value="manual">Manual Web Chat</option><option value="forfeit">Forfeit</option></select></label>
-              <label>Temperature<input type="number" min="0" max="2" step="0.1" bind:value={player.temperature} placeholder="Provider default" /></label>
-              <label>Max output tokens<input type="number" min="32" max="8192" bind:value={player.maxTokens} /></label>
-              <label>Reasoning effort<select bind:value={player.reasoning}><option value="">Provider default</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="max">Max</option></select></label>
-              <label>Player cost limit (USD)<input type="number" min="0" step="0.01" bind:value={player.maximumCost} placeholder="No limit" /></label>
-              {#if player.provider === 'fake'}<label>Failure scenario<select bind:value={player.fakeScenario}><option value="valid">Valid</option><option value="malformed_then_valid">Malformed then valid</option><option value="invalid_then_valid">Illegal then valid</option><option value="rate_limit_then_valid">Rate limit then valid</option><option value="provider_error">Provider error</option><option value="timeout">Timeout</option></select></label>{/if}
-            </div>
-          </details>
+            </select>
+          </label>
+          <label>Model
+            <input bind:value={player.model} required list={`models-${index}`} />
+          </label>
+          <datalist id={`models-${index}`}>{#each discoveredModels[index] || [] as model}<option value={model}></option>{/each}</datalist>
+          {#if player.provider === 'openai-compatible'}<label>Base URL<input type="url" bind:value={player.baseUrl} required placeholder="http://localhost:11434/v1" /></label>{/if}
+          <button type="button" class="link-button" on:click={() => discover(index)} disabled={discovering === index}>{discovering === index ? 'Discovering…' : 'Discover models'}</button>
+        {:else}
+          <p class="mode-note">
+            {player.agentType === 'manual'
+              ? 'Each turn pauses. Copy the prompt into any web chat, then paste the JSON response.'
+              : 'Plays legal random actions locally. No provider, credentials or network request.'}
+          </p>
+        {/if}
+        {#if needsCustomTeam}
+          <label>Team
+            <select bind:value={player.teamSnapshotId} required>
+              <option value="">Select a validated team…</option>
+              {#each eligibleTeams as team}<option value={team.id}>{team.name} · {team.source}</option>{/each}
+            </select>
+            <small class="field-hint">{eligibleTeams.length ? `${eligibleTeams.length} validated ${descriptor?.display_name} team(s)` : 'No validated team for this format yet.'}</small>
+          </label>
         {/if}
       </section>
     {/each}
   </div>
-  <section class="limits panel">
-    <div><span class="eyebrow">Safety envelope</span><h2>Match limits</h2><p>Unknown model pricing remains unavailable; it is never guessed.</p></div>
-    <label>Optional deterministic seed<input type="number" bind:value={seed} placeholder="Unseeded" /></label>
-    <label>Total cost limit (USD)<input type="number" min="0" step="0.01" bind:value={maximumTotalCost} placeholder="No limit" /></label>
-    <label>Maximum turns<input type="number" min="1" max="10000" bind:value={maximumTurns} /><small>Safety default: 200. Clear only for an intentionally unlimited match.</small></label>
-  </section>
-  <div class="launch">{#if error}<span class="error" role="alert">{error}</span>{/if}<button class:loading class="button" disabled={loading}>{loading ? 'Starting…' : 'Start match →'}</button></div>
+
+  <div class="row settings">
+    <section class="card">
+      <h2>Battle</h2>
+      <FormatSelector
+        groups={formatGroups}
+        loading={formatsLoading}
+        value={format}
+        on:change={(event) => selectFormat(event.detail)}
+      />
+      <p class="field-hint format-note">
+        {#if descriptor}
+          {descriptor.name} ·
+          {descriptor.custom_team_required ? 'both players bring a validated team' : 'Showdown generates both teams'}
+          {#if needsCustomTeam}<a href="/teams"> · open Team Lab →</a>{/if}
+        {:else}
+          Formats come from the pinned local Pokémon Showdown build.
+        {/if}
+      </p>
+      <label>Match name <span class="optional">Optional</span>
+        <input bind:value={matchName} maxlength="120" placeholder="Benchmark Run 14" />
+      </label>
+    </section>
+
+    <section class="card">
+      <h2>Limits</h2>
+      <div class="pair">
+        <label>Maximum turns<input type="number" min="1" max="10000" bind:value={maximumTurns} /></label>
+        <label>Total cost limit (USD)<input type="number" min="0" step="0.01" bind:value={maximumTotalCost} placeholder="No limit" /></label>
+      </div>
+      <small class="field-hint">Safety default is 200 turns. Model pricing is never guessed; unknown pricing stays unavailable.</small>
+    </section>
+  </div>
+
+  <details class="card advanced-card">
+    <summary>Advanced AI settings</summary>
+    <div class="advanced-body">
+      <section class="resource-profile">
+        <div>
+          <h3>Agent resource profile</h3>
+          <p class="field-hint">
+            Controls AI model cost and latency settings: request timeout, retry count and output-token
+            ceiling. It does not affect Pokémon, teams or battle rules.
+          </p>
+        </div>
+        <div class="segmented" role="group" aria-label="Agent resource profile">
+          {#each Object.entries(RESOURCE_PROFILES) as [key, profile]}
+            <button
+              type="button"
+              class:active={resourceProfile === key}
+              title={profile.hint}
+              on:click={() => applyResourceProfile(key as ResourceProfile)}
+            >{profile.label}</button>
+          {/each}
+        </div>
+        <p class="field-hint profile-hint">{RESOURCE_PROFILES[resourceProfile].hint}</p>
+        {#if !usesApi}<p class="field-hint">Applies to Provider API agents only.</p>{/if}
+      </section>
+
+      {#each players as player, index}
+        <section class="advanced-player">
+          <h3>{player.name || `Player ${index + 1}`}</h3>
+          <div class="advanced-grid">
+            <label>Timeout (seconds)<input type="number" min="1" max="600" bind:value={player.timeout} /></label>
+            <label>Retries<input type="number" min="0" max="5" bind:value={player.retries} /></label>
+            <label>Max output tokens<input type="number" min="32" max="8192" bind:value={player.maxTokens} /></label>
+            <label>Fallback<select bind:value={player.fallback}><option value="random">Random</option><option value="manual">Manual Web Chat</option><option value="forfeit">Forfeit</option></select></label>
+            <label>Temperature<input type="number" min="0" max="2" step="0.1" bind:value={player.temperature} placeholder="Provider default" /></label>
+            <label>Reasoning effort<select bind:value={player.reasoning}><option value="">Provider default</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="max">Max</option></select></label>
+            <label>Player cost limit (USD)<input type="number" min="0" step="0.01" bind:value={player.maximumCost} placeholder="No limit" /></label>
+            {#if player.provider === 'fake' && player.agentType === 'api'}<label>Failure scenario<select bind:value={player.fakeScenario}><option value="valid">Valid</option><option value="malformed_then_valid">Malformed then valid</option><option value="invalid_then_valid">Illegal then valid</option><option value="rate_limit_then_valid">Rate limit then valid</option><option value="provider_error">Provider error</option><option value="timeout">Timeout</option></select></label>{/if}
+          </div>
+        </section>
+      {/each}
+
+      <section class="advanced-player">
+        <h3>Reproducibility</h3>
+        <label>Deterministic seed<input type="number" bind:value={seed} placeholder="Unseeded" /></label>
+      </section>
+    </div>
+  </details>
+
+  <div class="launch">
+    {#if error}<span class="error" role="alert">{error}</span>{/if}
+    <button class:loading class="button" disabled={loading}>{loading ? 'Starting…' : 'Start battle'}</button>
+  </div>
 </form>
 
 <style>
-  .builder{display:grid;gap:1rem}.match-name{display:grid;grid-template-columns:1fr auto;align-items:end;gap:1rem;padding:1rem 1.2rem;box-shadow:none}.match-name span{color:var(--muted);font:.65rem var(--mono)}.format-picker,.preset-bar{display:flex;justify-content:space-between;align-items:center;gap:1rem;padding:1rem 1.2rem;box-shadow:none}.format-picker strong,.preset-bar strong{display:block;margin-top:.2rem;text-transform:capitalize}.format-picker label{min-width:260px}.format-picker a{color:var(--accent);font:.7rem var(--mono)}.segmented{display:flex;padding:.2rem;border:1px solid var(--border);border-radius:.7rem;background:var(--panel-strong)}.segmented button{min-height:36px;padding:.4rem .8rem;border:0;border-radius:.5rem;background:transparent;color:var(--muted);cursor:pointer}.segmented button.active{background:var(--surface);color:var(--text)}.players{display:grid;grid-template-columns:1fr 1fr;gap:1rem}.player{padding:clamp(1.2rem,3vw,2rem);background:linear-gradient(145deg,color-mix(in srgb,var(--p1) 7%,var(--panel)),var(--panel) 45%)}.player.second{background:linear-gradient(215deg,color-mix(in srgb,var(--p2) 7%,var(--panel)),var(--panel) 45%)}.player header{display:flex;align-items:baseline;gap:.8rem}.player h2{font-size:1.6rem}.player-number{color:var(--accent);font:.72rem var(--mono)}.player label+label{margin-top:.85rem}.mode-note{display:grid;gap:.3rem;margin-top:1rem;padding:1rem;border:1px solid var(--border);border-radius:.75rem;background:var(--panel-strong)}.mode-note span,.limits p{color:var(--muted);font-size:.78rem;line-height:1.5}.provider-grid{display:grid;grid-template-columns:1fr 1fr;gap:.75rem;margin-top:1rem}.provider-grid label+label{margin-top:0}.provider-grid .wide{grid-column:1/-1}.discover{grid-column:1/-1;min-height:40px;border:1px solid var(--border);border-radius:.6rem;background:var(--panel-strong);color:var(--text);cursor:pointer}details{margin-top:1rem;border-top:1px solid var(--border);padding-top:1rem}summary{color:var(--muted);font-size:.78rem;cursor:pointer}.advanced{display:grid;grid-template-columns:1fr 1fr;gap:.75rem;margin-top:1rem}.advanced label+label{margin-top:0}.limits{display:grid;grid-template-columns:1.6fr repeat(3,1fr);align-items:end;gap:1rem;padding:1.2rem;box-shadow:none}.limits h2{margin:.3rem 0}.limits p{margin:.2rem 0}.launch{display:flex;justify-content:flex-end;align-items:center;gap:1rem}.launch .error{margin-right:auto}@media(max-width:880px){.players{grid-template-columns:1fr}.limits{grid-template-columns:1fr 1fr}.limits>div{grid-column:1/-1}.format-picker{align-items:flex-start;flex-direction:column}.format-picker label{min-width:0;width:100%}}@media(max-width:560px){.page-head,.preset-bar{align-items:flex-start;flex-direction:column}.match-name{grid-template-columns:1fr}.segmented{width:100%}.segmented button{flex:1}.provider-grid,.advanced,.limits{grid-template-columns:1fr}.limits>div{grid-column:auto}.launch{align-items:stretch;flex-direction:column}.launch .button{width:100%}}
+  .builder{display:grid;gap:1rem;width:min(var(--content),100%);margin-inline:auto}
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
+  .card{display:grid;align-content:start;gap:.85rem;padding:1.25rem 1.35rem;border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--panel)}
+  .card h2{margin:0;font-size:var(--step-1);letter-spacing:-.01em}
+  .card h3{margin:0 0 .2rem;font-size:.88rem}
+  .player{position:relative;overflow:hidden}
+  .player::before{content:'';position:absolute;inset:0 auto 0 0;width:3px;background:var(--p1)}
+  .player.second::before{background:var(--p2)}
+  .player header{display:grid;gap:.3rem}
+  .slot{color:var(--muted);font:600 .6rem var(--mono);letter-spacing:.12em;text-transform:uppercase}
+  .name{min-height:40px;padding:.4rem .6rem;border-color:transparent;background:transparent;font-size:var(--step-1);font-weight:750;letter-spacing:-.02em}
+  .name:hover{border-color:var(--border)}
+  .mode-note{margin:0;color:var(--muted);font-size:.78rem;line-height:1.5}
+  .link-button{justify-self:start;padding:.2rem 0;border:0;background:none;color:var(--accent);font-size:.75rem;font-weight:650;cursor:pointer}
+  .link-button:disabled{color:var(--muted);cursor:default}
+  .optional{margin-left:.35rem;padding:.05rem .35rem;border-radius:999px;background:var(--surface);color:var(--muted);font-size:.62rem;font-weight:600}
+  label:has(.optional){grid-template-columns:auto auto 1fr}
+  label:has(.optional) input{grid-column:1/-1}
+  .advanced-card summary::marker{color:var(--accent)}
+  .format-note{margin:-.35rem 0 0}
+  .format-note a{color:var(--accent);font-weight:650}
+  .pair{display:grid;grid-template-columns:1fr 1fr;gap:.75rem}
+  .advanced-card{padding:0}
+  .advanced-card summary{padding:1rem 1.35rem;color:var(--muted);font-size:.82rem;font-weight:650;cursor:pointer}
+  .advanced-card[open] summary{border-bottom:1px solid var(--border)}
+  .advanced-body{display:grid;gap:1.25rem;padding:1.25rem 1.35rem}
+  .resource-profile{display:grid;gap:.7rem;max-width:var(--reading)}
+  .segmented{display:flex;padding:.2rem;border:1px solid var(--border);border-radius:.7rem;background:var(--panel-strong)}
+  .segmented button{flex:1;min-height:36px;padding:.4rem .8rem;border:0;border-radius:.5rem;background:transparent;color:var(--muted);font-weight:650;cursor:pointer}
+  .segmented button.active{background:var(--surface);color:var(--text)}
+  .profile-hint{color:var(--accent)}
+  .advanced-player{display:grid;gap:.7rem;padding-top:1rem;border-top:1px solid var(--border)}
+  .advanced-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:.75rem}
+  .launch{display:flex;justify-content:flex-end;align-items:center;gap:1rem;margin-top:.5rem}
+  .launch .error{margin-right:auto}
+  .launch .button{min-width:190px}
+  @media(max-width:880px){
+    .row{grid-template-columns:1fr}
+    .advanced-grid{grid-template-columns:1fr 1fr}
+  }
+  @media(max-width:560px){
+    .pair,.advanced-grid{grid-template-columns:1fr}
+    .segmented{flex-direction:column}
+    .launch{align-items:stretch;flex-direction:column-reverse}
+    .launch .button{width:100%}
+  }
 </style>

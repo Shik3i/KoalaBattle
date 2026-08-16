@@ -2,9 +2,10 @@
 
 KoalaBattle is an open-source, self-hosted AI-vs-AI battle production suite. It runs
 independent matches concurrently, records immutable replay/audit data, and provides match,
-tournament, watch, control, and OBS interfaces. Pokémon Showdown supports Gen 9 Random
-Battle and validated fixed-team Gen 9 OU; the tournament core consumes generic participants
-and results.
+tournament, battle-view, control, and OBS interfaces. Battle formats come from the pinned
+local Pokémon Showdown build, not from a KoalaBattle allowlist: every two-player singles
+format Showdown ships is runnable, across Generations 1-9. The tournament core consumes
+generic participants and results.
 
 The deterministic Canvas/WebCodecs compositor creates H.264/AAC landscape and vertical video
 without rerunning Showdown or battle LLMs. Live watch and OBS views reconnect automatically;
@@ -29,7 +30,8 @@ Pokémon Showdown. No Pokémon artwork, sprites, audio, or other third-party med
 - Direct live productions with commentary, free Edge neural speech, captions, music/SFX slots,
   and read-only browser sources.
 - Export deterministic landscape or vertical H.264/AAC video from recorded events.
-- Import or explicitly generate validated Gen 9 OU teams as immutable local snapshots.
+- Import or explicitly generate validated custom teams, for any custom-team Showdown format,
+  as immutable local snapshots.
 
 ## Docker quick start
 
@@ -61,12 +63,12 @@ docker compose --profile renderer up --build
 
 1. Open `/new` for a standalone match or `/tournaments/new` for the ten-step tournament
    wizard.
-2. Open `/teams` to import or explicitly generate a legal Gen 9 OU team snapshot. Random
-   Battle requires no team setup.
+2. Open `/teams` to import or explicitly generate a legal team snapshot for a custom-team
+   format such as Gen 9 OU or Gen 1 OU. Random Battle formats require no team setup.
 3. Use `/admin` to inspect capacity, queued/running/waiting matches, Showdown health, costs,
    and active tournaments.
-4. Use `/watch/:matchId` for a spectator-safe view and `/battle/:matchId` for local production
-   control. The default 200-turn safety limit can be changed explicitly per match.
+4. Work in two tabs: `/battle/:matchId` is the control view, `/watch/:matchId` is the
+   battle-only view. The default 200-turn safety limit can be changed explicitly per match.
 
 Every Manual/API turn receives a fresh, versioned player-scoped knowledge/context snapshot.
 Prompts do not depend on provider chat history. Strategy Memory is a bounded replacement note,
@@ -78,17 +80,65 @@ Global concurrency defaults to two active matches. Additional work remains durab
 Tournament templates, presets, participants, series, results, costs, and bracket dependencies
 are stored in SQLite.
 
+## Battle formats
+
+Formats are discovered from the pinned Pokémon Showdown build at start-up and cached in a
+generated snapshot so the app still starts when the container is down:
+
+```bash
+docker compose up -d showdown team-validator
+python3 scripts/refresh_format_catalog.py   # regenerate the bundled snapshot
+curl localhost:8001/api/formats | jq '.format_count, .source'
+```
+
+The `/new` format selector is searchable and grouped by generation; `gen 1`, `rby`, `dpp ou`,
+`random` and `ou` all work. Each entry states its generation, team source and game type. See
+[Battle formats](docs/FORMATS.md).
+
+- **Runnable today**: two-player singles, Generations 1-9 — Random Battles, OU, Ubers, UU, RU,
+  NU, PU, LC, Monotype, 1v1 and the rest of Showdown's singles registry.
+- **Listed but not runnable**: doubles, triples, multi and free-for-all. KoalaBattle's
+  normalized battle state models one active Pokémon per side, so these appear in the selector
+  with the reason "Not yet supported by KoalaBattle battle renderer" rather than being hidden
+  or silently run through singles-only assumptions.
+- **Team source**: Random Battle formats have Showdown generate both teams. Custom-team
+  formats require one validated snapshot per player, validated against that exact format.
+
+Prompts and legal actions are generation-aware. A Gen 1 prompt contains no ability, item or
+Terastallization fields and no Tera actions, because those mechanics do not exist there.
+
 ## Manual Web Chat
 
-Select **Manual Web Chat** for either player. Copy the player-scoped prompt to any external
-web chat, then paste one response into that same match workspace:
+Select **Manual Web Chat** for either player. The control view puts the agent's own name at
+the top of its workspace, with persistent tabs for both players and their current state, so
+you never have to work out which model you are answering for. Copy the player-scoped prompt to
+any external web chat, then paste one response back:
 
 ```json
 {"action":"move:2","commentary":"This legal move best advances the position."}
 ```
 
+The prompt is a compact, readable text block rather than a raw JSON dump: rules first, then
+your active Pokémon and full bench with their moves, the opponent's revealed information,
+field state, recent events and self-describing legal actions. It is self-contained, so a
+fresh chat with no history can act on it.
+
 Only an ID from the supplied `legal_actions` is accepted. Raw Showdown commands and arbitrary
 model text are never executed. See [Manual mode](docs/MANUAL_MODE.md).
+
+## Battle view and control view
+
+The two views are deliberately separate:
+
+| View | URL | Contains |
+| --- | --- | --- |
+| Control | `/battle/:matchId` | Manual prompts, paste/submit, match lifecycle, audit trail |
+| Battle view | `/watch/:matchId` | The battle only: no navigation, no controls, no page scroll |
+| OBS overlay | `/overlay/:matchId` | Battle view with transparent-source query options |
+
+The control page exposes **Open battle view**, **Copy battle view URL** and **Copy OBS URL**
+so the capture surface never has to be scrolled to paste a response. The battle view fills the
+viewport at 1920×1080 and 1080×1920, updates live and reconnects on its own.
 
 ## Optional sprites
 
@@ -180,7 +230,8 @@ Details: [Development](docs/DEVELOPMENT.md). Documentation index: [docs/README.m
 - `backend/koalabattle/replay`: pure recorded-event reducer
 - `backend/koalabattle/production`: profiles, timelines, speech cache/queue, and director
 - `backend/koalabattle/video`: export jobs, queue, OBS/offline exporters, validation, storage
-- `frontend`: SvelteKit admin, control, watch, replay, tournament, and OBS UI
+- `backend/koalabattle/formats`: Showdown format catalog, capability rules, generated snapshot
+- `frontend`: SvelteKit admin, control, battle view, replay, tournament, and OBS UI
 - `scripts/setup_assets.py`: explicit third-party asset installer/status tool
 - `scripts/benchmark_orchestration.py`: local replay, archive, tournament, and scheduler baseline
 - `showdown`: reproducibly pinned local engine image

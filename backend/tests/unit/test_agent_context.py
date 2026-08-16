@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import json
-
 from koalabattle.agents.context import render_agent_prompt
 from koalabattle.core.models import (
     BattleAction,
@@ -77,7 +75,7 @@ def test_revealed_knowledge_persists_without_inventing_hidden_fields(
     assert snorlax.revealed_item == "leftovers"
     assert snorlax.revealed_ability is None
     assert {item.species for item in knowledge.known_opponent} == {"Snorlax", "Corviknight"}
-    assert "Mewtwo" not in prompt
+    assert "Mewtwo" not in prompt.combined
     assert snapshot.strategy_memory == "Keep the endgame cleaner healthy."
 
 
@@ -140,9 +138,10 @@ def test_context_budget_never_removes_current_state_or_legal_actions(
         strategy_memory="must be ignored",
     )
     prompt, metrics = render_agent_prompt(snapshot)
-    payload = json.loads(prompt)
-    assert payload["context"]["knowledge"]["own_side"]["active"]["species"] == "Pikachu"
-    assert [item["id"] for item in payload["legal_actions"]] == [item.id for item in actions]
+    # Trimming history must never cost the agent its own state or its choices.
+    assert "YOUR ACTIVE POKEMON\nPikachu 0" in prompt
+    for action in actions:
+        assert f"\n{action.id}\n" in prompt
     assert metrics.estimated_tokens <= 2_400
     assert metrics.history_event_count <= 5
     assert snapshot.strategy_memory is None

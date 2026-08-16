@@ -19,7 +19,7 @@ from koalabattle.core.models import (
     TeamPolicy,
     TeamSource,
 )
-from koalabattle.teams.models import MAX_TEAM_TEXT_LENGTH
+from koalabattle.teams.models import DEFAULT_CUSTOM_FORMAT, MAX_TEAM_TEXT_LENGTH
 
 
 class PlayerInput(BaseModel):
@@ -36,7 +36,7 @@ class PlayerInput(BaseModel):
 class CreateMatchRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str | None = Field(default=None, min_length=1, max_length=120)
-    format: Literal["gen9randombattle", "gen9ou"] = "gen9randombattle"
+    format: str = Field(default="gen9randombattle", min_length=1, max_length=80)
     player1: PlayerInput
     player2: PlayerInput
     random_seed: int | None = None
@@ -86,7 +86,7 @@ class CreateMatchRequest(BaseModel):
 class TeamValidationInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str = Field(min_length=1, max_length=120)
-    format: Literal["gen9ou"] = "gen9ou"
+    format: str = Field(default=DEFAULT_CUSTOM_FORMAT, min_length=1, max_length=80)
     team_text: str = Field(min_length=1, max_length=MAX_TEAM_TEXT_LENGTH)
     source: Literal[TeamSource.IMPORTED, TeamSource.PRESET] = TeamSource.IMPORTED
     save: bool = True

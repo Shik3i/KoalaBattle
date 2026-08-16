@@ -17,6 +17,16 @@ export type AgentPresentationStatus =
   | 'decided'
   | 'executing'
   | 'finished';
+
+/**
+ * Lifecycle of one player's public commentary. The primary panel only ever shows the
+ * commentary for the action currently being decided or executed; once the turn resolves it
+ * clears, and the text survives in `commentary` history and in the decision log.
+ */
+export type CommentaryPhase = 'waiting' | 'thinking' | 'decided' | 'executing' | 'resolved';
+
+/** Whether the headline action is still playing out or has already been resolved. */
+export type ActionPhase = 'executing' | 'resolved';
 export type PokemonMotion =
   | 'idle'
   | 'attacking'
@@ -89,7 +99,20 @@ export interface PlayerPresentationState {
   providerLabel: string;
   agentStatus: AgentPresentationStatus;
   motion: PokemonMotion;
+  /** Full history, kept for the decision log and the control UI. */
   commentary: CommentaryPresentationState[];
+  /** Only the commentary that belongs to the action in flight; null once it resolves. */
+  currentCommentary: CommentaryPresentationState | null;
+  commentaryPhase: CommentaryPhase;
+}
+
+/** Transient HP change shown next to the Pokemon it happened to. */
+export interface ImpactPresentationState {
+  side: Side;
+  /** Signed percentage points of maximum HP. Negative for damage, positive for healing. */
+  value: number;
+  sequence: number;
+  kind: 'damage' | 'healing';
 }
 
 export interface SpectatorLogEntry {
@@ -110,9 +133,13 @@ export interface BattlePresentationState {
   players: Record<Side, PlayerPresentationState>;
   currentMove: string | null;
   currentMoveProfile: MoveVisualProfile | null;
+  currentMoveSide: Side | null;
+  currentMovePhase: ActionPhase;
   effect: BattleEffect;
   effectSide: Side | null;
   effectValue: number | null;
+  /** Latest HP change per side, cleared when the turn resolves. */
+  impacts: Record<Side, ImpactPresentationState | null>;
   log: SpectatorLogEntry[];
   winner: Side | null;
   winnerName: string | null;

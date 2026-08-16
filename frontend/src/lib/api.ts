@@ -1,5 +1,5 @@
 import { env } from '$env/dynamic/public';
-import type { ExportBackend, ExportPreflight, MatchArchive, ProductionProfile, ProductionTimeline, RenderEngine, RendererCapabilities, VideoExportJob, VideoExportPreset, VoicePreset } from './types';
+import type { ExportBackend, ExportPreflight, FormatCatalog, FormatDescriptor, FormatGroup, MatchArchive, ProductionProfile, ProductionTimeline, RenderEngine, RendererCapabilities, VideoExportJob, VideoExportPreset, VoicePreset } from './types';
 
 export const apiBase = () => {
   const fallback = env.PUBLIC_API_URL || 'http://localhost:8001';
@@ -22,6 +22,12 @@ export async function api<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 export const getMatch = (id: string) => api<MatchArchive>(`/api/matches/${id}`);
+/** The Showdown format registry, served by the pinned local Showdown build. */
+export const getFormatCatalog = (signal?: AbortSignal) =>
+  api<FormatCatalog>('/api/formats', { signal });
+export const getFormatGroups = (supportedOnly = false, signal?: AbortSignal) =>
+  api<FormatGroup[]>(`/api/formats/groups?supported_only=${supportedOnly}`, { signal });
+export const getFormat = (id: string) => api<FormatDescriptor>(`/api/formats/${id}`);
 export const getPresentationMatch = (id: string) =>
   api<MatchArchive>(`/api/matches/${id}/presentation`);
 export const getProductions = (matchId: string) =>

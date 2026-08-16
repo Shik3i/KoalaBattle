@@ -46,6 +46,8 @@ class AnthropicProvider:
                 }
             },
         }
+        if request.system_prompt:
+            arguments["system"] = request.system_prompt
         if request.temperature is not None:
             arguments["temperature"] = request.temperature
         try:

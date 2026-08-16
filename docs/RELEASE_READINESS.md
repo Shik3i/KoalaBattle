@@ -7,7 +7,7 @@ compatible Chromium/WebCodecs path or the documented FFmpeg fallback.
 
 ## Supported workflows
 
-- Gen 9 Random Battle and validated fixed-team Gen 9 OU
+- Every two-player singles format in the pinned Showdown registry, Generations 1-9
 - Random, Manual Web Chat, OpenAI, Gemini, Anthropic, DeepSeek, and OpenAI-compatible agents
 - Single Elimination and Round Robin tournaments with durable concurrent scheduling
 - spectator-safe watch/replay and match/tournament OBS browser sources
@@ -51,7 +51,8 @@ URLs are intentional for self-hosted models.
   Chromium overlay QA when OBS is unavailable.
 - Edge neural TTS is an unofficial online service integration without an availability SLA; the
   fully offline system fallback has visibly lower voice quality.
-- Only Gen 9 Random Battle and fixed-team Gen 9 OU are supported.
+- Only two-player singles formats are supported. Doubles, triples, multi and free-for-all are
+  listed in the format selector with an explicit unsupported reason.
 - The isolated pinned Showdown tree has documented upstream dependency findings; compatibility
   upgrades require the real-engine integration gate rather than a blind major audit fix.
 - Native WebCodecs capability differs by host/container. The renderer probes actual encoding and

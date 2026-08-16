@@ -35,6 +35,7 @@ class GeminiProvider:
             max_output_tokens=request.max_output_tokens,
             temperature=request.temperature,
             http_options=types.HttpOptions(timeout=int(request.timeout_seconds * 1000)),
+            system_instruction=request.system_prompt or None,
         )
         try:
             response = await self._client.aio.models.generate_content(

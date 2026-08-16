@@ -5,7 +5,12 @@ from typing import Any
 import openai
 from openai import AsyncOpenAI
 
-from koalabattle.core.models import ProviderErrorCategory, ProviderUsage
+from koalabattle.core.models import (
+    MAX_COMMENTARY_CHARACTERS,
+    MAX_STRATEGY_MEMORY_CHARACTERS,
+    ProviderErrorCategory,
+    ProviderUsage,
+)
 
 from .base import (
     ProviderCapabilities,
@@ -19,8 +24,11 @@ DECISION_SCHEMA: dict[str, object] = {
     "type": "object",
     "properties": {
         "action": {"type": "string"},
-        "commentary": {"type": "string", "maxLength": 1000},
-        "strategy_memory": {"type": ["string", "null"], "maxLength": 400},
+        "commentary": {"type": "string", "maxLength": MAX_COMMENTARY_CHARACTERS},
+        "strategy_memory": {
+            "type": ["string", "null"],
+            "maxLength": MAX_STRATEGY_MEMORY_CHARACTERS,
+        },
     },
     "required": ["action", "commentary", "strategy_memory"],
     "additionalProperties": False,
@@ -55,6 +63,8 @@ class OpenAIProvider:
                 }
             },
         }
+        if request.system_prompt:
+            arguments["instructions"] = request.system_prompt
         if request.temperature is not None:
             arguments["temperature"] = request.temperature
         if request.reasoning_effort is not None:

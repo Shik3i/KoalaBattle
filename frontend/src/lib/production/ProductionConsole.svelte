@@ -135,7 +135,9 @@
   })[command] || 'ph-sparkle';
 </script>
 
-{#if production && playback}
+<!-- Captions accompany narration. Without playback running they would show a cue from a
+     different point in the match, so they stay hidden until audio is enabled. -->
+{#if production && playback?.enabled}
   <CaptionOverlay
     cue={playback.caption}
     elapsedMs={playback.elapsedMs}
@@ -148,16 +150,15 @@
 {/if}
 
 {#if compact}
-  <div class:overlay class="compact-audio">
-    {#if production}
-      <button on:click={() => engine?.enable()} disabled={playback?.enabled}>
-        {playback?.enabled ? 'Audio enabled' : 'Enable audio'}
-      </button>
-      <span>{production.status} · {production.profile.display_name}</span>
-    {:else}
-      <span>No production timeline</span>
-    {/if}
-  </div>
+  <!--
+    Stream surfaces show only the one affordance browsers require: a click to unlock audio.
+    Once audio is running the pill disappears so nothing overlays the battle in OBS.
+  -->
+  {#if production && !playback?.enabled}
+    <div class:overlay class="compact-audio">
+      <button on:click={() => engine?.enable()}>Enable audio</button>
+    </div>
+  {/if}
 {:else}
   <section class="production panel" aria-label="Production audio and director">
     <div class="production-head">
@@ -207,5 +208,5 @@
 
 <style>
   .setup-row button,.transport-row button,.director button,.compact-audio button{display:inline-flex;align-items:center;justify-content:center;gap:.38rem;min-height:40px;padding:.55rem .72rem;border:1px solid var(--border);border-radius:.58rem;background:var(--panel-strong);color:var(--text);font-size:.76rem;font-weight:700;cursor:pointer;transition:transform .16s ease,border-color .16s ease,background .16s ease,box-shadow .16s ease}.setup-row button:hover:not(:disabled),.transport-row button:hover:not(:disabled),.director button:hover:not(:disabled){transform:translateY(-1px);border-color:color-mix(in srgb,var(--accent) 42%,var(--border));background:var(--surface);box-shadow:var(--shadow-sm)}.setup-row button:active:not(:disabled),.transport-row button:active:not(:disabled),.director button:active:not(:disabled){transform:scale(.985)}.setup-row button:disabled,.transport-row button:disabled,.director button:disabled{opacity:.5;cursor:not-allowed}.setup-row button .ph,.transport-row button .ph,.director button .ph{color:var(--accent);font-size:1rem}.enable{border-color:var(--accent)!important}
-  .production{position:relative;display:grid;gap:1rem;margin-top:1rem;padding:1rem}.production-head,.setup-row,.transport-row,.director{display:flex;align-items:center;justify-content:space-between;gap:.7rem;flex-wrap:wrap}.production-head h2{margin:.2rem 0 0}.setup-row label{min-width:160px}.setup-row select,.setup-row button,.transport-row button,.director button{min-height:40px}.enable{border-color:var(--accent)!important}.transport-row input{flex:1;min-width:180px}.transport-row output{font:.7rem var(--mono)}.mixer{display:grid;grid-template-columns:repeat(4,1fr);gap:.8rem}.mixer label{display:grid;gap:.35rem;text-transform:capitalize}.mixer input{padding:0}.director{justify-content:flex-start}.director strong{margin-right:auto}.cue-list{display:grid;max-height:320px;overflow:auto;margin-top:.7rem}.cue-list button{display:grid;grid-template-columns:70px 100px 1fr 30px;gap:.6rem;text-align:left;border:0;border-bottom:1px solid var(--border);border-radius:0;background:transparent;color:var(--text);font:.68rem var(--mono)}.compact-audio{position:fixed;z-index:40;left:1rem;bottom:1rem;display:flex;align-items:center;gap:.6rem;padding:.45rem .6rem;border:1px solid rgba(255,255,255,.18);border-radius:.55rem;background:rgba(8,16,11,.86);color:white;font:.65rem var(--mono)}.compact-audio button{min-height:34px}.compact-audio.overlay{bottom:1rem}@media(max-width:700px){.mixer{grid-template-columns:repeat(2,1fr)}.cue-list button{grid-template-columns:60px 80px 1fr}.cue-list button span:last-child{display:none}}
+  .production{position:relative;display:grid;gap:1rem;margin-top:1rem;padding:1rem}.production-head,.setup-row,.transport-row,.director{display:flex;align-items:center;justify-content:space-between;gap:.7rem;flex-wrap:wrap}.production-head h2{margin:.2rem 0 0}.setup-row label{min-width:160px}.setup-row select,.setup-row button,.transport-row button,.director button{min-height:40px}.enable{border-color:var(--accent)!important}.transport-row input{flex:1;min-width:180px}.transport-row output{font:.7rem var(--mono)}.mixer{display:grid;grid-template-columns:repeat(4,1fr);gap:.8rem}.mixer label{display:grid;gap:.35rem;text-transform:capitalize}.mixer input{padding:0}.director{justify-content:flex-start}.director strong{margin-right:auto}.cue-list{display:grid;max-height:320px;overflow:auto;margin-top:.7rem}.cue-list button{display:grid;grid-template-columns:70px 100px 1fr 30px;gap:.6rem;text-align:left;border:0;border-bottom:1px solid var(--border);border-radius:0;background:transparent;color:var(--text);font:.68rem var(--mono)}.compact-audio{position:fixed;z-index:40;left:1rem;bottom:1rem;display:flex;align-items:center;gap:.6rem;padding:.45rem .6rem;border:1px solid rgba(255,255,255,.18);border-radius:.55rem;background:rgba(8,16,11,.86);color:white;font:.65rem var(--mono)}.compact-audio button{min-height:34px}.compact-audio.overlay{right:auto;bottom:calc(10.5% + .7rem);left:1rem;top:auto}@media(max-width:700px){.mixer{grid-template-columns:repeat(2,1fr)}.cue-list button{grid-template-columns:60px 80px 1fr}.cue-list button span:last-child{display:none}}
 </style>

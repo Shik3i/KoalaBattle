@@ -1,7 +1,9 @@
 # Team building and validation
 
-KoalaBattle supports custom teams for `gen9ou`. Random Battle remains Showdown-generated and needs
-no setup. Gen 9 OU currently requires one immutable validated snapshot per player and the
+KoalaBattle supports custom teams for every custom-team format in the pinned Showdown
+registry, for example `gen9ou`, `gen1ou` or `gen4ou`. Random Battle formats remain
+Showdown-generated and need no setup. A custom-team format requires one immutable validated
+snapshot per player, validated against that exact format, and the
 `fixed` team policy.
 
 ## Import flow
@@ -32,11 +34,11 @@ routes before exposing the service outside a trusted local network.
 ## Tournament policy
 
 Tournament participant snapshots can reference immutable team snapshot IDs. Match templates
-carry the format and team policy. Gen 9 OU accepts fixed teams; per-series rotation or
+carry the format and team policy. Custom-team formats accept fixed teams; per-series rotation or
 dynamic counter-teaming is intentionally not implemented.
 
 The authoritative real-server gate validates, packs, submits, completes, persists, and replays
-a Gen 9 OU fixed-team match:
+a fixed-team match:
 
 ```bash
 KOALABATTLE_RUN_SHOWDOWN_TEST=1 \

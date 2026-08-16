@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import random
 from collections.abc import Awaitable, Callable
 from time import perf_counter
@@ -85,7 +84,10 @@ class ApiAgent:
             )
         legal_ids = {action.id for action in request.legal_actions}
         retries: list[RetryAttempt] = []
-        prompt = request.prompt
+        # Providers with a system channel get the stable rules there, so the output contract
+        # never sits thousands of tokens below the battle state.
+        system_prompt = request.system_prompt
+        prompt = request.user_prompt or request.prompt
         response = None
         await self._state_callback(request.side, AgentLifecycleState.THINKING, request.turn, {})
         for attempt in range(1, self.configuration.max_retries + 2):
@@ -94,6 +96,7 @@ class ApiAgent:
                     response = await self.provider.generate(
                         ProviderRequest(
                             prompt=prompt,
+                            system_prompt=system_prompt,
                             model=self.model,
                             timeout_seconds=self.configuration.timeout_seconds,
                             max_output_tokens=self.configuration.max_output_tokens,
@@ -180,7 +183,9 @@ class ApiAgent:
                 request.turn,
                 {"attempt": attempt + 1, "category": provider_error.category.value},
             )
-            prompt = _repair_prompt(request.prompt, legal_ids, provider_error.detail)
+            prompt = _repair_prompt(
+                request.user_prompt or request.prompt, legal_ids, provider_error.detail
+            )
             await asyncio.sleep(min(1.0, 0.2 * (2 ** (attempt - 1))))
         return await self._fallback(
             request,
@@ -252,14 +257,12 @@ class ApiAgent:
 
 
 def _repair_prompt(original_prompt: str, legal_ids: set[str], detail: str) -> str:
-    """Preserve the authoritative snapshot during retries."""
-    try:
-        payload = json.loads(original_prompt)
-    except json.JSONDecodeError:
-        return original_prompt
-    payload["repair"] = {
-        "previous_response_error": detail,
-        "allowed_action_ids": sorted(legal_ids),
-        "instruction": "Return a corrected JSON object using the same authoritative context.",
-    }
-    return json.dumps(payload, indent=2, sort_keys=True)
+    """Append a correction notice while preserving the authoritative snapshot verbatim."""
+    allowed = ", ".join(sorted(legal_ids))
+    return (
+        f"{original_prompt}\n\n"
+        "PREVIOUS RESPONSE REJECTED\n"
+        f"{detail}\n"
+        f"Allowed action IDs: {allowed}\n"
+        "Return a corrected JSON object using the same authoritative context."
+    )

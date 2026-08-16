@@ -45,6 +45,7 @@ from koalabattle.core.models import (
 from koalabattle.core.pricing import PricingTable
 from koalabattle.engines.base import EngineEventSink
 from koalabattle.engines.showdown import ShowdownBattleEngine
+from koalabattle.formats import FormatCatalogService, describe_format
 from koalabattle.orchestration.runtime import MatchSupervisor, RealtimeHub
 from koalabattle.storage import BattleRepository
 from koalabattle.teams import (
@@ -73,6 +74,7 @@ class BattleService:
         self.teams = TeamRepository(repository.database)
         self.team_validator = ShowdownTeamValidator(settings.team_validator_url)
         self.team_builder = TeamBuilder(self.teams, self.team_validator)
+        self.formats = FormatCatalogService(settings.team_validator_url)
         self.hub = RealtimeHub()
         self.pricing = PricingTable(settings.pricing_table_json, settings.pricing_version)
         self.supervisor = MatchSupervisor(
@@ -87,6 +89,7 @@ class BattleService:
         )
 
     async def start(self) -> tuple[UUID, ...]:
+        await self.formats.refresh()
         interrupted = await self.supervisor.start()
         await self.schedule_tournaments()
         return interrupted
@@ -335,15 +338,19 @@ class BattleService:
             )
             if player.agent_type is AgentType.API:
                 self._provider_for(player)
-            if payload.match_template.format == "gen9ou":
+            template_format = payload.match_template.format
+            descriptor = describe_format(template_format)
+            if descriptor is not None and descriptor.custom_team_required:
                 if player.team_snapshot_id is None:
                     raise ValueError(
-                        f"participant {participant.display_name} requires a validated Gen 9 OU team"
+                        f"participant {participant.display_name} requires a validated "
+                        f"{descriptor.name} team"
                     )
                 snapshot = await self.teams.get(player.team_snapshot_id)
-                if snapshot is None or snapshot.format != "gen9ou":
+                if snapshot is None or snapshot.format != template_format:
                     raise ValueError(
-                        f"participant {participant.display_name} has no valid Gen 9 OU snapshot"
+                        f"participant {participant.display_name} has no valid "
+                        f"{descriptor.name} snapshot"
                     )
         return await self.tournaments.create(payload)
 

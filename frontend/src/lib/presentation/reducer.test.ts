@@ -180,3 +180,98 @@ test('maps internal Showdown winner usernames back to participant display names'
   assert.equal(state.winner, 'p1');
   assert.equal(state.winnerName, 'Alpha');
 });
+
+const turnEvent = (
+  sequence: number,
+  eventType: string,
+  payload: Record<string, unknown>,
+  turn: number
+): BattleEvent => ({ ...event(sequence, eventType, payload), turn });
+
+test('public commentary belongs to one action and clears when the turn resolves', () => {
+  const decided = reduceEvents(createPresentationState(match), [
+    turnEvent(1, 'agent_state', { side: 'p1', state: 'thinking' }, 1),
+    turnEvent(2, 'agent_decision', {
+      side: 'p1', action: 'move:1', action_name: 'Thunderbolt', commentary: 'Turn 1 plan.'
+    }, 1)
+  ]);
+  assert.equal(decided.players.p1.commentaryPhase, 'decided');
+  assert.equal(decided.players.p1.currentCommentary?.commentary, 'Turn 1 plan.');
+
+  const executing = reducePresentation(
+    decided,
+    turnEvent(3, 'move_used', { actor: 'p1a: Pikachu', move: 'Thunderbolt' }, 1)
+  );
+  assert.equal(executing.players.p1.commentaryPhase, 'executing');
+  assert.equal(executing.currentMovePhase, 'executing');
+
+  // Turn 2 begins: the previous action's commentary must not read as the next plan.
+  const resolved = reducePresentation(executing, turnEvent(4, 'turn_started', { turn: 2 }, 2));
+  assert.equal(resolved.players.p1.commentaryPhase, 'resolved');
+  assert.equal(resolved.players.p1.currentCommentary, null);
+  assert.equal(resolved.currentMovePhase, 'resolved');
+  // History is preserved for the decision log.
+  assert.equal(resolved.players.p1.commentary.length, 1);
+
+  const thinkingAgain = reducePresentation(
+    resolved,
+    turnEvent(5, 'agent_state', { side: 'p1', state: 'thinking' }, 2)
+  );
+  assert.equal(thinkingAgain.players.p1.commentaryPhase, 'thinking');
+  assert.equal(thinkingAgain.players.p1.currentCommentary, null);
+});
+
+test('hp changes are attributed to the target and cleared on the next turn', () => {
+  const active = {
+    id: 'pikachu', name: 'Pikachu', species: 'pikachu', hp_fraction: 1, status: null,
+    types: ['electric'], moves: [], active: true, fainted: false
+  };
+  const seeded = reducePresentation(createPresentationState(match), turnEvent(1, 'state_snapshot', {
+    state: {
+      ...battle,
+      player: { ...battle.player, active, team: [active] },
+      opponent: {
+        ...battle.opponent,
+        active: { ...active, id: 'eevee', name: 'Eevee', species: 'eevee' },
+        team: []
+      }
+    }
+  }, 1));
+  const damaged = reducePresentation(seeded, turnEvent(2, 'damage', { target: 'p2a: Eevee', hp: '79/100' }, 1));
+  assert.equal(damaged.impacts.p2?.value, -21);
+  assert.equal(damaged.impacts.p2?.kind, 'damage');
+  assert.equal(damaged.impacts.p1, null);
+  assert.ok(damaged.log.some((entry) => entry.text === 'Eevee lost 21% HP.'));
+
+  // A following effect event must not wipe the number before it can be read.
+  const stillVisible = reducePresentation(damaged, turnEvent(3, 'super_effective', { target: 'p2a: Eevee' }, 1));
+  assert.equal(stillVisible.impacts.p2?.value, -21);
+
+  const healed = reducePresentation(stillVisible, turnEvent(4, 'healing', { target: 'p2a: Eevee', hp: '91/100' }, 1));
+  assert.equal(healed.impacts.p2?.value, 12);
+  assert.equal(healed.impacts.p2?.kind, 'healing');
+  assert.ok(healed.log.some((entry) => entry.text === 'Eevee recovered 12% HP.'));
+
+  const nextTurn = reducePresentation(healed, turnEvent(5, 'turn_started', { turn: 2 }, 2));
+  assert.equal(nextTurn.impacts.p2, null);
+});
+
+test('a miss or a protected hit never invents damage', () => {
+  const missed = reduceEvents(createPresentationState(match), [
+    turnEvent(1, 'move_used', { actor: 'p1a: Pikachu', move: 'Focus Blast' }, 1),
+    turnEvent(2, 'move_missed', { actor: 'p1a: Pikachu' }, 1)
+  ]);
+  assert.equal(missed.impacts.p1, null);
+  assert.equal(missed.impacts.p2, null);
+  assert.equal(missed.effect, 'miss');
+  assert.ok(missed.log.every((entry) => !entry.text.includes('% HP')));
+});
+
+test('repeated authoritative lines are not duplicated in the spectator feed', () => {
+  const state = reduceEvents(createPresentationState(match), [
+    turnEvent(1, 'move_used', { actor: 'p1a: Pikachu', move: 'Thunderbolt' }, 1),
+    turnEvent(2, 'move_used', { actor: 'p1a: Pikachu', move: 'Thunderbolt' }, 1)
+  ]);
+  const lines = state.log.filter((entry) => entry.text === 'Pikachu used Thunderbolt.');
+  assert.equal(lines.length, 1);
+});

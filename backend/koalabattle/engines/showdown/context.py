@@ -6,8 +6,9 @@ from koalabattle.agents.context import (
     CONTEXT_PROFILES,
     OUTPUT_SCHEMA_VERSION,
     PROMPT_PROFILES,
-    render_agent_prompt,
+    render_prompt_messages,
 )
+from koalabattle.agents.prompt_renderer import RenderedPrompt
 from koalabattle.core.models import (
     AgentContextSnapshot,
     BattleAction,
@@ -20,6 +21,7 @@ from koalabattle.core.models import (
     PokemonState,
     PromptProfileId,
 )
+from koalabattle.formats import FormatMechanics, describe_format
 
 KNOWLEDGE_SCHEMA_VERSION = "1.0"
 CONTEXT_SCHEMA_VERSION = "1.0"
@@ -37,7 +39,7 @@ class AgentContextProvider(Protocol):
         context_profile: ContextProfileId,
         memory_policy: MemoryPolicyId,
         strategy_memory: str | None,
-    ) -> tuple[PlayerKnowledgeState, AgentContextSnapshot, str, ContextMetrics]: ...
+    ) -> tuple[PlayerKnowledgeState, AgentContextSnapshot, RenderedPrompt, ContextMetrics]: ...
 
 
 class PlayerKnowledgeReducer:
@@ -69,6 +71,7 @@ class PlayerKnowledgeReducer:
             own_side=state.player,
             opponent_active=active,
             known_opponent=normalized,
+            opponent_side_conditions=state.opponent.side_conditions,
             weather=state.weather,
             fields=state.fields,
         )
@@ -88,15 +91,19 @@ class PokemonShowdownContextProvider:
         context_profile: ContextProfileId,
         memory_policy: MemoryPolicyId,
         strategy_memory: str | None,
-    ) -> tuple[PlayerKnowledgeState, AgentContextSnapshot, str, ContextMetrics]:
+    ) -> tuple[PlayerKnowledgeState, AgentContextSnapshot, RenderedPrompt, ContextMetrics]:
         knowledge = self.reducer.reduce(self._knowledge, state)
         self._knowledge = knowledge
         profile = PROMPT_PROFILES[prompt_profile]
         context = CONTEXT_PROFILES[context_profile]
         recent_events = _relevant_history(state.public_history, context.maximum_history_events)
+        descriptor = describe_format(state.format)
         snapshot = AgentContextSnapshot(
             match_id=state.match_id,
             format=state.format,
+            format_name=descriptor.name if descriptor else state.format,
+            game_type=descriptor.game_type if descriptor else "singles",
+            mechanics=descriptor.mechanics if descriptor else FormatMechanics(),
             generation=state.generation,
             turn=state.turn,
             side=state.perspective,
@@ -115,7 +122,7 @@ class PokemonShowdownContextProvider:
             memory_policy_version=MEMORY_POLICY_VERSION,
             output_schema_version=OUTPUT_SCHEMA_VERSION,
         )
-        prompt, metrics = render_agent_prompt(snapshot)
+        prompt, metrics = render_prompt_messages(snapshot)
         return knowledge, snapshot, prompt, metrics
 
 

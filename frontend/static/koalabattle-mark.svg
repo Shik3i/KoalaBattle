@@ -1,12 +1,59 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="KoalaBattle">
-  <defs><linearGradient id="bg" x1="8" y1="4" x2="55" y2="60" gradientUnits="userSpaceOnUse"><stop stop-color="#9af0b1"/><stop offset="1" stop-color="#43ad69"/></linearGradient><linearGradient id="fur" x1="20" y1="15" x2="43" y2="51" gradientUnits="userSpaceOnUse"><stop stop-color="#f2f7f3"/><stop offset="1" stop-color="#b8c9bc"/></linearGradient></defs>
-  <rect x="2" y="2" width="60" height="60" rx="17" fill="url(#bg)"/>
-  <circle cx="17" cy="22" r="11" fill="#748c7a"/><circle cx="47" cy="22" r="11" fill="#748c7a"/>
-  <circle cx="17" cy="22" r="6.5" fill="#9fb1a3"/><circle cx="47" cy="22" r="6.5" fill="#9fb1a3"/>
-  <path d="M14 34c0-13 7.6-21 18-21s18 8 18 21c0 12-7 20-18 20s-18-8-18-20Z" fill="url(#fur)"/>
-  <path d="m42 17-7 9h5l-6 10 12-13h-5l5-6Z" fill="#43ad69" opacity=".92"/>
-  <circle cx="25" cy="33" r="2.7" fill="#102217"/><circle cx="39" cy="33" r="2.7" fill="#102217"/>
-  <ellipse cx="32" cy="42" rx="7" ry="5.5" fill="#102217"/>
-  <path d="M28 49c2.6 1.7 5.4 1.7 8 0" fill="none" stroke="#102217" stroke-width="2" stroke-linecap="round"/>
-  <path d="M10 11 7 8m47 3 3-3" stroke="#f2f7f3" stroke-width="2.3" stroke-linecap="round" opacity=".8"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="KoalaBattle">
+  <title>KoalaBattle</title>
+  <!--
+    KoalaBattle mascot. Shares the Koala family language: transparent ground, thick navy
+    outline, grey fur with cream inner ears, and one app-specific prop in the paws.
+    KoalaBattle's prop is a battle console showing two HP bars and a VS badge.
+  -->
+  <defs>
+    <linearGradient id="kb-glow" x1="128" y1="300" x2="384" y2="452" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#123024"/>
+      <stop offset="1" stop-color="#0a1a14"/>
+    </linearGradient>
+  </defs>
+  <g stroke="#23374d" stroke-width="13" stroke-linejoin="round" stroke-linecap="round">
+    <!-- accent disc behind the mascot, the family's colour cue -->
+    <circle cx="256" cy="238" r="176" fill="#7ee09a" stroke="none" opacity=".22"/>
+
+    <!-- ears -->
+    <circle cx="120" cy="136" r="78" fill="#b0b4b8"/>
+    <circle cx="392" cy="136" r="78" fill="#b0b4b8"/>
+    <circle cx="120" cy="136" r="45" fill="#f6e7df" stroke-width="11"/>
+    <circle cx="392" cy="136" r="45" fill="#f6e7df" stroke-width="11"/>
+
+    <!-- body and arms -->
+    <path d="M150 300c0-52 47-88 106-88s106 36 106 88v52c0 62-47 104-106 104s-106-42-106-104Z" fill="#b0b4b8"/>
+    <ellipse cx="256" cy="384" rx="62" ry="66" fill="#e9e4de" stroke-width="11"/>
+    <path d="M158 316c-26 10-38 34-32 60 5 22 24 34 46 30" fill="#b0b4b8"/>
+    <path d="M354 316c26 10 38 34 32 60-5 22-24 34-46 30" fill="#b0b4b8"/>
+
+    <!-- head -->
+    <path d="M256 60c72 0 122 52 122 122s-50 120-122 120-122-48-122-120S184 60 256 60Z" fill="#c2c6ca"/>
+    <!-- eyes -->
+    <circle cx="205" cy="168" r="22" fill="#f7fbf8" stroke-width="11"/>
+    <circle cx="307" cy="168" r="22" fill="#f7fbf8" stroke-width="11"/>
+    <circle cx="209" cy="171" r="10" fill="#23374d" stroke="none"/>
+    <circle cx="311" cy="171" r="10" fill="#23374d" stroke="none"/>
+    <circle cx="214" cy="165" r="4" fill="#fff" stroke="none"/>
+    <circle cx="316" cy="165" r="4" fill="#fff" stroke="none"/>
+    <!-- nose and mouth -->
+    <path d="M256 196c30 0 46 16 46 36s-20 34-46 34-46-14-46-34 16-36 46-36Z" fill="#2b3b4e"/>
+    <path d="M232 276c15 12 33 12 48 0" fill="none" stroke-width="12"/>
+
+    <!-- battle console -->
+    <rect x="132" y="330" width="248" height="132" rx="22" fill="url(#kb-glow)"/>
+    <rect x="152" y="350" width="208" height="92" rx="12" fill="#0d2118" stroke-width="9"/>
+    <!-- player one HP -->
+    <rect x="168" y="366" width="80" height="13" rx="6.5" fill="#0a1a12" stroke="none"/>
+    <rect x="168" y="366" width="66" height="13" rx="6.5" fill="#7ee09a" stroke="none"/>
+    <!-- player two HP -->
+    <rect x="264" y="366" width="80" height="13" rx="6.5" fill="#0a1a12" stroke="none"/>
+    <rect x="264" y="366" width="38" height="13" rx="6.5" fill="#c59bf6" stroke="none"/>
+    <!-- versus badge -->
+    <path d="M232 396h48l-10 34h-28Z" fill="#7ee09a" stroke-width="9"/>
+    <path d="M246 404l10 18 10-18" fill="none" stroke="#0d2118" stroke-width="7"/>
+    <!-- paws over the console edge -->
+    <ellipse cx="150" cy="404" rx="27" ry="30" fill="#b0b4b8"/>
+    <ellipse cx="362" cy="404" rx="27" ry="30" fill="#b0b4b8"/>
+  </g>
 </svg>

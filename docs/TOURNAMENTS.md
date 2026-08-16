@@ -16,8 +16,8 @@ timestamps persist in SQLite. Only dependency-ready series may run. Tournament a
 concurrency limits both apply.
 
 Match templates persist PromptProfile, ContextProfile, memory policy, battle format, and team
-policy. Participant snapshots may reference immutable team snapshot IDs. Gen 9 Random Battle
-uses `showdown-random`; Gen 9 OU uses `fixed` teams. Both players should use equivalent
+policy. Participant snapshots may reference immutable team snapshot IDs. Random Battle formats
+use `showdown-random`; custom-team formats use `fixed` teams. Both players should use equivalent
 prompt/context/memory policies for fair comparison.
 
 ## Lifecycle

@@ -16,6 +16,7 @@ restricted presentation data.
 
 ## Run battles and tournaments
 
+- [Battle formats, generation support, and capability rules](FORMATS.md)
 - [Match orchestration, isolation, queueing, and recovery](ORCHESTRATION.md)
 - [Tournament formats, series scheduling, and standings](TOURNAMENTS.md)
 - [Agent context, knowledge boundaries, and strategy memory](AGENT_CONTEXT.md)

@@ -6,7 +6,7 @@
   import { PresentationTimeline } from '$lib/presentation/timeline';
   import { connectLiveSocket } from '$lib/presentation/live-socket';
   import { defaultRendererConfig, type AgentPresentationStatus, type RendererConfig, type RendererLayout, type RendererTheme, type TimelineSnapshot } from '$lib/presentation/types';
-  import type { AgentLifecycleState, AgentRequest, BattleEvent, MatchArchive, Side } from '$lib/types';
+  import type { AgentLifecycleState, AgentRequest, BattleAction, BattleEvent, MatchArchive, Side } from '$lib/types';
 
   export let data: { id: string };
   let match: MatchArchive | null = null;
@@ -14,18 +14,49 @@
   let responses: Partial<Record<Side, string>> = {};
   let validation: Partial<Record<Side, string>> = {};
   let submitting: Partial<Record<Side, boolean>> = {};
-  let copied: Side | null = null;
+  let copied: string | null = null;
   let copyTimer: ReturnType<typeof setTimeout> | null = null;
   let error = ''; let stopSocket: (() => void) | null = null;
   let timeline: PresentationTimeline | null = null; let snapshot: TimelineSnapshot | null = null;
   let config: RendererConfig = defaultRendererConfig();
   let lifecycle: Partial<Record<Side, AgentLifecycleState>> = { p1: 'idle', p2: 'idle' };
+  let activeTab: Side | null = null;
 
   $: agentStatus = Object.fromEntries(Object.entries(lifecycle).map(([side, state]) => [
     side, state === 'waiting' || state === 'thinking' || state === 'retrying' ? 'thinking'
       : state === 'decided' ? 'decided' : state === 'executing' ? 'executing'
       : state === 'finished' ? 'finished' : state === 'error' ? 'error' : 'idle'
   ])) as Partial<Record<Side, AgentPresentationStatus>>;
+
+  $: pendingSides = (Object.keys(pending) as Side[]).filter((side) => pending[side]);
+  // The player who can actually act is preselected, so nobody has to hunt for the right tab.
+  $: activeTab = activeTab && pendingSides.includes(activeTab) ? activeTab : pendingSides[0] || null;
+  $: battleViewUrl = typeof location === 'undefined' ? '' : `${location.origin}/watch/${data.id}`;
+  $: obsUrl = typeof location === 'undefined'
+    ? ''
+    : `${location.origin}/overlay/${data.id}?layout=overlay-landscape&theme=${config.theme}`;
+
+  function playerFor(side: Side) {
+    return match?.config.players.find((player) => player.side === side);
+  }
+  function agentLabel(side: Side) {
+    const player = playerFor(side);
+    if (!player) return side.toUpperCase();
+    return player.display_name;
+  }
+  function agentKind(side: Side) {
+    const player = playerFor(side);
+    if (!player) return '';
+    if (player.agent_type === 'manual') return 'Manual Web Chat';
+    if (player.agent_type === 'random') return 'Random agent';
+    return [player.provider, player.model].filter(Boolean).join(' · ');
+  }
+  function tabState(side: Side) {
+    if (submitting[side]) return 'Submitting…';
+    if (pending[side]) return 'Waiting for response';
+    if (lifecycle[side] === 'executing' || lifecycle[side] === 'decided') return 'Submitted';
+    return 'Waiting for opponent';
+  }
 
   interface StreamMessage {
     kind: string; match?: MatchArchive; event?: BattleEvent; request?: AgentRequest;
@@ -69,7 +100,7 @@
     pending = { ...pending, [request.side]: request };
     lifecycle = { ...lifecycle, [request.side]: 'waiting' };
     if (!sameRequest) {
-      responses = { ...responses, [request.side]: JSON.stringify({ action: request.legal_actions[0]?.id || 'move:1', commentary: 'Short public explanation.' }, null, 2) };
+      responses = { ...responses, [request.side]: '' };
       validation = { ...validation, [request.side]: '' };
     }
   }
@@ -118,11 +149,10 @@
     if (patch.playbackSpeed !== undefined) timeline?.setSpeed(config.playbackSpeed);
     if (patch.preset !== undefined) timeline?.setPreset(config.preset);
   }
-  async function copyPrompt(side: Side) {
-    const request = pending[side]; if (!request) return;
-    await navigator.clipboard.writeText(request.prompt); copied = side;
+  async function copyText(key: string, value: string) {
+    await navigator.clipboard.writeText(value); copied = key;
     if (copyTimer) clearTimeout(copyTimer);
-    copyTimer = setTimeout(() => (copied = null), 1200);
+    copyTimer = setTimeout(() => (copied = null), 1400);
   }
   async function validate(side: Side) {
     const request = pending[side]; if (!request) return;
@@ -139,6 +169,25 @@
       await api(`/api/decisions/${request.request_id}`, { method: 'POST', body: JSON.stringify({ raw_response: responses[side] }) });
     } catch (caught) { validation = { ...validation, [side]: caught instanceof Error ? caught.message : String(caught) }; }
     finally { submitting = { ...submitting, [side]: false }; }
+  }
+  function actionSummary(action: BattleAction) {
+    if (action.type === 'switch') {
+      return `${action.species || action.name}${action.hp_fraction != null ? ` · ${Math.round(action.hp_fraction * 100)}%` : ''}`;
+    }
+    return [
+      action.move_type,
+      action.category,
+      action.power ? `${action.power} BP` : null,
+      action.accuracy != null ? `${Math.round(Number(action.accuracy) <= 1 ? Number(action.accuracy) * 100 : Number(action.accuracy))}%` : null,
+      action.current_pp != null && action.max_pp != null ? `${action.current_pp}/${action.max_pp} PP` : null,
+      action.priority ? `priority ${action.priority > 0 ? '+' : ''}${action.priority}` : null
+    ].filter(Boolean).join(' · ');
+  }
+  function insertAction(side: Side, action: BattleAction) {
+    responses = {
+      ...responses,
+      [side]: JSON.stringify({ action: action.id, commentary: '', strategy_memory: null }, null, 2)
+    };
   }
   function previousDecision(record: MatchArchive['decisions'][number]) {
     return match?.decisions.filter((item) => item.decision.side === record.decision.side && item.decision.turn < record.decision.turn)
@@ -170,35 +219,121 @@
 </script>
 
 <div class="live-head">
-  <div><span class="eyebrow">Production control · {data.id}</span><h1>{match ? (match.config.name || `${match.config.players[0].display_name} vs ${match.config.players[1].display_name}`) : 'Loading battle…'}</h1></div>
-  <div class="live-tools">
+  <div>
+    <span class="eyebrow">Match control · {data.id.slice(0, 8)}</span>
+    <h1>{match ? (match.config.name || `${match.config.players[0].display_name} vs ${match.config.players[1].display_name}`) : 'Loading battle…'}</h1>
+  </div>
+  {#if match}<span class={`status-pill ${match.status}`}>{match.status}</span>{/if}
+</div>
+
+<!--
+  Two-tab workflow: this page controls the match, the battle view is what you watch and
+  record. Both links are first-class so nobody has to scroll a capture surface to paste.
+-->
+<section class="view-bar panel">
+  <div class="view-copy">
+    <strong>Battle view</strong>
+    <span>Clean full-screen battle with no controls. Keep it open in a second tab or add it to OBS.</span>
+  </div>
+  <div class="view-actions">
+    <a class="button" href={`/watch/${data.id}`} target="_blank" rel="noopener"><i class="ph ph-monitor-play" aria-hidden="true"></i>Open battle view</a>
+    <button class="button secondary" on:click={() => copyText('watch', battleViewUrl)}>{copied === 'watch' ? 'Copied' : 'Copy battle view URL'}</button>
+    <button class="button secondary" on:click={() => copyText('obs', obsUrl)}>{copied === 'obs' ? 'Copied' : 'Copy OBS URL'}</button>
+    <a class="button ghost" href={`/overlay/${data.id}?layout=overlay-landscape&theme=${config.theme}`} target="_blank" rel="noopener">Open OBS overlay</a>
+  </div>
+</section>
+
+<section class="preview">
+  <BattleRenderer presentation={snapshot?.state || null} {config} {agentStatus} />
+  <div class="preview-tools">
     <label>Layout<select value={config.layout} on:change={(event) => updateConfig({ layout: event.currentTarget.value as RendererLayout })}><option value="standard-landscape">Landscape</option><option value="standard-vertical">Vertical</option><option value="overlay-landscape">Overlay</option></select></label>
     <label>Theme<select value={config.theme} on:change={(event) => updateConfig({ theme: event.currentTarget.value as RendererTheme })}><option value="koala-dark">Koala Dark</option><option value="koala-light">Koala Light</option></select></label>
-    {#if match}<span class={`status-pill ${match.status}`}>{match.status}</span>{/if}
+    <span class="preview-note">Preview only. The battle view tab renders the same frame full-screen.</span>
   </div>
-</div>
-<BattleRenderer presentation={snapshot?.state || null} {config} {agentStatus} />
+</section>
 
-{#if match}
-  <section class="agent-strip panel">
-    {#each match.config.players as player}
-      <article><span class="side">{player.side}</span><div><strong>{player.display_name}</strong><small>{player.provider || player.agent_type}{player.model ? ` · ${player.model}` : ''}</small></div><span class={`lifecycle ${lifecycle[player.side] || 'idle'}`}>{lifecycle[player.side] || 'idle'}</span></article>
-    {/each}
-  </section>
-{/if}
+{#if pendingSides.length}
+  <section class="workspace">
+    <!-- Agent identity is the primary heading; P1/P2 is secondary metadata. -->
+    <div class="agent-tabs" role="tablist" aria-label="Manual agents waiting for a response">
+      {#each (['p1', 'p2'] as Side[]).filter((side) => playerFor(side)) as side}
+        <button
+          role="tab"
+          type="button"
+          data-side={side}
+          class:active={activeTab === side}
+          class:actionable={Boolean(pending[side])}
+          aria-selected={activeTab === side}
+          disabled={!pending[side]}
+          on:click={() => (activeTab = side)}
+        >
+          <b>{agentLabel(side)}</b>
+          <span>{side.toUpperCase()} · {agentKind(side)}</span>
+          <em data-state={pending[side] ? 'waiting' : 'idle'}>{tabState(side)}</em>
+        </button>
+      {/each}
+    </div>
 
-{#if Object.keys(pending).length}
-  <section class="manual-stack">
-    {#each Object.entries(pending) as [sideValue, request]}
-      {@const side = sideValue as Side}
+    {#each pendingSides.filter((side) => side === activeTab) as side (side)}
+      {@const request = pending[side]}
       {#if request}
-        <article class="manual panel">
-          <header><div><span class="eyebrow">{side} · Turn {request.turn} · Prompt {request.prompt_profile_id} {request.prompt_profile_version}</span><h2>{side.toUpperCase()} manual workspace</h2></div><button class="button secondary" on:click={() => copyPrompt(side)}>{copied === side ? 'Copied' : 'Copy prompt'}</button></header>
-          <ol class="manual-steps" aria-label="Manual Web Chat workflow"><li class:complete={copied === side}><span>1</span><strong>Copy prompt</strong></li><li><span>2</span><strong>Ask your web chat</strong></li><li class:complete={Boolean(responses[side]?.trim())}><span>3</span><strong>Paste response</strong></li><li class:complete={validation[side]?.startsWith('Valid')}><span>4</span><strong>Validate & submit</strong></li></ol>
-          <p class="instruction">Use the workspace for <strong>{match?.config.players.find((player) => player.side === side)?.display_name || side.toUpperCase()}</strong>. Return one JSON object with an exact legal action ID; Markdown fences are accepted.</p>
-          <div class="prompt-meta"><span>Context {request.context?.context_profile_id || 'historical'} {request.context?.context_profile_version || ''}</span><span>{request.context_metrics?.rendered_characters ?? request.prompt.length} chars</span><span>≈ {request.context_metrics?.estimated_tokens ?? Math.ceil(request.prompt.length / 4)} tokens</span><span>Memory {request.memory_policy}{request.context?.strategy_memory ? ' · populated' : ' · empty'}</span></div>
-          <div class="manual-grid"><label>Generated prompt<textarea readonly value={request.prompt}></textarea></label><label>LLM response<textarea value={responses[side] || ''} on:input={(event) => (responses = { ...responses, [side]: event.currentTarget.value })} spellcheck="false"></textarea></label></div>
-          <footer><span class:valid={validation[side]?.startsWith('Valid')} class:error-text={validation[side] && !validation[side]?.startsWith('Valid')}>{validation[side] || `${request.legal_actions.length} legal actions`}</span><div><button class="button secondary" disabled={submitting[side]} on:click={() => validate(side)}>Validate</button><button class:loading={submitting[side]} class="button" disabled={submitting[side]} on:click={() => submit(side)}>{submitting[side] ? 'Submitting…' : 'Submit decision →'}</button></div></footer>
+        <article class="manual panel" data-side={side}>
+          <header>
+            <div>
+              <h2>{agentLabel(side)}</h2>
+              <p>Player {side === 'p1' ? '1' : '2'} · Turn {request.turn} · {agentKind(side)}</p>
+            </div>
+            <button class="button" on:click={() => copyText(`prompt-${side}`, request.prompt)}>
+              <i class="ph ph-copy" aria-hidden="true"></i>{copied === `prompt-${side}` ? 'Copied' : 'Copy prompt'}
+            </button>
+          </header>
+
+          <div class="manual-grid">
+            <section class="column">
+              <div class="column-head">
+                <h3>Prompt</h3>
+                <span class="meta">{request.context_metrics?.rendered_characters ?? request.prompt.length} chars · ≈{request.context_metrics?.estimated_tokens ?? Math.ceil(request.prompt.length / 4)} tokens</span>
+              </div>
+              <textarea readonly value={request.prompt} aria-label="Generated prompt"></textarea>
+            </section>
+            <section class="column">
+              <div class="column-head">
+                <h3>Response</h3>
+                <span class="meta">Paste the JSON object the chat returns</span>
+              </div>
+              <textarea
+                value={responses[side] || ''}
+                placeholder={'{\n  "action": "move:1",\n  "commentary": "…"\n}'}
+                on:input={(event) => (responses = { ...responses, [side]: event.currentTarget.value })}
+                spellcheck="false"
+                aria-label="LLM response"
+              ></textarea>
+              <footer>
+                <span class:valid={validation[side]?.startsWith('Valid')} class:error-text={validation[side] && !validation[side]?.startsWith('Valid')}>
+                  {validation[side] || `${request.legal_actions.length} legal actions`}
+                </span>
+                <div>
+                  <button class="button secondary" disabled={submitting[side]} on:click={() => validate(side)}>Validate</button>
+                  <button class:loading={submitting[side]} class="button" disabled={submitting[side]} on:click={() => submit(side)}>{submitting[side] ? 'Submitting…' : 'Submit'}</button>
+                </div>
+              </footer>
+            </section>
+          </div>
+
+          <details class="legal-actions">
+            <summary>Legal actions ({request.legal_actions.length}) · click to prefill a response</summary>
+            <ul>
+              {#each request.legal_actions as action}
+                <li>
+                  <button type="button" on:click={() => insertAction(side, action)}>
+                    <code>{action.id}</code>
+                    <b>{action.name}</b>
+                    <span>{actionSummary(action)}</span>
+                  </button>
+                </li>
+              {/each}
+            </ul>
+          </details>
         </article>
       {/if}
     {/each}
@@ -210,7 +345,7 @@
   {#if match.config.players.some((player) => player.team_export)}
     <section class="team-inspector panel"><div><span class="eyebrow">Private control data</span><h2>Fixed team snapshots</h2><p>Available only in the local control archive; spectator and OBS payloads exclude these exports.</p></div>{#each match.config.players as player}{#if player.team_export}<details><summary>{player.side.toUpperCase()} · {player.display_name}</summary><textarea readonly value={player.team_export}></textarea></details>{/if}{/each}</section>
   {/if}
-  <section class="audit-head"><div><span class="eyebrow">Audit trail</span><h2>Decisions and events</h2></div><div class="audit-stats"><span><strong>{snapshot?.eventCount || match.events.length}</strong> events</span><span><strong>{match.decisions.length}</strong> decisions</span><span><strong>{match.turns}</strong> turns</span></div><div class="audit-actions"><a class="button secondary" href={`/watch/${match.id}`}>Spectator</a><a class="button secondary" href={`/overlay/${match.id}?layout=overlay-landscape&theme=${config.theme}`}>OBS overlay</a><a class="button secondary" href={`/replay/${match.id}`}>Replay</a>{#if ['running','waiting'].includes(match.status)}<button class="button secondary" on:click={() => lifecycleAction('pause')}>Pause</button>{:else if match.status === 'paused'}<button class="button secondary" on:click={() => lifecycleAction('resume')}>Resume</button>{/if}{#if !['completed','failed','cancelled','interrupted'].includes(match.status)}<button class="button danger" on:click={cancel}>Cancel</button>{/if}</div></section>
+  <section class="audit-head"><div><span class="eyebrow">Audit trail</span><h2>Decisions and events</h2></div><div class="audit-stats"><span><strong>{snapshot?.eventCount || match.events.length}</strong> events</span><span><strong>{match.decisions.length}</strong> decisions</span><span><strong>{match.turns}</strong> turns</span></div><div class="audit-actions"><a class="button secondary" href={`/replay/${match.id}`}>Replay</a>{#if ['running','waiting'].includes(match.status)}<button class="button secondary" on:click={() => lifecycleAction('pause')}>Pause</button>{:else if match.status === 'paused'}<button class="button secondary" on:click={() => lifecycleAction('resume')}>Resume</button>{/if}{#if !['completed','failed','cancelled','interrupted'].includes(match.status)}<button class="button danger" on:click={cancel}>Cancel</button>{/if}</div></section>
   <div class="decision-list">
     {#each [...match.decisions].reverse() as record}
       <details class="decision panel">
@@ -220,14 +355,17 @@
           <div><span class="eyebrow">Usage and cost</span><p>{record.decision.usage?.total_tokens ?? '—'} tokens · {record.decision.estimated_cost?.available ? `${record.decision.estimated_cost.amount} ${record.decision.estimated_cost.currency}` : 'cost unavailable'}</p></div>
           <div><span class="eyebrow">Validation</span><p>{record.decision.validation_attempts || 1} attempt(s){record.decision.fallback ? ` · ${record.decision.fallback.policy} fallback` : ''}</p></div>
           <section class="inspector">
-            <span class="eyebrow">Decision inspector</span>
+            <span class="eyebrow">Prompt inspector</span>
+            <p class="inspector-note">The rendered prompt is a view of the structured context below, not the context itself.</p>
             {#if contextChanges(record).length}<div class="context-diff">{#each contextChanges(record) as change}<span>{change}</span>{/each}</div>{/if}
-            <details><summary>Game State</summary>{#if record.request?.state}<pre>{JSON.stringify(record.request.state, null, 2)}</pre>{:else}<p>Game state unavailable for this historical decision.</p>{/if}</details>
-            <details><summary>Player Knowledge</summary>{#if record.request?.knowledge}<pre>{JSON.stringify(record.request.knowledge, null, 2)}</pre>{:else}<p>Player knowledge unavailable for this historical decision.</p>{/if}</details>
-            <details><summary>Agent Context</summary>{#if record.request?.context}<pre>{JSON.stringify(record.request.context, null, 2)}</pre>{:else}<p>Context snapshot unavailable for this historical decision.</p>{/if}</details>
-            <details><summary>Rendered Prompt</summary>{#if record.generated_prompt}<pre>{record.generated_prompt}</pre>{:else}<p>Rendered prompt unavailable.</p>{/if}</details>
-            <details><summary>Raw Response</summary>{#if record.raw_response}<pre>{record.raw_response}</pre>{:else}<p>Raw provider response unavailable.</p>{/if}</details>
-            <details><summary>Parsed Decision</summary>{#if record.parsed_response}<pre>{JSON.stringify(record.parsed_response, null, 2)}</pre>{:else}<p>Parsed decision unavailable.</p>{/if}</details>
+            <details><summary>Structured agent context</summary>{#if record.request?.context}<pre>{JSON.stringify(record.request.context, null, 2)}</pre>{:else}<p>Context snapshot unavailable for this historical decision.</p>{/if}</details>
+            <details><summary>Rendered prompt</summary>{#if record.generated_prompt}<pre>{record.generated_prompt}</pre>{:else}<p>Rendered prompt unavailable.</p>{/if}</details>
+            {#if record.request?.system_prompt}<details><summary>System message</summary><pre>{record.request.system_prompt}</pre></details>{/if}
+            {#if record.request?.user_prompt}<details><summary>User message</summary><pre>{record.request.user_prompt}</pre></details>{/if}
+            <details><summary>Player knowledge</summary>{#if record.request?.knowledge}<pre>{JSON.stringify(record.request.knowledge, null, 2)}</pre>{:else}<p>Player knowledge unavailable for this historical decision.</p>{/if}</details>
+            <details><summary>Raw provider response</summary>{#if record.raw_response}<pre>{record.raw_response}</pre>{:else}<p>Raw provider response unavailable.</p>{/if}</details>
+            <details><summary>Parsed decision</summary>{#if record.parsed_response}<pre>{JSON.stringify(record.parsed_response, null, 2)}</pre>{:else}<p>Parsed decision unavailable.</p>{/if}</details>
+            <details><summary>Game state</summary>{#if record.request?.state}<pre>{JSON.stringify(record.request.state, null, 2)}</pre>{:else}<p>Game state unavailable for this historical decision.</p>{/if}</details>
             <details><summary>Validation</summary><pre>{JSON.stringify({ attempts: record.decision.validation_attempts, errors: record.decision.validation_errors, retry_attempts: record.decision.retry_attempts, fallback: record.decision.fallback, error_category: record.decision.error_category }, null, 2)}</pre></details>
           </section>
         </div>
@@ -237,5 +375,107 @@
 {/if}
 
 <style>
-  .live-head{display:flex;justify-content:space-between;align-items:end;gap:1rem;margin-bottom:1.5rem}.live-head h1{margin:.3rem 0 0;font-size:clamp(1.7rem,4vw,3rem)}.live-tools{display:flex;align-items:end;gap:.6rem}.live-tools label{min-width:120px}.live-tools select{min-height:38px;padding:.45rem}.agent-strip{display:grid;grid-template-columns:1fr 1fr;margin-top:1rem;overflow:hidden;box-shadow:none}.agent-strip article{display:flex;align-items:center;gap:.8rem;padding:.85rem 1rem}.agent-strip article+article{border-left:1px solid var(--border)}.agent-strip .side{color:var(--accent);font:.7rem var(--mono);text-transform:uppercase}.agent-strip div{display:grid;flex:1}.agent-strip small{color:var(--muted);font:.66rem var(--mono)}.lifecycle{padding:.25rem .45rem;border-radius:999px;background:var(--surface);color:var(--muted);font:.62rem var(--mono);text-transform:uppercase}.lifecycle.thinking,.lifecycle.waiting,.lifecycle.retrying{color:var(--warning)}.lifecycle.decided,.lifecycle.finished{color:var(--accent)}.lifecycle.error{color:var(--danger)}.manual-stack{display:grid;gap:1rem;margin-top:1rem}.manual{padding:1.4rem;box-shadow:none}.manual header,.manual footer{display:flex;justify-content:space-between;align-items:center;gap:1rem}.manual h2{margin:.3rem 0}.manual-steps{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;margin:1rem 0;padding:0;overflow:hidden;border:1px solid var(--border);border-radius:.7rem;background:var(--border);list-style:none}.manual-steps li{display:flex;align-items:center;gap:.55rem;padding:.65rem;background:var(--panel-strong);color:var(--muted)}.manual-steps li span{display:grid;place-items:center;width:1.45rem;aspect-ratio:1;border:1px solid var(--border);border-radius:50%;font:.62rem var(--mono)}.manual-steps strong{font-size:.7rem}.manual-steps li.complete{color:var(--accent)}.instruction{color:var(--muted);font-size:.82rem}.prompt-meta{display:flex;gap:.45rem;flex-wrap:wrap}.prompt-meta span,.context-diff span{padding:.28rem .45rem;border:1px solid var(--border);border-radius:999px;color:var(--muted);font:.62rem var(--mono)}.manual-grid{display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin:1rem 0}.manual textarea{height:250px;resize:vertical;font:400 .72rem/1.55 var(--mono)}.manual footer>span{color:var(--muted);font:.72rem var(--mono)}.manual footer>span.valid{color:var(--accent)}.manual footer>span.error-text{color:var(--danger)}.manual footer div{display:flex;gap:.5rem}.team-inspector{display:grid;grid-template-columns:1fr 1fr 1fr;gap:1rem;margin-top:2rem;padding:1rem;box-shadow:none}.team-inspector h2{margin:.3rem 0}.team-inspector p{color:var(--muted);font-size:.76rem}.team-inspector details{margin:0;padding:0}.team-inspector textarea{width:100%;min-height:220px;margin-top:.7rem;font:400 .65rem/1.5 var(--mono)}.audit-head{display:flex;align-items:center;justify-content:space-between;gap:2rem;margin-top:3rem;padding-top:2rem;border-top:1px solid var(--border)}.audit-head h2{margin:.4rem 0}.audit-stats,.audit-actions{display:flex;gap:1rem}.audit-stats span{display:grid;color:var(--muted);font:.7rem var(--mono)}.audit-stats strong{color:var(--text);font:700 1.5rem var(--display)}.button.danger{border-color:color-mix(in srgb,var(--danger) 45%,var(--border));background:transparent;color:var(--danger)}.decision-list{display:grid;gap:.6rem;margin-top:1rem}.decision{box-shadow:none}.decision>summary{display:grid;grid-template-columns:1fr 1fr 1.4fr auto;gap:1rem;align-items:center;padding:1rem;cursor:pointer}.decision>summary span{color:var(--muted);font:.7rem var(--mono)}.decision-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1rem;padding:0 1rem 1rem;border-top:1px solid var(--border)}.decision-grid>div{padding-top:1rem}.decision-grid p{font-size:.8rem}.inspector{grid-column:1/-1;display:grid;gap:.55rem;padding-top:1rem}.inspector details{margin:0;padding:.7rem;border:1px solid var(--border);border-radius:.65rem}.inspector details summary{color:var(--text)}.inspector pre{max-height:360px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--muted);font:400 .68rem/1.5 var(--mono)}.context-diff{display:flex;flex-wrap:wrap;gap:.4rem}.context-diff span{color:var(--accent)}@media(max-width:850px){.live-head{align-items:start;flex-direction:column}.live-tools{width:100%;flex-wrap:wrap}.live-tools label{flex:1}.manual-grid{grid-template-columns:1fr}.team-inspector{grid-template-columns:1fr}.audit-head{align-items:stretch;flex-direction:column}.decision>summary{grid-template-columns:1fr 1fr}.decision-grid{grid-template-columns:1fr}}@media(max-width:560px){.live-tools label{min-width:100%}.agent-strip{grid-template-columns:1fr}.agent-strip article+article{border-left:0;border-top:1px solid var(--border)}.manual header,.manual footer{align-items:stretch;flex-direction:column}.manual-steps{grid-template-columns:1fr 1fr}.manual footer div{display:grid;grid-template-columns:1fr 1fr}.audit-stats{justify-content:space-between}.audit-actions{display:grid}.decision>summary{grid-template-columns:1fr}}
+  .live-head{display:flex;justify-content:space-between;align-items:flex-end;gap:1rem;margin-bottom:1.25rem}
+  .live-head h1{margin:.25rem 0 0;font-size:var(--step-3)}
+  .view-bar{display:flex;align-items:center;justify-content:space-between;gap:1.25rem;padding:1rem 1.25rem;box-shadow:none}
+  .view-copy{display:grid;gap:.15rem}
+  .view-copy strong{font-size:.95rem}
+  .view-copy span{max-width:56ch;color:var(--muted);font-size:.78rem;line-height:1.5}
+  .view-actions{display:flex;flex-wrap:wrap;gap:.5rem}
+  .preview{margin-top:1rem}
+  .preview-tools{display:flex;align-items:flex-end;gap:.75rem;margin-top:.6rem}
+  .preview-tools label{min-width:130px}
+  .preview-tools select{min-height:36px;padding:.4rem}
+  .preview-note{margin-left:auto;color:var(--muted);font-size:.72rem}
+
+  /* ── Manual workspace ───────────────────────────────────────────────────── */
+  .workspace{display:grid;gap:.75rem;margin-top:1.5rem}
+  .agent-tabs{display:grid;grid-template-columns:1fr 1fr;gap:.6rem}
+  .agent-tabs button{display:grid;gap:.15rem;padding:.7rem .9rem;border:1px solid var(--border);border-left:4px solid var(--side-color);border-radius:.75rem;background:var(--panel);color:var(--text);text-align:left;cursor:pointer;transition:border-color .16s ease,background .16s ease,transform .16s ease}
+  .agent-tabs button[data-side='p1']{--side-color:var(--p1)}
+  .agent-tabs button[data-side='p2']{--side-color:var(--p2)}
+  .agent-tabs button:disabled{opacity:.55;cursor:default}
+  /* The selected tab is unmistakable; an actionable tab that is not selected still nags. */
+  .agent-tabs button.active{border-color:var(--side-color);border-left-width:6px;background:color-mix(in srgb,var(--side-color) 10%,var(--panel));box-shadow:0 0 0 2px color-mix(in srgb,var(--side-color) 28%,transparent)}
+  .agent-tabs button.actionable:not(.active){border-color:color-mix(in srgb,var(--accent) 40%,var(--border))}
+  .agent-tabs button.actionable:not(.active) em{animation:tab-nudge 2.4s ease-in-out infinite}
+  @keyframes tab-nudge{50%{opacity:.55}}
+  .agent-tabs b{font-size:1.05rem;font-weight:800;letter-spacing:-.02em}
+  .agent-tabs span{color:var(--muted);font:.66rem var(--mono);text-transform:uppercase}
+  .agent-tabs em{justify-self:start;margin-top:.2rem;padding:.15rem .45rem;border-radius:999px;background:var(--surface);color:var(--muted);font:600 .62rem var(--display);font-style:normal}
+  .agent-tabs em[data-state='waiting']{background:color-mix(in srgb,var(--accent) 18%,transparent);color:var(--accent)}
+
+  .manual{padding:1.25rem;box-shadow:none;border-left:4px solid var(--side-color)}
+  .manual[data-side='p1']{--side-color:var(--p1)}
+  .manual[data-side='p2']{--side-color:var(--p2)}
+  .manual header{display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;margin-bottom:1rem}
+  .manual h2{margin:0;font-size:1.5rem;font-weight:800;letter-spacing:-.03em;text-transform:uppercase}
+  .manual header p{margin:.15rem 0 0;color:var(--muted);font:.72rem var(--mono);text-transform:uppercase}
+  /* Constrained readable columns: prompt and response never stretch to an ultra-wide monitor. */
+  .manual-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem;max-width:1180px}
+  .column{display:grid;gap:.4rem;min-width:0}
+  .column-head{display:flex;align-items:baseline;justify-content:space-between;gap:.6rem}
+  .column-head h3{margin:0;font-size:.85rem}
+  .meta{color:var(--muted);font:.64rem var(--mono)}
+  .manual textarea{height:300px;resize:vertical;font:400 .74rem/1.6 var(--mono)}
+  .column footer{display:flex;align-items:center;justify-content:space-between;gap:.75rem;margin-top:.2rem}
+  .column footer>span{color:var(--muted);font-size:.72rem}
+  .column footer>span.valid{color:var(--accent)}
+  .column footer>span.error-text{color:var(--danger)}
+  .column footer div{display:flex;gap:.5rem}
+  .legal-actions{margin-top:1rem;border-top:1px solid var(--border);padding-top:.8rem}
+  .legal-actions summary{color:var(--muted);font-size:.78rem;cursor:pointer}
+  .legal-actions ul{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:.4rem;margin:.8rem 0 0;padding:0;list-style:none}
+  .legal-actions button{display:grid;grid-template-columns:auto 1fr;gap:.1rem .5rem;width:100%;padding:.45rem .6rem;border:1px solid var(--border);border-radius:.55rem;background:var(--panel-strong);color:var(--text);text-align:left;cursor:pointer}
+  .legal-actions button:hover{border-color:color-mix(in srgb,var(--accent) 45%,var(--border))}
+  .legal-actions code{grid-row:1/3;align-self:center;color:var(--accent);font:.66rem var(--mono)}
+  .legal-actions b{font-size:.8rem}
+  .legal-actions button span{color:var(--muted);font:.62rem var(--mono)}
+
+  .team-inspector{display:grid;grid-template-columns:1fr 1fr 1fr;gap:1rem;margin-top:2rem;padding:1rem;box-shadow:none}
+  .team-inspector h2{margin:.3rem 0}
+  .team-inspector p{color:var(--muted);font-size:.76rem}
+  .team-inspector details{margin:0;padding:0}
+  .team-inspector textarea{width:100%;min-height:220px;margin-top:.7rem;font:400 .65rem/1.5 var(--mono)}
+  .audit-head{display:flex;align-items:center;justify-content:space-between;gap:2rem;margin-top:2.5rem;padding-top:1.75rem;border-top:1px solid var(--border)}
+  .audit-head h2{margin:.3rem 0}
+  .audit-stats,.audit-actions{display:flex;gap:1rem}
+  .audit-stats span{display:grid;color:var(--muted);font:.7rem var(--mono)}
+  .audit-stats strong{color:var(--text);font:700 1.4rem var(--display)}
+  .button.danger{border-color:color-mix(in srgb,var(--danger) 45%,var(--border));background:transparent;color:var(--danger)}
+  .decision-list{display:grid;gap:.6rem;margin-top:1rem}
+  .decision{box-shadow:none}
+  .decision>summary{display:grid;grid-template-columns:1fr 1fr 1.4fr auto;gap:1rem;align-items:center;padding:1rem;cursor:pointer}
+  .decision>summary span{color:var(--muted);font:.7rem var(--mono)}
+  .decision-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1rem;padding:0 1rem 1rem;border-top:1px solid var(--border)}
+  .decision-grid>div{padding-top:1rem}
+  .decision-grid p{font-size:.8rem}
+  .inspector{grid-column:1/-1;display:grid;gap:.55rem;padding-top:1rem}
+  .inspector-note{margin:0;color:var(--muted);font-size:.74rem}
+  .inspector details{margin:0;padding:.7rem;border:1px solid var(--border);border-radius:.65rem}
+  .inspector details summary{color:var(--text)}
+  .inspector pre{max-height:360px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--muted);font:400 .68rem/1.5 var(--mono)}
+  .context-diff{display:flex;flex-wrap:wrap;gap:.4rem}
+  .context-diff span{padding:.28rem .45rem;border:1px solid var(--border);border-radius:999px;color:var(--accent);font:.62rem var(--mono)}
+
+  @media(max-width:980px){
+    .view-bar{align-items:stretch;flex-direction:column}
+    .manual-grid{grid-template-columns:1fr}
+    .team-inspector{grid-template-columns:1fr}
+    .audit-head{align-items:stretch;flex-direction:column}
+    .decision>summary{grid-template-columns:1fr 1fr}
+    .decision-grid{grid-template-columns:1fr}
+  }
+  @media(max-width:620px){
+    .live-head{align-items:flex-start;flex-direction:column}
+    .agent-tabs{grid-template-columns:1fr}
+    .preview-tools{flex-wrap:wrap}
+    .preview-note{width:100%;margin-left:0}
+    .manual header{align-items:stretch;flex-direction:column}
+    .column footer{align-items:stretch;flex-direction:column}
+    .column footer div{display:grid;grid-template-columns:1fr 1fr}
+    .audit-stats{justify-content:space-between}
+    .audit-actions{display:grid}
+    .decision>summary{grid-template-columns:1fr}
+  }
 </style>

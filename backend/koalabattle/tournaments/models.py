@@ -17,6 +17,7 @@ from koalabattle.core.models import (
     TeamPolicy,
     TeamSource,
 )
+from koalabattle.formats import describe_format
 
 TOURNAMENT_SCHEMA_VERSION = "1.0"
 
@@ -67,8 +68,8 @@ class MatchTemplateSnapshot(FrozenTournamentModel):
     schema_version: str = TOURNAMENT_SCHEMA_VERSION
     engine: str = Field(default="pokemon-showdown", min_length=1, max_length=80)
     engine_configuration: dict[str, Any] = Field(default_factory=dict)
-    format: Literal["gen9randombattle", "gen9ou"] = "gen9randombattle"
-    generation: Literal[9] = 9
+    format: str = Field(default="gen9randombattle", min_length=1, max_length=80)
+    generation: int = Field(default=9, ge=1, le=9)
     fair_prompt_mode: bool = True
     prompt_profile: PromptProfileId = PromptProfileId.STANDARD_COMPETITIVE
     context_profile: ContextProfileId = ContextProfileId.STANDARD
@@ -77,16 +78,32 @@ class MatchTemplateSnapshot(FrozenTournamentModel):
     limits: MatchLimits = Field(default_factory=MatchLimits)
     presentation: dict[str, Any] = Field(default_factory=dict)
 
+    @model_validator(mode="before")
+    @classmethod
+    def derive_generation(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        descriptor = describe_format(str(data.get("format") or "gen9randombattle"))
+        if descriptor is not None:
+            data = {**data, "generation": descriptor.generation}
+        return data
+
     @model_validator(mode="after")
     def supported_showdown_format(self) -> MatchTemplateSnapshot:
-        if self.format not in {"gen9randombattle", "gen9ou"} or self.generation != 9:
-            raise ValueError("Tournaments support gen9randombattle and gen9ou only")
-        if self.format == "gen9randombattle" and self.team_policy is not TeamPolicy.SHOWDOWN_RANDOM:
-            raise ValueError("Random Battle tournaments must use Showdown Random teams")
-        if self.format == "gen9ou" and self.team_policy is TeamPolicy.SHOWDOWN_RANDOM:
-            raise ValueError("Gen 9 OU tournaments require custom team policy")
-        if self.format == "gen9ou" and self.team_policy is not TeamPolicy.FIXED:
-            raise ValueError("Gen 9 OU tournaments currently support fixed teams only")
+        descriptor = describe_format(self.format)
+        if descriptor is None or not descriptor.supported:
+            raise ValueError(
+                f"{self.format!r} is not a KoalaBattle-runnable Pokemon Showdown format"
+            )
+        if descriptor.random_team and self.team_policy is not TeamPolicy.SHOWDOWN_RANDOM:
+            raise ValueError(f"{descriptor.name} tournaments must use Showdown Random teams")
+        if not descriptor.random_team:
+            if self.team_policy is TeamPolicy.SHOWDOWN_RANDOM:
+                raise ValueError(f"{descriptor.name} tournaments require a custom team policy")
+            if self.team_policy not in {TeamPolicy.FIXED, TeamPolicy.FIXED_PER_TOURNAMENT}:
+                raise ValueError(
+                    f"{descriptor.name} tournaments currently support fixed teams only"
+                )
         return self
 
 

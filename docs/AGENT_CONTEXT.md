@@ -7,14 +7,23 @@ optional Strategy Memory. No provider conversation ID or prior provider message 
 
 ## Versioned contracts
 
-- `PlayerKnowledgeState` (`1.0`): own visible side plus only revealed opponent data.
-- `AgentContextSnapshot` (`1.0`): knowledge, format/turn/side, history, legal actions, profiles,
-  memory policy, and output schema version.
-- prompt schema `5.0`; decision output schema `battle-decision-v2`.
+- `PlayerKnowledgeState` (`1.0`): own visible side, revealed opponent data only, and public
+  side conditions for both halves of the field.
+- `AgentContextSnapshot` (`1.0`): knowledge, format identity and mechanics, generation, turn,
+  side, history, legal actions, profiles, memory policy, and output schema version.
+- prompt schema `6.0`, template `battle-text-v1`; decision output schema `battle-decision-v2`.
 - history policy `relevant-v1`; memory policy version `1.0`.
 
+The snapshot stays the versioned internal model; the prompt an agent receives is a rendering
+of it. See [Prompt contract](PROMPTS.md) for the rendering rules and generation awareness.
+
+Legal actions carry public move metadata (type, damage class, base power, accuracy, PP,
+priority) and, for switches, the display name, HP fraction and status, so the rendered prompt
+never has to cross-reference another section.
+
 New decisions persist normalized knowledge/context, metrics, every profile/version, rendered
-prompt, memory before/after, raw and parsed response, validation, and selected action. Old
+prompt (combined plus the system/user split), memory before/after, raw and parsed response,
+validation, and selected action. Old
 Legacy decisions remain readable; the inspector reports unavailable context instead of
 fabricating it.
 

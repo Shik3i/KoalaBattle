@@ -63,20 +63,46 @@ def _move_category(value: object | None) -> Literal["physical", "special", "stat
     return None
 
 
+def _move_attribute(move: Move, attribute: str) -> object | None:
+    """Read one move property tolerantly.
+
+    poke-env exposes synthetic entries for the `recharge` and `fight` pseudo-moves (and any
+    dex entry can be sparse in an older generation), and its properties index the entry
+    dictionary directly. A missing key must degrade to "unknown", never abort the turn.
+    """
+    try:
+        value: object = getattr(move, attribute)
+    except (KeyError, ValueError, TypeError):
+        return None
+    return value
+
+
+def _move_metadata(move: Move) -> dict[str, object | None]:
+    accuracy = _move_attribute(move, "accuracy")
+    priority = _move_attribute(move, "priority")
+    power = _move_attribute(move, "base_power")
+    return {
+        "type": _enum_name(_move_attribute(move, "type")),
+        "category": _move_category(_move_attribute(move, "category")),
+        "power": int(power)
+        if isinstance(power, int | float) and not isinstance(power, bool)
+        else None,
+        "accuracy": None if isinstance(accuracy, bool) else accuracy,
+        "current_pp": _move_attribute(move, "current_pp"),
+        "max_pp": _move_attribute(move, "max_pp"),
+        "priority": int(priority) if isinstance(priority, int | float) else None,
+    }
+
+
+def _move_name(move: Move) -> str:
+    try:
+        return str(move.entry.get("name", move.id))
+    except ValueError:
+        return move.id
+
+
 def _move_state(move: Move) -> MoveState:
-    accuracy = getattr(move, "accuracy", None)
-    if isinstance(accuracy, bool):
-        accuracy = None
-    return MoveState(
-        id=move.id,
-        name=move.entry.get("name", move.id),
-        type=_enum_name(getattr(move, "type", None)),
-        category=_move_category(getattr(move, "category", None)),
-        power=getattr(move, "base_power", None),
-        accuracy=accuracy,
-        current_pp=getattr(move, "current_pp", None),
-        max_pp=getattr(move, "max_pp", None),
-    )
+    return MoveState(id=move.id, name=_move_name(move), **_move_metadata(move))
 
 
 def _pokemon_state(identifier: str, pokemon: Pokemon, *, revealed: bool = True) -> PokemonState:
@@ -110,10 +136,19 @@ def _pokemon_state(identifier: str, pokemon: Pokemon, *, revealed: bool = True) 
 
 
 def legal_actions(battle: AbstractBattle) -> tuple[BattleAction, ...]:
+    """Enumerate the legal choices with enough public metadata to compare them directly.
+
+    Terastallization only appears when Showdown reports it as available, so pre-Gen 9
+    formats never see an impossible mechanic in their action list.
+    """
     actions: list[BattleAction] = []
     for slot, move in enumerate(battle.available_moves, start=1):
-        name = move.entry.get("name", move.id)
-        actions.append(BattleAction(id=f"move:{slot}", type=ActionType.MOVE, name=name, slot=slot))
+        name = _move_name(move)
+        raw = _move_metadata(move)
+        metadata = {"move_type": raw.pop("type"), **raw}
+        actions.append(
+            BattleAction(id=f"move:{slot}", type=ActionType.MOVE, name=name, slot=slot, **metadata)
+        )
         if bool(battle.can_tera):
             actions.append(
                 BattleAction(
@@ -122,6 +157,7 @@ def legal_actions(battle: AbstractBattle) -> tuple[BattleAction, ...]:
                     name=f"{name} + Terastallize",
                     slot=slot,
                     terastallize=True,
+                    **metadata,
                 )
             )
     for slot, pokemon in enumerate(battle.available_switches, start=1):
@@ -129,8 +165,11 @@ def legal_actions(battle: AbstractBattle) -> tuple[BattleAction, ...]:
             BattleAction(
                 id=f"switch:{slot}",
                 type=ActionType.SWITCH,
-                name=pokemon.species,
+                name=pokemon.name,
                 slot=slot,
+                species=pokemon.name,
+                hp_fraction=max(0.0, min(1.0, float(pokemon.current_hp_fraction))),
+                status=_enum_name(pokemon.status),
             )
         )
     return tuple(actions)

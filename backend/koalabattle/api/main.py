@@ -11,7 +11,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
 from koalabattle import __version__
-from koalabattle.agents.context import CONTEXT_PROFILES, PROMPT_PROFILES, render_agent_prompt
+from koalabattle.agents.context import (
+    CONTEXT_PROFILES,
+    PROMPT_PROFILES,
+    render_prompt_messages,
+)
 from koalabattle.config import Settings, get_settings
 from koalabattle.core.assets import (
     AssetResolution,
@@ -22,6 +26,7 @@ from koalabattle.core.assets import (
 )
 from koalabattle.core.models import MatchArchive, MatchStatus, MatchSummary
 from koalabattle.core.public import presentation_archive
+from koalabattle.formats import FormatCatalog, FormatDescriptor, FormatGroup
 from koalabattle.production import (
     CreateProduction,
     DirectorCommand,
@@ -444,6 +449,37 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=422, detail=str(error)) from error
         return {"status": "valid", "decision": decision.model_dump(mode="json")}
 
+    @app.get("/api/formats", response_model=FormatCatalog)
+    async def list_formats(request: Request, supported_only: bool = False) -> FormatCatalog:
+        catalog = _service(request).formats.catalog
+        if not supported_only:
+            return catalog
+        supported = tuple(item for item in catalog.formats if item.supported)
+        return catalog.model_copy(update={"formats": supported, "format_count": len(supported)})
+
+    @app.get("/api/formats/groups", response_model=tuple[FormatGroup, ...])
+    async def grouped_formats(
+        request: Request, supported_only: bool = False
+    ) -> tuple[FormatGroup, ...]:
+        return _service(request).formats.grouped(supported_only=supported_only)
+
+    @app.get("/api/formats/search", response_model=tuple[FormatDescriptor, ...])
+    async def search_format_catalog(
+        request: Request, q: str = "", limit: int = 40
+    ) -> tuple[FormatDescriptor, ...]:
+        return _service(request).formats.search(q, limit=min(max(limit, 1), 200))
+
+    @app.post("/api/formats/refresh", response_model=FormatCatalog)
+    async def refresh_formats(request: Request) -> FormatCatalog:
+        return await _service(request).formats.refresh()
+
+    @app.get("/api/formats/{format_id}", response_model=FormatDescriptor)
+    async def get_format(format_id: str, request: Request) -> FormatDescriptor:
+        descriptor = _service(request).formats.get(format_id)
+        if descriptor is None:
+            raise HTTPException(status_code=404, detail="format not found")
+        return descriptor
+
     @app.get("/api/providers")
     async def providers(request: Request) -> dict[str, object]:
         return {"providers": _service(request).provider_status()}
@@ -540,11 +576,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "context_profile_version": CONTEXT_PROFILES[context_profile_id].version,
             }
         )
-        rendered, metrics = render_agent_prompt(snapshot)
+        rendered, metrics = render_prompt_messages(snapshot)
         return {
             "available": True,
             "snapshot": snapshot.model_dump(mode="json"),
-            "prompt": rendered,
+            "prompt": rendered.combined,
+            "system_prompt": rendered.system,
+            "user_prompt": rendered.user,
+            "knowledge": record.request.knowledge.model_dump(mode="json")
+            if record.request.knowledge
+            else None,
+            "raw_response": record.raw_response,
+            "parsed_decision": record.parsed_response,
             "metrics": metrics.model_dump(mode="json"),
         }
 

@@ -13,6 +13,7 @@ from poke_env.player.battle_order import ForfeitBattleOrder
 
 from koalabattle.agents import AgentForfeitError
 from koalabattle.agents.base import Agent
+from koalabattle.agents.context import PROMPT_SCHEMA_VERSION, PROMPT_TEMPLATE_VERSION
 from koalabattle.core.models import AgentRequest, BattleResult, Side
 from koalabattle.engines.base import BattleEngineContext, EngineOutcome
 from koalabattle.events.protocol import normalize_showdown_message
@@ -107,7 +108,9 @@ class _KoalaPlayer(Player):
             decision_sequence=self.decision_sequence,
             state=state,
             legal_actions=actions,
-            prompt=prompt,
+            prompt=prompt.combined,
+            system_prompt=prompt.system,
+            user_prompt=prompt.user,
             knowledge=knowledge,
             context=context_snapshot,
             context_metrics=context_metrics,
@@ -118,6 +121,8 @@ class _KoalaPlayer(Player):
             history_policy_version=context_snapshot.history_policy_version,
             memory_policy=self.context.config.memory_policy,
             memory_policy_version=context_snapshot.memory_policy_version,
+            prompt_schema_version=PROMPT_SCHEMA_VERSION,
+            prompt_template_version=PROMPT_TEMPLATE_VERSION,
         )
         await _bridge(
             self.app_loop,

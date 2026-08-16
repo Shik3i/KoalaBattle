@@ -1,8 +1,11 @@
 import type { BattleEvent, BattleState, Side } from '../types.ts';
 import {
   RENDERER_VERSION,
+  type ActionPhase,
   type BattleEffect,
   type BattlePresentationState,
+  type CommentaryPhase,
+  type ImpactPresentationState,
   type MoveVisualArchetype,
   type MoveVisualProfile,
   type PokemonType,
@@ -23,7 +26,9 @@ export function createPresentationState(match: PresentationMatch): BattlePresent
       providerLabel: provider || (config?.agent_type === 'manual' ? 'Manual agent' : 'Random agent'),
       agentStatus: 'waiting',
       motion: 'idle',
-      commentary: []
+      commentary: [],
+      currentCommentary: null,
+      commentaryPhase: 'waiting'
     };
   };
   return {
@@ -36,9 +41,12 @@ export function createPresentationState(match: PresentationMatch): BattlePresent
     players: { p1: player('p1'), p2: player('p2') },
     currentMove: null,
     currentMoveProfile: null,
+    currentMoveSide: null,
+    currentMovePhase: 'resolved',
     effect: 'none',
     effectSide: null,
     effectValue: null,
+    impacts: { p1: null, p2: null },
     log: [],
     winner: null,
     winnerName: null,
@@ -59,6 +67,9 @@ export function reducePresentation(
   let battle = state.battle;
   let currentMove = state.currentMove;
   let currentMoveProfile = state.currentMoveProfile;
+  let currentMoveSide = state.currentMoveSide;
+  let currentMovePhase: ActionPhase = state.currentMovePhase;
+  let impacts = state.impacts;
   let effectValue: number | null = null;
   let winner = state.winner;
   let winnerName = state.winnerName;
@@ -79,20 +90,25 @@ export function reducePresentation(
     case 'move_used':
       currentMove = stringValue(payload.move);
       currentMoveProfile = moveVisualProfile(state, side, currentMove, payload);
+      currentMoveSide = side;
+      currentMovePhase = 'executing';
       players = setMotion(players, side, 'attacking');
       players = setStatus(players, side, 'executing');
+      players = setCommentaryPhase(players, side, 'executing');
       break;
     case 'damage':
       effect = 'impact';
       effectValue = hpDelta(state, targetSide, payload.hp);
       battle = updateBattleActive(battle, targetSide, { hp: payload.hp });
       players = setMotion(players, targetSide, 'taking-damage');
+      impacts = withImpact(impacts, targetSide, effectValue, event.sequence, 'damage');
       break;
     case 'healing':
       effect = 'healing';
       effectValue = hpDelta(state, targetSide, payload.hp);
       battle = updateBattleActive(battle, targetSide, { hp: payload.hp });
       players = setMotion(players, targetSide, 'status-flash');
+      impacts = withImpact(impacts, targetSide, effectValue, event.sequence, 'healing');
       break;
     case 'critical_hit':
       effect = 'critical-hit';
@@ -139,35 +155,52 @@ export function reducePresentation(
     case 'pokemon_switched':
       battle = switchBattleActive(battle, side, payload);
       players = setMotion(players, side, 'switching-in');
+      players = setCommentaryPhase(players, side, 'executing');
       break;
     case 'turn_started':
       if (battle) battle = { ...battle, turn: numberValue(payload.turn) ?? event.turn };
+      // The previous turn has resolved: retire its commentary, headline action and HP
+      // flashes so none of them can be mistaken for the reasoning behind the next move.
+      players = resolveCommentary(players);
+      currentMovePhase = 'resolved';
+      impacts = { p1: null, p2: null };
       break;
     case 'pokemon_fainted':
       effect = 'faint';
       battle = updateBattleActive(battle, targetSide, { hp: '0 fnt', fainted: true });
       players = setMotion(players, targetSide, 'fainting');
       break;
+    case 'agent_state': {
+      if (!side) break;
+      const lifecycle = stringValue(payload.state);
+      if (lifecycle === 'thinking' || lifecycle === 'waiting' || lifecycle === 'retrying') {
+        // A new decision has started, so the previous turn's commentary is no longer current.
+        players = {
+          ...players,
+          [side]: { ...players[side], commentaryPhase: 'thinking', currentCommentary: null }
+        };
+      }
+      break;
+    }
     case 'agent_decision': {
       if (!side) break;
-      const commentary = stringValue(payload.commentary);
+      const entry = {
+        sequence: event.sequence,
+        turn: event.turn,
+        side,
+        action: stringValue(payload.action),
+        actionName: stringValue(payload.action_name),
+        commentary: stringValue(payload.commentary),
+        latencyMs: numberValue(payload.latency_ms)
+      };
       players = {
         ...players,
         [side]: {
           ...players[side],
           agentStatus: 'decided',
-          commentary: [
-            ...players[side].commentary,
-            {
-              sequence: event.sequence,
-              turn: event.turn,
-              side,
-              action: stringValue(payload.action),
-              actionName: stringValue(payload.action_name),
-              commentary,
-              latencyMs: numberValue(payload.latency_ms)
-            }
-          ]
+          commentaryPhase: 'decided',
+          currentCommentary: entry,
+          commentary: [...players[side].commentary, entry]
         }
       };
       break;
@@ -192,21 +225,62 @@ export function reducePresentation(
       break;
   }
 
-  const entry = spectatorEntry(event, battle);
+  const entry = spectatorEntry(event, battle, effectValue);
   return {
     ...state,
     battle,
     players,
     currentMove,
     currentMoveProfile,
+    currentMoveSide,
+    currentMovePhase,
     effect,
     effectSide,
     effectValue,
-    log: entry ? [...state.log, entry] : state.log,
+    impacts,
+    log: appendLogEntry(state.log, entry),
     winner,
     winnerName,
     finished
   };
+}
+
+function withImpact(
+  impacts: BattlePresentationState['impacts'],
+  side: Side | null,
+  value: number | null,
+  sequence: number,
+  kind: ImpactPresentationState['kind']
+): BattlePresentationState['impacts'] {
+  if (!side || value === null || value === 0) return impacts;
+  return { ...impacts, [side]: { side, value, sequence, kind } };
+}
+
+function setCommentaryPhase(
+  players: BattlePresentationState['players'],
+  side: Side | null,
+  phase: CommentaryPhase
+) {
+  if (!side) return players;
+  // Only an action that already has commentary can move into executing.
+  if (phase === 'executing' && !players[side].currentCommentary) return players;
+  return { ...players, [side]: { ...players[side], commentaryPhase: phase } };
+}
+
+function resolveCommentary(players: BattlePresentationState['players']) {
+  const retire = (player: PlayerPresentationState): PlayerPresentationState =>
+    player.currentCommentary
+      ? { ...player, commentaryPhase: 'resolved', currentCommentary: null }
+      : player;
+  return { p1: retire(players.p1), p2: retire(players.p2) };
+}
+
+/** Drop consecutive duplicates so a repeated authoritative event never reads as two hits. */
+function appendLogEntry(log: SpectatorLogEntry[], entry: SpectatorLogEntry | null) {
+  if (!entry) return log;
+  const previous = log[log.length - 1];
+  if (previous && previous.text === entry.text && previous.turn === entry.turn) return log;
+  return [...log, entry];
 }
 
 export function reduceEvents(
@@ -469,7 +543,11 @@ function actorName(value: unknown): string {
   return stringValue(value).replace(/^p[12]a:\s*/, '') || 'Pokémon';
 }
 
-function spectatorEntry(event: BattleEvent, battle: BattleState | null): SpectatorLogEntry | null {
+function spectatorEntry(
+  event: BattleEvent,
+  battle: BattleState | null,
+  hpDeltaPercent: number | null
+): SpectatorLogEntry | null {
   const payload = event.payload;
   let text = '';
   let emphasis: SpectatorLogEntry['emphasis'] = 'normal';
@@ -485,11 +563,16 @@ function spectatorEntry(event: BattleEvent, battle: BattleState | null): Spectat
       emphasis = 'negative';
       break;
     case 'damage':
-      text = `${actorName(payload.target)} took damage.`;
+      // Report the authoritative delta, not a generic "took damage" line.
+      text = hpDeltaPercent
+        ? `${actorName(payload.target)} lost ${Math.abs(hpDeltaPercent)}% HP.`
+        : `${actorName(payload.target)} took damage.`;
       emphasis = 'negative';
       break;
     case 'healing':
-      text = `${actorName(payload.target)} recovered health.`;
+      text = hpDeltaPercent
+        ? `${actorName(payload.target)} recovered ${Math.abs(hpDeltaPercent)}% HP.`
+        : `${actorName(payload.target)} recovered health.`;
       emphasis = 'positive';
       break;
     case 'critical_hit':

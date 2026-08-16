@@ -27,7 +27,8 @@ Evidence-based fixes from the load run:
 - finished-session cleanup tasks are tracked/drained and per-match event locks are released;
 - ready tournament series use one conditional transactional claim.
 
-The real pinned Showdown gates pass two concurrent Random Battles and one custom Gen 9 OU
+The real pinned Showdown gates pass two concurrent Random Battles, Gen 1 and Gen 9 Random
+Battles, an imported-team Gen 1 OU battle, and one custom Gen 9 OU
 match. A separate attempt to open 25 real matches at once overloaded the local poke-env/
 Showdown login path with `|nametaken|` and login assertions, so it is not reported as supported
 capacity. Default global concurrency remains two. Raise it incrementally and measure the

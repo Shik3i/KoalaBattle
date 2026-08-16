@@ -1,1 +1,19 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="KoalaBattle"><rect x="2" y="2" width="60" height="60" rx="17" fill="#65cf82"/><circle cx="17" cy="22" r="11" fill="#748c7a"/><circle cx="47" cy="22" r="11" fill="#748c7a"/><path d="M14 34c0-13 7.6-21 18-21s18 8 18 21c0 12-7 20-18 20s-18-8-18-20Z" fill="#dce7de"/><path d="m42 17-7 9h5l-6 10 12-13h-5l5-6Z" fill="#43ad69"/><circle cx="25" cy="33" r="2.7" fill="#102217"/><circle cx="39" cy="33" r="2.7" fill="#102217"/><ellipse cx="32" cy="42" rx="7" ry="5.5" fill="#102217"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="KoalaBattle">
+  <title>KoalaBattle</title>
+  <!-- Favicon variant of the KoalaBattle mascot: head only, so it survives 16px. -->
+  <circle cx="256" cy="256" r="252" fill="#0d2118"/>
+  <g stroke="#23374d" stroke-width="18" stroke-linejoin="round" stroke-linecap="round">
+    <circle cx="112" cy="176" r="86" fill="#b0b4b8"/>
+    <circle cx="400" cy="176" r="86" fill="#b0b4b8"/>
+    <circle cx="112" cy="176" r="48" fill="#f6e7df" stroke-width="15"/>
+    <circle cx="400" cy="176" r="48" fill="#f6e7df" stroke-width="15"/>
+    <path d="M256 96c78 0 132 56 132 132s-54 130-132 130-132-52-132-130S178 96 256 96Z" fill="#c2c6ca"/>
+    <circle cx="203" cy="212" r="24" fill="#f7fbf8" stroke-width="15"/>
+    <circle cx="309" cy="212" r="24" fill="#f7fbf8" stroke-width="15"/>
+    <circle cx="207" cy="215" r="11" fill="#23374d" stroke="none"/>
+    <circle cx="313" cy="215" r="11" fill="#23374d" stroke="none"/>
+    <path d="M256 244c32 0 49 17 49 38s-21 36-49 36-49-15-49-36 17-38 49-38Z" fill="#2b3b4e"/>
+    <path d="M230 328c16 13 36 13 52 0" fill="none" stroke-width="16"/>
+    <path d="M180 424h152l-30 62h-92Z" fill="#7ee09a" stroke-width="15"/>
+  </g>
+</svg>
