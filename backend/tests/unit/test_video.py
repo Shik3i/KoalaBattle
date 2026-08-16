@@ -396,4 +396,6 @@ async def test_offline_audio_renders_generic_sfx_without_external_media(
     output = storage.temporary(job.id, ".audio.wav")
     assert await exporter._audio(production, job, output)
     metadata = await probe("ffprobe", output)
-    assert any(stream.get("codec_type") == "audio" for stream in metadata["streams"])
+    audio = next(stream for stream in metadata["streams"] if stream.get("codec_type") == "audio")
+    assert audio["sample_rate"] == "48000"
+    assert audio["channels"] == 2

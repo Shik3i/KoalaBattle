@@ -65,6 +65,7 @@ async def test_timeline_is_deterministic_and_only_uses_public_commentary(
 ) -> None:
     database, archive = await _archive(tmp_path, match_config)
     first = build_timeline(archive, PRODUCTION_PROFILES["live-stream"])
+    assert first.voice_assignments == {"p1": "edge-neural-p1", "p2": "edge-neural-p2"}
     second = build_timeline(
         archive,
         PRODUCTION_PROFILES["live-stream"],
@@ -228,6 +229,21 @@ async def test_speech_outage_keeps_captions_and_marks_production_partial(
     assert preflight.warnings == (
         "Speech is unavailable for some commentary; captions remain and those cues "
         "will render silently.",
+    )
+    system_production = await service.create(
+        archive.id,
+        CreateProduction(
+            profile_id="live-stream",
+            voice_assignments={"p1": "system-p1", "p2": "system-p2"},
+        ),
+    )
+    system_preflight = await video.preflight(system_production.id, ExportBackend.OFFLINE)
+    assert system_preflight.checks["voice_quality"] == "basic offline system speech"
+    assert system_preflight.warnings == (
+        "Speech is unavailable for some commentary; captions remain and those cues "
+        "will render silently.",
+        "This production uses basic offline system speech. Regenerate it with the "
+        "Edge Neural presets before a production export.",
     )
     await service.close()
     await database.close()

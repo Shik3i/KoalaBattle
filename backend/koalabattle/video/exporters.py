@@ -636,7 +636,9 @@ class LegacyScreenshotRendererExporter(VideoExporter):
             labels.append(f"[{label}]")
             index += 1
         filters.append(
-            f"{''.join(labels)}amix=inputs={len(labels)}:duration=longest:normalize=0[a]"
+            f"{''.join(labels)}amix=inputs={len(labels)}:duration=longest:normalize=0,"
+            "alimiter=limit=0.95:attack=5:release=50,"
+            "aresample=48000,aformat=sample_fmts=s16:channel_layouts=stereo[a]"
         )
         command.extend(
             [

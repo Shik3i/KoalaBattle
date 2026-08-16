@@ -284,7 +284,7 @@ def build_timeline(
         status=ProductionStatus.FINALIZED if terminal else ProductionStatus.LIVE,
         director_state=DirectorState.PRE_SHOW if profile.intro_enabled else final_state,
         cues=tuple(sorted(cues, key=lambda cue: (cue.start_ms, cue.track.value, cue.id))),
-        voice_assignments=voices or {"p1": "system-p1", "p2": "system-p2"},
+        voice_assignments=voices or {"p1": "edge-neural-p1", "p2": "edge-neural-p2"},
         duration_ms=cursor,
         finalized_at=now if terminal else None,
         created_at=now,

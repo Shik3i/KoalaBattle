@@ -147,6 +147,25 @@
     };
     return labels[status.toLowerCase()] || status;
   }
+
+  function typeColor(type: string) {
+    const colors: Record<string, string> = {
+      normal: '#d9d7ca', fire: '#ff633f', water: '#3cc8ff', electric: '#ffe148', grass: '#79f05d',
+      ice: '#82f4f1', fighting: '#ff714f', poison: '#de64e8', ground: '#e3a44d', flying: '#8ec7ff',
+      psychic: '#ff5bac', bug: '#b9e744', rock: '#cfb56f', ghost: '#a17cff', dragon: '#766dff',
+      dark: '#8a7772', steel: '#b5cbd6', fairy: '#ff96d2'
+    };
+    return colors[type.toLowerCase()] || colors.normal;
+  }
+
+  function hpLabel(active: NonNullable<BattleSide['active']>) {
+    const absoluteFraction = active.current_hp != null && active.max_hp
+      ? active.current_hp / active.max_hp
+      : null;
+    return absoluteFraction != null && Math.abs(absoluteFraction - active.hp_fraction) <= 0.01
+      ? `${active.current_hp}/${active.max_hp}`
+      : `${Math.round(active.hp_fraction * 100)}%`;
+  }
 </script>
 
 {#if presentation}
@@ -215,7 +234,7 @@
       </div>
       {#if far?.active}
         <article class="combatant combatant-far" aria-label={`${far.active.name}, ${Math.round(far.active.hp_fraction * 100)} percent health`}>
-          <div class="identity"><span>{far.active.types.join(' · ')}</span><strong>{far.active.name}</strong></div>
+          <div class="identity"><div><strong>{far.active.name}</strong><small>ACTIVE</small></div><span>{#each far.active.types as type}<i class="type-badge" style={`--type-color:${typeColor(type)}`}>{type}</i>{/each}</span></div>
           <div class="sprite-platform">
             {#key `${presentation.eventSequence}:${farSide}:${presentation.players[farSide].motion}`}
               <div style={spriteStyle(presentation.players[farSide].motion, false)} class={`sprite ${presentation.players[farSide].motion}`}>
@@ -227,7 +246,7 @@
               </div>
             {/key}
           </div>
-          <div class="vitals"><div><strong>{far.active.name}</strong>{#if far.active.status}<span class="status" title={readableStatus(far.active.status)}>{far.active.status}<small>{readableStatus(far.active.status)}</small></span>{/if}</div><span>{Math.round(far.active.hp_fraction * 100)}%</span></div>
+          <div class="vitals"><div><small>HP</small>{#if far.active.status}<span class="status" title={readableStatus(far.active.status)}>{far.active.status}<small>{readableStatus(far.active.status)}</small></span>{/if}</div><strong>{hpLabel(far.active)}</strong></div>
           <div class="hp-track" data-tone={hpTone(far.active.hp_fraction)}><b style={`width:${previousHp(farSide, far.active.hp_fraction) * 100}%`}></b><i style={`width:${far.active.hp_fraction * 100}%`}></i></div>
         </article>
       {/if}
@@ -239,7 +258,7 @@
 
       {#if near?.active}
         <article class="combatant combatant-near" aria-label={`${near.active.name}, ${Math.round(near.active.hp_fraction * 100)} percent health`}>
-          <div class="identity"><span>{near.active.types.join(' · ')}</span><strong>{near.active.name}</strong></div>
+          <div class="identity"><div><strong>{near.active.name}</strong><small>ACTIVE</small></div><span>{#each near.active.types as type}<i class="type-badge" style={`--type-color:${typeColor(type)}`}>{type}</i>{/each}</span></div>
           <div class="sprite-platform">
             {#key `${presentation.eventSequence}:${nearSide}:${presentation.players[nearSide].motion}`}
               <div style={spriteStyle(presentation.players[nearSide].motion, true)} class={`sprite ${presentation.players[nearSide].motion}`}>
@@ -251,7 +270,7 @@
               </div>
             {/key}
           </div>
-          <div class="vitals"><div><strong>{near.active.name}</strong>{#if near.active.status}<span class="status" title={readableStatus(near.active.status)}>{near.active.status}<small>{readableStatus(near.active.status)}</small></span>{/if}</div><span>{Math.round(near.active.hp_fraction * 100)}%</span></div>
+          <div class="vitals"><div><small>HP</small>{#if near.active.status}<span class="status" title={readableStatus(near.active.status)}>{near.active.status}<small>{readableStatus(near.active.status)}</small></span>{/if}</div><strong>{hpLabel(near.active)}</strong></div>
           <div class="hp-track" data-tone={hpTone(near.active.hp_fraction)}><b style={`width:${previousHp(nearSide, near.active.hp_fraction) * 100}%`}></b><i style={`width:${near.active.hp_fraction * 100}%`}></i></div>
         </article>
       {/if}
@@ -334,14 +353,14 @@
   .player-card{z-index:18;grid-row:2;align-self:start;width:min(88%,650px);min-height:0;margin-top:clamp(20px,2.4vw,42px);padding:clamp(12px,1.1vw,18px) clamp(18px,1.7vw,30px);border:1px solid color-mix(in srgb,var(--side-color) 48%,transparent);border-radius:0;background:rgba(3,6,10,.9);box-shadow:0 16px 35px rgba(0,0,0,.35);clip-path:polygon(4% 0,100% 0,96% 100%,0 100%);backdrop-filter:blur(10px)}
   .player-card[data-side='p1']{--side-color:var(--r-p1);box-shadow:inset 5px 0 var(--r-p1),0 16px 35px rgba(0,0,0,.35)}.player-card[data-side='p2']{--side-color:var(--r-p2);box-shadow:inset -5px 0 var(--r-p2),0 16px 35px rgba(0,0,0,.35)}
   .player-far{grid-column:2;justify-self:end;text-align:right}.player-near{grid-column:1;justify-self:start}.player-card h2{margin:.12rem 0;font-size:clamp(1.15rem,2vw,2.05rem);font-weight:950;letter-spacing:-.045em;text-transform:uppercase}.player-card .side{color:var(--side-color);font-weight:900;letter-spacing:.15em}.player-card>small{display:block;color:#c2ceca;font-size:.55rem;letter-spacing:.08em;text-transform:uppercase}.player-far .agent-state{right:auto;left:18px}.agent-state{top:14px;border:0;border-radius:0;background:color-mix(in srgb,var(--side-color) 12%,transparent);color:var(--side-color);font-weight:900}
-  .team-strip{position:absolute;right:24px;bottom:13px;display:flex;gap:6px}.player-far .team-strip{right:auto;left:24px}.team-strip i{width:8px;aspect-ratio:1;border:1px solid var(--side-color);border-radius:50%;background:var(--side-color);box-shadow:0 0 8px color-mix(in srgb,var(--side-color) 55%,transparent)}.team-strip i.fainted{background:transparent;opacity:.35}.team-strip i.active{outline:2px solid #fff;outline-offset:2px}
+  .team-strip{position:absolute;right:24px;bottom:13px;display:flex;gap:7px}.player-far .team-strip{right:auto;left:24px}.team-strip i{position:relative;width:12px;aspect-ratio:1;border:1px solid rgba(255,255,255,.72);border-radius:50%;background:linear-gradient(180deg,var(--side-color) 0 44%,#10151a 45% 55%,#edf4ef 56%);box-shadow:0 0 9px color-mix(in srgb,var(--side-color) 45%,transparent)}.team-strip i::after{position:absolute;inset:3px;border:1px solid #111;border-radius:50%;background:#f7faf8;content:''}.team-strip i.fainted{filter:grayscale(1);opacity:.3}.team-strip i.active{outline:2px solid #fff;outline-offset:2px}
   .commentary{max-width:82%;margin-top:.5rem}.player-far .commentary{margin-left:auto}.commentary p{display:-webkit-box;overflow:hidden;margin:.25rem 0;color:#dce5e1;font-size:clamp(.58rem,.72vw,.72rem);font-weight:650;line-height:1.38;line-clamp:2;-webkit-box-orient:vertical;-webkit-line-clamp:2}.commentary p::before{color:var(--side-color);content:'INTENT // ';font:800 .76em var(--mono);letter-spacing:.08em}.commentary .muted::before{content:''}
   .arena-stage{z-index:1;grid-column:1/-1;grid-row:2;min-height:500px;border:0;border-radius:0;background:linear-gradient(180deg,#0a2226 0,#122935 48%,#080b10 100%);clip-path:polygon(1% 0,99% 0,100% 96%,0 100%)}
   .stage-sky{position:absolute;inset:0;background:radial-gradient(circle at 56% 24%,rgba(126,255,174,.28),transparent 31%),linear-gradient(135deg,rgba(15,85,75,.35),transparent 48%,rgba(103,42,121,.18));opacity:.95}.stage-ridges{position:absolute;z-index:1;top:15%;bottom:35%;width:51%;background:#071113;filter:drop-shadow(0 0 12px rgba(0,0,0,.55))}.ridge-left{left:-5%;clip-path:polygon(0 13%,19% 37%,31% 17%,48% 58%,61% 32%,80% 80%,100% 64%,100% 100%,0 100%)}.ridge-right{right:-5%;clip-path:polygon(0 66%,19% 38%,34% 62%,51% 17%,65% 42%,83% 11%,100% 34%,100% 100%,0 100%)}
   .stage-gate{position:absolute;z-index:2;top:25%;left:50%;width:15%;aspect-ratio:1;transform:translateX(-50%) rotate(45deg);border:2px solid rgba(119,255,173,.25);box-shadow:0 0 45px rgba(94,255,175,.14)}.stage-gate i{position:absolute;inset:15%;border:1px solid rgba(227,111,255,.22)}
   .stage-floor{position:absolute;z-index:2;inset:52% 0 0;background:linear-gradient(180deg,rgba(24,54,51,.85),#07090d);clip-path:polygon(0 0,100% 0,100% 100%,0 100%)}.stage-floor::after{position:absolute;inset:0;background-image:linear-gradient(rgba(115,255,173,.12) 1px,transparent 1px),linear-gradient(90deg,rgba(115,255,173,.12) 1px,transparent 1px);background-size:8% 18%;mask-image:linear-gradient(transparent,black);content:'';transform:perspective(400px) rotateX(58deg) scale(1.6);transform-origin:center top}
   .arena-grid{z-index:3;opacity:.08;background-size:64px 64px}.weather-layer,.terrain-layer{z-index:4}.field-state{z-index:13}
-  .combatant{z-index:8;width:min(36%,430px)}.combatant-far{top:27%;right:8%}.combatant-near{bottom:4%;left:7%}.identity{margin:0 0 .2rem;padding:.3rem .55rem;border-left:3px solid var(--fighter-color);background:rgba(3,6,10,.7);font-size:.5rem}.combatant-far{--fighter-color:var(--r-p2)}.combatant-near{--fighter-color:var(--r-p1)}.identity strong{font-size:1.25em;letter-spacing:.04em}.sprite-platform{aspect-ratio:1.38/1;background:radial-gradient(ellipse,rgba(118,255,174,.24),rgba(51,151,130,.06) 46%,transparent 70%)}.sprite{width:78%;height:105%}.sprite img{image-rendering:auto;filter:drop-shadow(0 22px 18px rgba(0,0,0,.58)) drop-shadow(0 0 5px color-mix(in srgb,var(--fighter-color) 42%,transparent))}.vitals{margin-top:0;padding:.45rem .6rem;background:rgba(3,6,10,.9);font-size:clamp(.72rem,1vw,1rem)}.hp-track{height:12px;margin:0;border-radius:0;border:1px solid rgba(255,255,255,.18);background:rgba(0,0,0,.7)}
+  .combatant{z-index:8;width:min(37%,450px)}.combatant-far{top:28%;right:7%}.combatant-near{bottom:3%;left:6%}.identity{margin:0;padding:.58rem .72rem;border:2px solid rgba(255,255,255,.7);border-bottom:0;border-left:7px solid var(--fighter-color);background:rgba(4,7,12,.94);font-size:.65rem;clip-path:polygon(0 0,100% 0,96% 100%,0 100%)}.identity>div{display:flex;align-items:center;justify-content:space-between;gap:.5rem}.identity strong{font-size:clamp(1rem,1.55vw,1.5rem);font-weight:950;letter-spacing:-.025em;text-transform:uppercase}.identity small{color:var(--fighter-color);font:900 .58rem var(--mono);letter-spacing:.14em}.identity>span{display:flex;gap:.32rem;margin-top:.34rem}.type-badge{padding:.18rem .52rem;border-radius:999px;background:var(--type-color);color:#07100b;font:950 .55rem var(--mono);font-style:normal;text-transform:uppercase}.combatant-far{--fighter-color:var(--r-p2)}.combatant-near{--fighter-color:var(--r-p1)}.sprite-platform{aspect-ratio:1.38/1;background:radial-gradient(ellipse,rgba(118,255,174,.24),rgba(51,151,130,.06) 46%,transparent 70%)}.sprite{width:82%;height:108%}.sprite img{image-rendering:auto;filter:drop-shadow(0 22px 18px rgba(0,0,0,.62)) drop-shadow(0 0 7px color-mix(in srgb,var(--fighter-color) 44%,transparent))}.vitals{margin-top:0;padding:.5rem .7rem .25rem;border-inline:2px solid rgba(255,255,255,.7);background:rgba(4,7,12,.95);font-size:clamp(.72rem,1vw,1rem)}.vitals>div{display:flex;align-items:center;gap:.5rem}.vitals>div>small{color:#f2f8f4;font:950 .66rem var(--mono);letter-spacing:.08em}.vitals>strong{font:950 .76rem var(--mono)}.hp-track{height:18px;margin:0;border:2px solid rgba(255,255,255,.75);border-top:0;border-radius:0;background:#151a20;box-shadow:inset 0 0 0 2px rgba(0,0,0,.5)}.hp-track b{background:#f5c64e}.hp-track i{box-shadow:inset 0 3px rgba(255,255,255,.28)}
   .battle-center{z-index:12;top:30%;width:clamp(230px,23vw,440px);height:auto;aspect-ratio:auto;padding:.65rem 2.4rem;background:rgba(3,6,10,.9);clip-path:polygon(6% 0,100% 0,94% 100%,0 100%)}.battle-center small{color:var(--r-accent);font-weight:900}.battle-center strong{max-width:100%;font-size:clamp(.8rem,1.5vw,1.45rem);font-weight:950;text-transform:uppercase}.pulse-ring{display:none}
   .battle-renderer:not([data-layout='standard-vertical']) .battle-center{width:clamp(230px,23vw,440px)}.battle-renderer:not([data-layout='standard-vertical']) .battle-center strong{max-width:100%;font-size:clamp(.8rem,1.5vw,1.45rem)}
   .effect span{border:0;border-radius:0;padding:.65rem 1.6rem;background:#f7fff9;color:#05070b;font-size:clamp(.9rem,1.8vw,1.75rem);font-weight:950;letter-spacing:.08em;clip-path:polygon(8% 0,100% 0,92% 100%,0 100%);box-shadow:0 0 65px rgba(255,255,255,.3)}.effect>strong{top:62%;font-size:clamp(1.4rem,3vw,3rem);font-weight:950}.impact-burst i{width:13px;border-radius:0;box-shadow:0 0 16px var(--type-color)}

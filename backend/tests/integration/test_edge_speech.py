@@ -15,7 +15,7 @@ from koalabattle.production.speech.system import SystemSpeechProvider
 async def test_edge_neural_speech_produces_valid_pcm_wav(tmp_path: Path) -> None:
     if os.getenv("KOALABATTLE_RUN_EDGE_TTS_TEST") != "1":
         pytest.skip("set KOALABATTLE_RUN_EDGE_TTS_TEST=1 to run online Edge neural speech")
-    voice = "en-US-AvaMultilingualNeural"
+    voice = "en-US-EmmaMultilingualNeural"
     provider = SystemSpeechProvider(edge_voices=(voice,))
     request = SpeechRequest(
         text="A precise switch keeps the battle under control.",

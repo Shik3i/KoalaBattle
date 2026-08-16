@@ -139,12 +139,12 @@ export class ProductionCompositor {
   private drawHud(scene: ProductionScene, width: number, height: number, scale: number) {
     if (scene.vertical) {
       this.drawHeader(scene, width, 38 * scale, scale);
-      this.drawHealth(scene.p2, 46 * scale, 144 * scale, width - 92 * scale, 170 * scale, true, scale);
-      this.drawHealth(scene.p1, 46 * scale, height - 350 * scale, width - 92 * scale, 170 * scale, false, scale);
+      this.drawHealth(scene.p2, 46 * scale, 144 * scale, width - 92 * scale, 190 * scale, true, scale);
+      this.drawHealth(scene.p1, 46 * scale, height - 370 * scale, width - 92 * scale, 190 * scale, false, scale);
     } else {
       this.drawHeader(scene, width, 30 * scale, scale);
-      this.drawHealth(scene.p1, 55 * scale, 105 * scale, 720 * scale, 164 * scale, false, scale);
-      this.drawHealth(scene.p2, width - 775 * scale, 105 * scale, 720 * scale, 164 * scale, true, scale);
+      this.drawHealth(scene.p1, 55 * scale, 102 * scale, 750 * scale, 190 * scale, false, scale);
+      this.drawHealth(scene.p2, width - 805 * scale, 102 * scale, 750 * scale, 190 * scale, true, scale);
     }
     this.drawMoveCallout(scene, width, height, scale);
   }
@@ -157,19 +157,29 @@ export class ProductionCompositor {
   }
 
   private drawHealth(side: ProductionSceneSide, x: number, y: number, width: number, height: number, alignRight: boolean, scale: number) {
-    const context = this.context; const color = side.near ? P1 : P2; const pad = 28 * scale;
-    context.save(); slashRect(context, x, y, width, height, 28 * scale, alignRight); context.fillStyle = 'rgba(4,7,12,.91)'; context.fill(); context.strokeStyle = withAlpha(color, .65); context.lineWidth = 3 * scale; context.stroke();
-    context.textAlign = alignRight ? 'right' : 'left'; context.fillStyle = color; context.font = `900 ${15 * scale}px ui-monospace, monospace`; context.fillText(`${side.side.toUpperCase()} // ${side.providerLabel.toUpperCase()}`, alignRight ? x + width - pad : x + pad, y + 27 * scale, width - pad * 2);
-    context.fillStyle = '#fff'; context.font = `950 ${34 * scale}px system-ui`; context.fillText(side.displayName.toUpperCase(), alignRight ? x + width - pad : x + pad, y + 65 * scale, width * .62);
-    context.fillStyle = 'rgba(221,231,228,.7)'; context.font = `800 ${18 * scale}px system-ui`; context.fillText((side.active?.name || 'AWAITING FIGHTER').toUpperCase(), alignRight ? x + width - pad : x + pad, y + 91 * scale, width * .55);
-    const hp = clamp(side.active?.hp_fraction ?? 0); const barX = x + pad; const barY = y + 106 * scale; const barWidth = width - pad * 2; const barHeight = 24 * scale;
-    context.fillStyle = 'rgba(255,255,255,.09)'; context.fillRect(barX, barY, barWidth, barHeight);
-    if (hp > 0) { const hpGradient = context.createLinearGradient(barX, 0, barX + barWidth, 0); const tone = hp > .5 ? '#72ff9f' : hp > .2 ? '#ffce55' : '#ff525e'; hpGradient.addColorStop(0, tone); hpGradient.addColorStop(1, '#f7ffe9'); context.fillStyle = hpGradient; const fillWidth = barWidth * hp; context.fillRect(alignRight ? barX + barWidth - fillWidth : barX, barY, fillWidth, barHeight); }
-    context.fillStyle = '#05070b'; context.font = `950 ${16 * scale}px ui-monospace, monospace`; context.textAlign = 'center'; context.fillText(`${Math.round(hp * 100)}%`, barX + barWidth / 2, barY + 18 * scale);
-    const members = side.team.length || 1;
-    for (let index = 0; index < Math.min(6, members); index += 1) { const member = side.team[index]; const px = alignRight ? x + width - pad - index * 25 * scale : x + pad + index * 25 * scale; context.beginPath(); context.arc(px, y + 148 * scale, 7 * scale, 0, Math.PI * 2); context.fillStyle = member?.fainted ? 'rgba(255,255,255,.15)' : color; context.fill(); context.strokeStyle = member?.active ? '#fff' : 'rgba(0,0,0,.55)'; context.lineWidth = 2 * scale; context.stroke(); }
-    const tags = [side.active?.status ? readableStatus(side.active.status) : null, ...side.sideConditions.slice(0, 2).map(readableCondition)].filter(Boolean).join(' · ');
-    context.fillStyle = '#ffd977'; context.font = `800 ${13 * scale}px ui-monospace, monospace`; context.textAlign = alignRight ? 'left' : 'right'; context.fillText(tags, alignRight ? x + pad : x + width - pad, y + 153 * scale, width * .55); context.restore();
+    const context = this.context; const sideColor = side.near ? P1 : P2; const typeColor = pokemonTypeColor(side.active?.types); const pad = 28 * scale;
+    context.save(); slashRect(context, x, y, width, height, 30 * scale, alignRight); context.fillStyle = 'rgba(5,8,13,.96)'; context.fill(); context.strokeStyle = 'rgba(238,245,241,.72)'; context.lineWidth = 3 * scale; context.stroke();
+    context.fillStyle = typeColor; context.fillRect(alignRight ? x + width - 9 * scale : x, y + 8 * scale, 9 * scale, height - 16 * scale);
+    context.textAlign = alignRight ? 'right' : 'left'; const anchor = alignRight ? x + width - pad : x + pad;
+    context.fillStyle = withAlpha(sideColor, .92); context.font = `900 ${13 * scale}px ui-monospace, monospace`; context.fillText(`TRAINER ${side.displayName.toUpperCase()}  ·  ${side.providerLabel.toUpperCase()}`, anchor, y + 24 * scale, width - pad * 2);
+    context.fillStyle = '#fff'; context.font = `950 ${39 * scale}px system-ui`; context.fillText((side.active?.name || 'AWAITING POKÉMON').toUpperCase(), anchor, y + 66 * scale, width * .66);
+    const types = side.active?.types.slice(0, 2) || [];
+    types.forEach((type, index) => this.drawTypeChip(type, alignRight ? x + pad + index * 88 * scale : x + width - pad - index * 88 * scale, y + 43 * scale, alignRight, scale));
+    const hp = clamp(side.active?.hp_fraction ?? 0); const previous = clamp(side.previousHpFraction ?? hp); const barX = x + 74 * scale; const barY = y + 91 * scale; const barWidth = width - 150 * scale; const barHeight = 31 * scale;
+    context.fillStyle = '#edf3ef'; context.font = `950 ${18 * scale}px ui-monospace, monospace`; context.textAlign = 'left'; context.fillText('HP', x + 28 * scale, barY + 23 * scale);
+    context.fillStyle = '#161b20'; context.fillRect(barX, barY, barWidth, barHeight); context.strokeStyle = 'rgba(255,255,255,.72)'; context.lineWidth = 2 * scale; context.strokeRect(barX, barY, barWidth, barHeight);
+    const fill = (fraction: number, fillStyle: string | CanvasGradient) => { const fillWidth = barWidth * fraction; context.fillStyle = fillStyle; context.fillRect(alignRight ? barX + barWidth - fillWidth : barX, barY, fillWidth, barHeight); };
+    if (previous > hp) fill(previous, '#f5c64e');
+    if (hp > 0) { const hpGradient = context.createLinearGradient(barX, 0, barX + barWidth, 0); const tone = hp > .5 ? '#55dc75' : hp > .2 ? '#f5c64e' : '#f04e57'; hpGradient.addColorStop(0, tone); hpGradient.addColorStop(1, hp > .5 ? '#b8f28d' : hp > .2 ? '#ffe683' : '#ff8b79'); fill(hp, hpGradient); }
+    context.fillStyle = '#f8fbf9'; context.font = `950 ${18 * scale}px ui-monospace, monospace`; context.textAlign = 'right'; context.fillText(hpReadout(side), x + width - 27 * scale, barY + 23 * scale);
+    const status = side.active?.status?.toUpperCase(); if (status) { context.fillStyle = statusColor(status); roundedRect(context, x + 28 * scale, y + 140 * scale, 58 * scale, 25 * scale, 5 * scale); context.fill(); context.fillStyle = '#111'; context.font = `950 ${13 * scale}px ui-monospace, monospace`; context.textAlign = 'center'; context.fillText(status, x + 57 * scale, y + 157 * scale); }
+    const tags = side.sideConditions.slice(0, 2).map(readableCondition).join(' · '); context.fillStyle = '#dce6e0'; context.font = `800 ${12 * scale}px ui-monospace, monospace`; context.textAlign = alignRight ? 'left' : 'right'; context.fillText(tags, alignRight ? x + 102 * scale : x + width - 102 * scale, y + 157 * scale, width * .44);
+    const members = side.team.length || 1; for (let index = 0; index < Math.min(6, members); index += 1) { const member = side.team[index]; const px = alignRight ? x + width - pad - index * 27 * scale : x + pad + index * 27 * scale; const py = y + 178 * scale; context.fillStyle = member?.fainted ? 'rgba(255,255,255,.12)' : index % 2 ? typeColor : sideColor; context.beginPath(); context.arc(px, py, 8 * scale, 0, Math.PI * 2); context.fill(); context.strokeStyle = member?.active ? '#fff' : 'rgba(255,255,255,.45)'; context.lineWidth = member?.active ? 3 * scale : 1.5 * scale; context.stroke(); }
+    context.restore();
+  }
+
+  private drawTypeChip(type: string, x: number, y: number, alignRight: boolean, scale: number) {
+    const context = this.context; const width = 78 * scale; const left = alignRight ? x : x - width; roundedRect(context, left, y, width, 25 * scale, 12 * scale); context.fillStyle = pokemonTypeColor([type]); context.fill(); context.fillStyle = '#07100b'; context.font = `950 ${11 * scale}px ui-monospace, monospace`; context.textAlign = 'center'; context.fillText(type.toUpperCase(), left + width / 2, y + 17 * scale);
   }
 
   private drawMoveCallout(scene: ProductionScene, width: number, height: number, scale: number) {
@@ -307,9 +317,28 @@ function wrap(context: CanvasRenderingContext2D, text: string, maxWidth: number,
   for (const word of text.split(/\s+/)) { const candidate = `${line} ${word}`.trim(); if (line && context.measureText(candidate).width > maxWidth) { lines.push(line); line = word; } else line = candidate; }
   if (line) lines.push(line); return lines;
 }
-function formatLabel(value: string): string { return value === 'gen9ou' ? 'GEN 9 · OU' : value.replaceAll('_', ' ').toUpperCase(); }
+function formatLabel(value: string): string {
+  const normalized = value.toLowerCase().replaceAll('_', '').replaceAll('-', '');
+  const generation = normalized.match(/^gen(\d+)(.+)$/);
+  if (!generation) return value.replaceAll('_', ' ').replaceAll('-', ' ').toUpperCase();
+  const formats: Record<string, string> = {
+    randombattle: 'RANDOM BATTLE', ou: 'OU', uu: 'UU', ru: 'RU', nu: 'NU', pu: 'PU',
+    ubers: 'UBERS', doublesou: 'DOUBLES OU'
+  };
+  return `GEN ${generation[1]} · ${formats[generation[2]] || generation[2].toUpperCase()}`;
+}
 function readableCondition(value: string): string { return value.replaceAll('_', ' ').replace(/^move: /i, '').toUpperCase(); }
 function readableStatus(value: string): string { return ({ brn: 'BURN', par: 'PARALYSIS', psn: 'POISON', tox: 'TOXIC', slp: 'SLEEP', frz: 'FREEZE' } as Record<string, string>)[value.toLowerCase()] || value.toUpperCase(); }
+function pokemonTypeColor(types: string[] | undefined): string { return TYPE_COLORS[(types?.[0]?.toLowerCase() || 'normal') as PokemonType] || TYPE_COLORS.normal; }
+function statusColor(status: string): string { return ({ BRN: '#ff8055', PAR: '#f6d34c', PSN: '#c979e8', TOX: '#9d59c8', SLP: '#9ba8b6', FRZ: '#7ee8f0' } as Record<string, string>)[status] || '#d9d7ca'; }
+function hpReadout(side: ProductionSceneSide): string {
+  const active = side.active;
+  const hpFraction = active?.hp_fraction || 0;
+  const currentHp = active?.current_hp;
+  const maxHp = active?.max_hp;
+  if (currentHp != null && maxHp && Math.abs(currentHp / maxHp - hpFraction) <= 0.01) return `${currentHp}/${maxHp}`;
+  return `${Math.round(hpFraction * 100)}%`;
+}
 function withAlpha(hex: string, alpha: number): string {
   const value = hex.replace('#', ''); const full = value.length === 3 ? value.split('').map((item) => item + item).join('') : value;
   return `rgba(${Number.parseInt(full.slice(0, 2), 16)},${Number.parseInt(full.slice(2, 4), 16)},${Number.parseInt(full.slice(4, 6), 16)},${alpha})`;

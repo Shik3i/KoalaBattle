@@ -80,22 +80,22 @@ class ProductionService:
         defaults = (
             VoicePreset(
                 id="edge-neural-p1",
-                display_name="Edge Neural · Ava (online, free)",
+                display_name="Edge Neural · Emma (natural, online, free)",
                 provider=SpeechProviderKind.SYSTEM,
                 voice=self.settings.speech_edge_voice_p1,
                 model="edge-tts-7.2.8",
                 language="en-US",
-                speed=1.02,
+                speed=0.96,
                 enabled=self.settings.speech_edge_enabled,
             ),
             VoicePreset(
                 id="edge-neural-p2",
-                display_name="Edge Neural · Andrew (online, free)",
+                display_name="Edge Neural · Brian (natural, online, free)",
                 provider=SpeechProviderKind.SYSTEM,
                 voice=self.settings.speech_edge_voice_p2,
                 model="edge-tts-7.2.8",
                 language="en-US",
-                speed=1.02,
+                speed=0.96,
                 enabled=self.settings.speech_edge_enabled,
             ),
             VoicePreset(

@@ -9,6 +9,7 @@ export interface ProductionSceneSide {
   displayName: string;
   providerLabel: string;
   active: PokemonState | null;
+  previousHpFraction: number | null;
   team: PokemonState[];
   sideConditions: string[];
   spriteUrl: string | null;
@@ -75,11 +76,24 @@ export function createProductionScene(
   const makeSide = (side: Side, near: boolean): ProductionSceneSide => {
     const state = sideState(side);
     const active = state?.active || null;
+    const previousBattle = frame.priorPresentation?.battle;
+    const previousState = previousBattle
+      ? previousBattle.player.side === side
+        ? previousBattle.player
+        : previousBattle.opponent.side === side
+          ? previousBattle.opponent
+          : null
+      : null;
+    const previousActive = previousState?.active || null;
     return {
       side,
       displayName: presentation.players[side].displayName,
       providerLabel: presentation.players[side].providerLabel,
       active,
+      previousHpFraction:
+        active && previousActive && active.id === previousActive.id
+          ? previousActive.hp_fraction
+          : null,
       team: state?.team || [],
       sideConditions: state?.side_conditions || [],
       spriteUrl: active

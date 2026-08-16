@@ -20,7 +20,9 @@ test('scene delays authoritative target HP until projectile impact', () => {
   } as any;
   assert.equal(createProductionScene(frame, false, 'http://api').p2.active?.hp_fraction, 1);
   frame.visualProgress = AUTHORITATIVE_IMPACT_PROGRESS;
-  assert.equal(createProductionScene(frame, false, 'http://api').p2.active?.hp_fraction, .6);
+  const impacted = createProductionScene(frame, false, 'http://api');
+  assert.equal(impacted.p2.active?.hp_fraction, .6);
+  assert.equal(impacted.p2.previousHpFraction, 1);
 });
 
 test('scene sprite URLs force deterministic static local assets', () => {

@@ -6,8 +6,9 @@ Strategy Memory, provider metadata, and hidden state are outside the speech requ
 
 ## Providers
 
-- `system` (default): free Edge neural speech using `edge-tts`, with distinct Ava and Andrew
-  voices. It requires Internet access and sends only normalized public commentary to Microsoft's
+- `system` (default): free Edge neural speech using `edge-tts`, with distinct Emma and Brian
+  multilingual neural voices at a restrained 0.96× delivery rate. It requires Internet access
+  and sends only normalized public commentary to Microsoft's
   online speech service. No API key is required. It is an unofficial service integration, not an
   Azure Speech SLA.
 - `system` offline presets: macOS `say` is preferred where available; `espeak-ng` remains the
@@ -19,7 +20,9 @@ Strategy Memory, provider metadata, and hidden state are outside the speech requ
 - `openai-compatible`: optional configured `/v1/audio/speech` endpoint. It is conservatively
   treated as paid because KoalaBattle cannot infer the operator's endpoint billing.
 
-Edge audio is converted locally through FFmpeg to the same validated PCM WAV boundary. OpenAI
+Edge audio is converted locally through FFmpeg to the same validated PCM WAV boundary. Video
+mixes are peak-limited and normalized to 48 kHz stereo so a low-rate fallback source cannot
+silently dictate the final export format. OpenAI
 speech returns audio but KoalaBattle does not claim word timestamps. Captions use
 deterministic proportional timing and are normalized to actual cached WAV duration after
 synthesis. WAV is the only internal format; FFmpeg is not required.

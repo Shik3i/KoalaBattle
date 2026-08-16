@@ -218,12 +218,21 @@ class VideoExportService:
             for cue in production.cues
             if cue.track is Track.VOICE and cue.event_sequence is not None
         }
+        uses_basic_system_speech = any(
+            preset_id.startswith("system-")
+            for preset_id in production.voice_assignments.values()
+        )
         for sequence in sorted(commentary_sequences - voiced_sequences):
             missing.append(f"event-{sequence}")
         checks = {
             "production": production.status.value,
             "speech": (
                 f"{len(commentary_sequences) - len(missing)}/{len(commentary_sequences)} cached"
+            ),
+            "voice_quality": (
+                "basic offline system speech"
+                if uses_basic_system_speech
+                else "neural / configured"
             ),
             "sprites": "local asset provider",
             "music": "optional / local only",
@@ -256,13 +265,19 @@ class VideoExportService:
             and capabilities.free_bytes >= self.settings.video_min_free_bytes
             and (not speech_required or not missing or degraded_speech)
         )
-        warnings = (
-            (
+        warnings = tuple(
+            warning
+            for warning in (
                 "Speech is unavailable for some commentary; captions remain and those cues "
-                "will render silently.",
+                "will render silently."
+                if missing
+                else None,
+                "This production uses basic offline system speech. Regenerate it with the "
+                "Edge Neural presets before a production export."
+                if production.profile.speech_enabled and uses_basic_system_speech
+                else None,
             )
-            if missing
-            else ()
+            if warning is not None
         )
         return ExportPreflight(
             ready=ready, checks=checks, missing_speech=tuple(missing), warnings=warnings
