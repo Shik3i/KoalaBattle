@@ -1,27 +1,34 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { api, wsBase } from '$lib/api';
+  import { connectLiveSocket } from '$lib/presentation/live-socket';
   import ProductionConsole from '$lib/production/ProductionConsole.svelte';
   import type { TournamentArchive } from '$lib/types';
   export let data: { id: string };
   let tournament: TournamentArchive | null = null;
   let error = '';
-  let socket: WebSocket | null = null;
+  let stopSocket: (() => void) | null = null;
   $: participants = new Map((tournament?.participants || []).map((item) => [item.id, item]));
   $: live = tournament?.series.filter((series) => ['running', 'queued'].includes(series.status)).slice(0, 3) || [];
   $: recent = [...(tournament?.series || [])].reverse().find((series) => series.status === 'completed');
   $: activeMatchId = live[0]?.match_ids.at(-1) || recent?.match_ids.at(-1) || null;
-  onMount(() => { void connect(); return () => socket?.close(); });
+  onMount(() => { void connect(); return () => stopSocket?.(); });
   async function connect() {
     try {
       tournament = await api<TournamentArchive>(`/api/tournaments/${data.id}/presentation`);
-      socket = new WebSocket(`${wsBase()}/api/tournaments/${data.id}/stream`);
-      socket.onmessage = ({ data: raw }) => {
-        const message = JSON.parse(raw) as { kind: string; tournament?: TournamentArchive };
-        if (message.tournament) tournament = message.tournament;
-      };
-      socket.onerror = () => (error = 'Reconnecting…');
+      stopSocket = connectLiveSocket({
+        url: `${wsBase()}/api/tournaments/${data.id}/stream`,
+        onConnected: refresh,
+        onStatus: (status) => (error = status === 'connected' ? '' : 'Reconnecting…'),
+        onMessage: (raw) => {
+          const message = JSON.parse(raw) as { kind: string; tournament?: TournamentArchive };
+          if (message.tournament) tournament = message.tournament;
+        }
+      });
     } catch (caught) { error = caught instanceof Error ? caught.message : String(caught); }
+  }
+  async function refresh() {
+    tournament = await api<TournamentArchive>(`/api/tournaments/${data.id}/presentation`);
   }
   const name = (id: string | null) => id ? participants.get(id)?.display_name || 'TBD' : 'TBD';
 </script>
@@ -34,7 +41,7 @@
       <section class="bracket"><div class="section-label">Bracket / schedule</div>{#each tournament.series.slice(-8) as series}<article class:live={['running','queued'].includes(series.status)} class:complete={series.status === 'completed'}><div><span>{name(series.participant_a_id)}</span><strong>{series.wins_a}</strong></div><div><span>{name(series.participant_b_id)}</span><strong>{series.wins_b}</strong></div><footer>R{series.round_number} · BO{series.best_of} · {series.status}</footer></article>{/each}</section>
       <section class="live-board"><div class="section-label">Live series</div>{#if live.length}{#each live as series}<article><small>ROUND {series.round_number}</small><h2>{name(series.participant_a_id)} <i>vs</i> {name(series.participant_b_id)}</h2><div><strong>{series.wins_a}</strong><span>BEST OF {series.best_of}</span><strong>{series.wins_b}</strong></div></article>{/each}{:else}<article class="waiting"><small>NEXT UPDATE</small><h2>{tournament.status === 'completed' ? 'Tournament complete' : 'Waiting for the next series'}</h2></article>{/if}{#if recent}<aside><span>Latest result</span><strong>{name(recent.winner_participant_id)} wins series {recent.wins_a}–{recent.wins_b}</strong></aside>{/if}</section>
     </div>
-    <footer><span>{tournament.participants.length} PARTICIPANTS</span><span>{tournament.statistics.matches_played} MATCHES PLAYED</span><span>{tournament.statistics.series_played} SERIES COMPLETE</span><span>KOALABATTLE 0.4</span></footer>
+    <footer><span>{tournament.participants.length} PARTICIPANTS</span><span>{tournament.statistics.matches_played} MATCHES PLAYED</span><span>{tournament.statistics.series_played} SERIES COMPLETE</span><span>KOALABATTLE 0.10.0</span></footer>
   </div>
 {/if}
 {#if activeMatchId}<ProductionConsole matchId={activeMatchId} compact overlay />{/if}

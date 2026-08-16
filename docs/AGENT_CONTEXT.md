@@ -15,7 +15,7 @@ optional Strategy Memory. No provider conversation ID or prior provider message 
 
 New decisions persist normalized knowledge/context, metrics, every profile/version, rendered
 prompt, memory before/after, raw and parsed response, validation, and selected action. Old
-Phase 1–4 decisions remain readable; the inspector reports unavailable context instead of
+Legacy decisions remain readable; the inspector reports unavailable context instead of
 fabricating it.
 
 ## Knowledge and hidden information

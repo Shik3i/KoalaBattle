@@ -3,6 +3,7 @@
 ## Operate
 
 - [Development and validation](DEVELOPMENT.md)
+- [Release readiness and known limitations](RELEASE_READINESS.md)
 - [Orchestration and lifecycle](ORCHESTRATION.md)
 - [Tournament formats and recovery](TOURNAMENTS.md)
 - [OBS browser sources](OBS.md)

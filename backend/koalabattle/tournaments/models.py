@@ -80,13 +80,13 @@ class MatchTemplateSnapshot(FrozenTournamentModel):
     @model_validator(mode="after")
     def supported_showdown_format(self) -> MatchTemplateSnapshot:
         if self.format not in {"gen9randombattle", "gen9ou"} or self.generation != 9:
-            raise ValueError("Phase 5 supports gen9randombattle and gen9ou only")
+            raise ValueError("Tournaments support gen9randombattle and gen9ou only")
         if self.format == "gen9randombattle" and self.team_policy is not TeamPolicy.SHOWDOWN_RANDOM:
             raise ValueError("Random Battle tournaments must use Showdown Random teams")
         if self.format == "gen9ou" and self.team_policy is TeamPolicy.SHOWDOWN_RANDOM:
             raise ValueError("Gen 9 OU tournaments require custom team policy")
         if self.format == "gen9ou" and self.team_policy is not TeamPolicy.FIXED:
-            raise ValueError("Phase 5 Gen 9 OU tournaments currently support fixed teams only")
+            raise ValueError("Gen 9 OU tournaments currently support fixed teams only")
         return self
 
 

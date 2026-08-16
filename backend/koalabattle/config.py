@@ -50,6 +50,9 @@ class Settings(BaseSettings):
     pricing_table_json: str = "{}"
     speech_provider: str = "system"
     speech_audio_root: Path = Path("data/audio")
+    speech_edge_enabled: bool = True
+    speech_edge_voice_p1: str = "en-US-AvaMultilingualNeural"
+    speech_edge_voice_p2: str = "en-US-AndrewMultilingualNeural"
     speech_max_concurrency: int = Field(default=2, ge=1, le=16)
     speech_max_text_characters: int = Field(default=1000, ge=1, le=4096)
     speech_openai_model: str = "gpt-4o-mini-tts"

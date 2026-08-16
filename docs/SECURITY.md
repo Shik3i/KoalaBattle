@@ -11,7 +11,7 @@
   generated prompts, normalized agent context/knowledge, provider response metadata, raw
   Showdown logs, fixed team snapshot IDs/exports/packed teams, and error detail.
 - The local production-control endpoint may expose the full safe audit,
-  including provider output, prompt, context, and private team snapshots. KoalaBattle 0.7
+  including provider output, prompt, context, and private team snapshots. KoalaBattle 0.10.0
   remains local-first and does not
   add accounts or remote authorization.
 - Provider text is parsed as data. Only an exact normalized legal action ID reaches the
@@ -22,7 +22,7 @@
   match's waiter. One request is accepted once. Queue, tournament claims, and result updates
   are persisted transactionally.
 
-## Targeted Phase 5 audit
+## Release-candidate audit
 
 - XSS: provider/team/commentary data is rendered through Svelte text interpolation or readonly
   controls; no raw HTML insertion is used.
@@ -57,7 +57,9 @@ intentionally preserves operator input.
 
 - Speech input is constructed only from bounded public commentary; no prompt, knowledge,
   Strategy Memory, raw response, or provider metadata is accepted by the speech layer.
-- Network speech providers are conservatively classified as paid and need `allow_paid=true`.
+- Edge neural speech is free and enabled by default, but sends bounded public commentary to
+  Microsoft's online speech service; disable it for strict offline operation. Configured OpenAI
+  speech providers remain classified as paid and need `allow_paid=true`.
 - Cache keys are lowercase SHA-256 only. Resolved paths must remain below the configured audio
   root; media endpoints never accept arbitrary paths.
 - WAV payloads are limited to 16 MiB and validated before atomic publication and again before

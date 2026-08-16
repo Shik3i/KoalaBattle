@@ -19,8 +19,8 @@ updated revision and duration; it does not rebuild earlier cues.
 
 Lifecycle: `draft -> live -> finalizing -> finalized`, with `failed` for a finalization error.
 Phase-6 `preparing`, `ready`, and `partial` values remain readable for database compatibility.
-After match completion the result/outro cues are persisted immediately. Local/free speech is
-prepared outside match execution, ordering is revalidated, duration is fixed, and a SHA-256
+After match completion the result/outro cues are persisted immediately. Free Edge neural speech
+is prepared outside match execution, ordering is revalidated, duration is fixed, and a SHA-256
 seal is stored. Exports require this fixed presentation clock. New settings create a new
 production; battle data and prior productions stay unchanged.
 
@@ -28,8 +28,9 @@ production; battle data and prior productions stay unchanged.
 
 1. Open a completed replay and create a production profile.
 2. Select stable VoicePresets for `p1` and `p2`.
-3. **Prepare free speech** generates or reuses local cache media. Paid providers require a
-   separate explicit API action with `allow_paid=true`.
+3. **Prepare free neural speech** generates or reuses local cache media. Edge neural voices use
+   Microsoft's online service without an API key; offline system presets remain available. Paid
+   providers require a separate explicit API action with `allow_paid=true`.
 4. Inspect each cue in the Production Timeline inspector.
 5. Enable browser audio, then play or control the director.
 
@@ -37,6 +38,6 @@ Director states: pre-show, match intro, team reveal, battle, between games, resu
 paused, and ended. Production pause is persisted separately from battle pause. Manual commands
 may claim an `authoritative_client_id`; OBS and other passive clients remain playback-isolated.
 
-Tournament bracket scheduling remains owned by the Phase-4 runtime. Phase 7 exports individual
+Tournament bracket scheduling remains owned by the tournament runtime. Video jobs export individual
 tournament matches; a nonlinear full-tournament editor and automatic highlights remain out of
 scope.

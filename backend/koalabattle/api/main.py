@@ -10,6 +10,7 @@ from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconn
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
+from koalabattle import __version__
 from koalabattle.agents.context import CONTEXT_PROFILES, PROMPT_PROFILES, render_agent_prompt
 from koalabattle.config import Settings, get_settings
 from koalabattle.core.assets import (
@@ -103,7 +104,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app = FastAPI(
         title="KoalaBattle API",
-        version="0.9.0",
+        version=__version__,
         description="Auditable AI battle tournaments, deterministic production and video API",
         lifespan=lifespan,
     )
@@ -117,7 +118,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/healthz")
     async def health() -> dict[str, str]:
-        return {"status": "ok", "version": "0.9.0"}
+        return {"status": "ok", "version": __version__}
 
     @app.get("/api/video/presets", response_model=tuple[VideoExportPreset, ...])
     async def video_presets(request: Request) -> tuple[VideoExportPreset, ...]:

@@ -22,8 +22,8 @@
   let productions: ProductionTimeline[] = [];
   let voices: VoicePreset[] = [];
   let selectedProfile = 'live-stream';
-  let selectedP1 = 'system-p1';
-  let selectedP2 = 'system-p2';
+  let selectedP1 = 'edge-neural-p1';
+  let selectedP2 = 'edge-neural-p2';
   let production: ProductionTimeline | null = null;
   let engine: ProductionAudioEngine | null = null;
   let playback: ProductionPlaybackState | null = null;
@@ -165,7 +165,7 @@
       <label>Player 2 voice<select bind:value={selectedP2}>{#each voices as voice}<option value={voice.id}>{voice.display_name}</option>{/each}</select></label>
       <button on:click={() => preview(selectedP2)}>Preview P2</button>
       <button on:click={create} disabled={busy}>Create separate production</button>
-      {#if production}<button on:click={prepare} disabled={busy || production.status === 'preparing'}>Prepare free speech</button>{/if}
+      {#if production}<button on:click={prepare} disabled={busy || production.status === 'preparing'}>Prepare free neural speech</button>{/if}
       <button class="enable" on:click={() => engine?.enable()} disabled={playback?.enabled}>{playback?.enabled ? 'Audio enabled' : 'Enable audio'}</button>
     </div>
     {#if production && playback}

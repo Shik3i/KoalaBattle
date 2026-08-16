@@ -29,13 +29,19 @@ def arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("production_id", type=UUID)
     parser.add_argument("--preset", choices=sorted(PRESETS), default="youtube-1080p60")
-    parser.add_argument("--database-url", default="sqlite+aiosqlite:///./data/koalabattle.db")
+    parser.add_argument(
+        "--database-url", default="sqlite+aiosqlite:///./data/koalabattle.db"
+    )
     parser.add_argument("--frontend-url", default="http://localhost:5173")
     parser.add_argument("--api-url", default="http://localhost:8001")
-    parser.add_argument("--output-root", type=Path, default=Path("data/videos/benchmarks"))
+    parser.add_argument(
+        "--output-root", type=Path, default=Path("data/videos/benchmarks")
+    )
     parser.add_argument("--encoder", default="software")
     parser.add_argument("--workers", type=int, choices=range(1, 9), default=4)
-    parser.add_argument("--render-engine", choices=("native", "legacy"), default="native")
+    parser.add_argument(
+        "--render-engine", choices=("native", "legacy"), default="native"
+    )
     parser.add_argument("--start-ms", type=int, default=0)
     parser.add_argument("--end-ms", type=int)
     return parser.parse_args()

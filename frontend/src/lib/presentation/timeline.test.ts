@@ -89,3 +89,13 @@ test('follow mode accepts ordered live events without duplicate sequences', () =
   clock.runNext();
   assert.equal(timeline.snapshot().state.eventSequence, 1);
 });
+
+test('follow mode accelerates when a fast match creates a large backlog', () => {
+  const clock = new FakeClock();
+  const backlog = Array.from({ length: 100 }, (_, index) => ({
+    ...events[1], id: index + 1, sequence: index + 1
+  }));
+  const timeline = new PresentationTimeline(match, backlog, clock, true);
+  timeline.play();
+  assert.equal(clock.tasks[0].delay, 33);
+});

@@ -16,6 +16,7 @@ Optional isolated renderer:
 docker compose --profile renderer up --build
 ```
 
+The backend image adds `edge-tts`, FFmpeg conversion, and the basic `espeak-ng` fallback.
 `Dockerfile.renderer` adds Chromium, FFmpeg/FFprobe, Playwright, `espeak-ng`, and local DejaVu
 fonts. It shares only `data/` metadata/media and the read-only asset directory. Its browser
 loads the Svelte frontend and backend through Docker-internal origins; arbitrary network

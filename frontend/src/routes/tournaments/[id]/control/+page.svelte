@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import MatchCard from '$lib/MatchCard.svelte';
   import { api, wsBase } from '$lib/api';
+  import { connectLiveSocket } from '$lib/presentation/live-socket';
   import type { MatchSummary, TournamentArchive, TournamentParticipant } from '$lib/types';
 
   export let data: { id: string };
@@ -9,20 +10,23 @@
   let matches: MatchSummary[] = [];
   let error = '';
   let copied = false;
-  let socket: WebSocket | null = null;
+  let stopSocket: (() => void) | null = null;
 
   $: participantMap = new Map((tournament?.participants || []).map((participant) => [participant.id, participant]));
   $: rounds = tournament ? [...new Set(tournament.series.map((series) => series.round_number))] : [];
 
   onMount(() => {
     void load();
-    socket = new WebSocket(`${wsBase()}/api/tournaments/${data.id}/stream`);
-    socket.onmessage = ({ data: raw }) => {
-      const message = JSON.parse(raw) as { kind: string; tournament?: TournamentArchive };
-      if (message.kind === 'tournament_snapshot' && message.tournament) { tournament = message.tournament; void loadMatches(); }
-    };
-    socket.onerror = () => (error = 'Tournament live updates disconnected.');
-    return () => socket?.close();
+    stopSocket = connectLiveSocket({
+      url: `${wsBase()}/api/tournaments/${data.id}/stream`,
+      onConnected: load,
+      onStatus: (status) => (error = status === 'connected' ? '' : 'Tournament live updates reconnecting…'),
+      onMessage: (raw) => {
+        const message = JSON.parse(raw) as { kind: string; tournament?: TournamentArchive };
+        if (message.kind === 'tournament_snapshot' && message.tournament) { tournament = message.tournament; void loadMatches(); }
+      }
+    });
+    return () => stopSocket?.();
   });
 
   async function load() {

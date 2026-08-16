@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import MatchCard from '$lib/MatchCard.svelte';
   import { api, wsBase } from '$lib/api';
+  import { connectLiveSocket } from '$lib/presentation/live-socket';
   import type { AdminOverview, MatchSummary, ProviderStatus, TournamentSummary } from '$lib/types';
 
   let overview: AdminOverview | null = null;
@@ -11,7 +12,7 @@
   let search = '';
   let status = '';
   let error = '';
-  let socket: WebSocket | null = null;
+  let stopSocket: (() => void) | null = null;
   let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 
   $: active = matches.filter((match) => ['starting', 'running', 'waiting', 'paused'].includes(match.status));
@@ -20,10 +21,15 @@
 
   onMount(() => {
     void load();
-    socket = new WebSocket(`${wsBase()}/api/admin/stream`);
-    socket.onmessage = () => scheduleRefresh();
-    socket.onerror = () => (error = 'Director live updates disconnected; manual refresh remains available.');
-    return () => { socket?.close(); if (refreshTimer) clearTimeout(refreshTimer); };
+    stopSocket = connectLiveSocket({
+      url: `${wsBase()}/api/admin/stream`,
+      onMessage: scheduleRefresh,
+      onConnected: load,
+      onStatus: (connection) => {
+        if (connection === 'reconnecting') error = 'Director live updates reconnecting; manual refresh remains available.';
+      }
+    });
+    return () => { stopSocket?.(); if (refreshTimer) clearTimeout(refreshTimer); };
   });
 
   function scheduleRefresh() {
@@ -83,7 +89,7 @@
   </div>
   <aside>
     <section class="panel side-panel"><header><span class="eyebrow">Tournaments</span><a href="/tournaments">All →</a></header>{#if tournaments.length}{#each tournaments.slice(0, 8) as tournament}<a class="tournament-row" href={`/tournaments/${tournament.id}/control`}><span><strong>{tournament.name}</strong><small>{tournament.participant_count} participants · {tournament.format.replace('_', ' ')}</small></span><span class={`status-pill ${tournament.status}`}>{tournament.status}</span></a>{/each}{:else}<p class="empty">No tournaments.</p>{/if}</section>
-    <section class="panel side-panel"><span class="eyebrow">Provider status</span><div class="provider-list">{#each providers as provider}<span><i class:ready={provider.configured}></i><strong>{provider.id}</strong><small>{provider.configured ? 'configured' : 'not configured'}</small></span>{/each}</div></section>
+    <section class="panel side-panel"><span class="eyebrow">Provider readiness</span><div class="provider-list">{#each providers as provider}<span><i class:ready={provider.configured}></i><strong>{provider.id === 'fake' ? 'Testing · Fake' : provider.id}</strong><small>{provider.configured ? 'ready' : 'optional'}</small></span>{/each}</div></section>
     <section class="panel side-panel warning"><span class="eyebrow">Exposure boundary</span><p>Admin and control routes are intended for a protected local network. Spectator and OBS routes are read-only.</p></section>
   </aside>
 </div>

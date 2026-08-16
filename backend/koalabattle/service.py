@@ -5,6 +5,7 @@ from urllib.error import URLError
 from urllib.request import urlopen
 from uuid import UUID
 
+from koalabattle import __version__
 from koalabattle.agents import (
     Agent,
     ApiAgent,
@@ -528,7 +529,7 @@ class BattleService:
             ),
             "provider_failures": counts.get(MatchStatus.FAILED, 0),
             "showdown": await self._showdown_health(),
-            "backend": {"status": "ok", "version": "0.9.0"},
+            "backend": {"status": "ok", "version": __version__},
         }
 
     async def _showdown_health(self) -> dict[str, object]:

@@ -17,7 +17,7 @@ concurrency limits both apply.
 
 Match templates persist PromptProfile, ContextProfile, memory policy, battle format, and team
 policy. Participant snapshots may reference immutable team snapshot IDs. Gen 9 Random Battle
-uses `showdown-random`; Phase 5 Gen 9 OU uses `fixed` teams. Both players should use equivalent
+uses `showdown-random`; Gen 9 OU uses `fixed` teams. Both players should use equivalent
 prompt/context/memory policies for fair comparison.
 
 ## Lifecycle

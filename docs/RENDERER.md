@@ -1,6 +1,6 @@
 # Renderer
 
-Phase 2 adds a versioned production presentation layer without changing battle simulation
+KoalaBattle has a versioned production presentation layer without changing battle simulation
 or persisted match state:
 
 ```text
@@ -51,7 +51,7 @@ The offline route builds one indexed `ProductionFrameRenderer` per page. Timelin
 presentation snapshots are indexed once; binary search selects the current state, including
 backward seeks and future-information boundaries.
 
-Phase 9 projects the same state into a pure `ProductionScene` for offline Canvas composition.
+The native compositor projects the same state into a pure `ProductionScene` for offline Canvas composition.
 The scene covers landscape/vertical placement, HP/status panels, local sprites/placeholders,
 physical/special/status choreography, projectiles, beams, pulses, impact authority, weather,
 terrain, camera shake, captions, intros, and results. It does not query Showdown or providers.

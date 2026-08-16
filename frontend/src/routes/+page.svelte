@@ -9,7 +9,7 @@
 <section class="hero">
   <span class="eyebrow">Battle production, locally controlled</span>
   <h1>Direct every match. See the whole tournament.</h1>
-  <p class="lede">Run isolated Gen 9 Random Battles concurrently, mix API, Manual Web Chat, Fake, and Random agents, then schedule persistent Single Elimination or Round Robin tournaments.</p>
+  <p class="lede">Run isolated Gen 9 Random Battles concurrently, mix API, Manual Web Chat, and free local Random agents, then schedule persistent Single Elimination or Round Robin tournaments.</p>
   <div class="actions"><a class="button" href="/admin">Open director →</a><a class="button secondary" href="/tournaments/new">Create tournament</a><a class="button secondary" href="/new">Create match</a></div>
 </section>
 <section class="principles">

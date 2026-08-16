@@ -106,9 +106,7 @@ class NativePipelineMetrics:
             "production_scene_version": "2.0",
             "codec": str(self.browser.get("codec", "unknown")),
             "codec_path": str(self.browser.get("codecPath", "unknown")),
-            "hardware_acceleration": str(
-                self.browser.get("hardwareAcceleration", "no-preference")
-            ),
+            "hardware_acceleration": str(self.browser.get("hardwareAcceleration", "no-preference")),
             "output_frames": int(self.browser.get("outputFrames", 0)),
             "unique_renders": int(self.browser.get("uniqueRenders", 0)),
             "static_held_frames": int(self.browser.get("staticHeldFrames", 0)),
@@ -373,9 +371,7 @@ class LegacyScreenshotRendererExporter(VideoExporter):
                     )
                     return page
 
-                pages = await asyncio.gather(
-                    *(prepare_page() for _ in range(metrics.page_workers))
-                )
+                pages = await asyncio.gather(*(prepare_page() for _ in range(metrics.page_workers)))
                 metrics.setup_seconds = time.monotonic() - setup_started
                 await progress(ExportStatus.RENDERING, f"Rendering 0 / {frame_total}", 5)
                 last_report = 0.0
@@ -751,9 +747,7 @@ class OfflineRendererExporter(LegacyScreenshotRendererExporter):
         cancelled: Cancelled,
     ) -> Path:
         if job.render_engine == "legacy":
-            return await super().export(
-                job, production, progress=progress, cancelled=cancelled
-            )
+            return await super().export(job, production, progress=progress, cancelled=cancelled)
         if importlib.util.find_spec("playwright") is None:
             raise RuntimeError("Playwright is unavailable; install koalabattle[renderer]")
         from playwright.async_api import async_playwright

@@ -9,7 +9,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 VIDEO_SCHEMA_VERSION = "1.1"
-RENDERER_VERSION = "0.9.0-native-compositor-v1"
+RENDERER_VERSION = "0.10.0-native-compositor-v1"
 AUDIO_PIPELINE_VERSION = "1.1"
 VISUAL_PROFILE_VERSION = "2.0"
 
@@ -219,7 +219,7 @@ class VideoExportJob(FrozenModel):
     attempt: int = Field(default=1, ge=1)
     renderer_version: str = RENDERER_VERSION
     pacing_profile_version: str = "1.0"
-    frontend_version: str = "0.9.0"
+    frontend_version: str = "0.10.0"
     production_schema_version: str = "2.0"
     audio_pipeline_version: str = AUDIO_PIPELINE_VERSION
     visual_profile_version: str = VISUAL_PROFILE_VERSION

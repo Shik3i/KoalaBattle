@@ -6,13 +6,16 @@ tournament, watch, control, and OBS interfaces. Pokémon Showdown supports Gen 9
 Battle and validated fixed-team Gen 9 OU; the tournament core consumes generic participants
 and results.
 
-Phase 9 adds a native deterministic Canvas compositor and streaming WebCodecs video engine.
-It preserves the polished all-type/category battle presentation while avoiding screenshot
-capture for normal offline production. Only stored events, local assets, and cached audio are
-used; rendering never reruns Showdown or battle LLMs. OBS remains the realtime live path.
+The deterministic Canvas/WebCodecs compositor creates H.264/AAC landscape and vertical video
+without rerunning Showdown or battle LLMs. Live watch and OBS views reconnect automatically;
+stored events, optional local assets, and cached audio remain the source of truth.
 
 Supported agents: Random, Manual Web Chat, OpenAI, Gemini, Anthropic, DeepSeek, and generic
 OpenAI-compatible providers. Manual Web Chat needs no API key.
+
+Free Edge neural voices are the production-audio default; they need Internet access but no API
+key and receive only public commentary. Basic offline system speech and completely silent
+production remain available.
 
 KoalaBattle is not affiliated with Nintendo, Game Freak, The Pokémon Company, Smogon, or
 Pokémon Showdown. No Pokémon artwork, sprites, audio, or other third-party media is bundled.
@@ -29,7 +32,8 @@ docker compose up --build
 Open <http://localhost:3000>; API docs: <http://localhost:8001/docs>. If port 3000 is in
 use, set `KOALABATTLE_FRONTEND_PORT=3001` in `.env`.
 
-The stack contains the SvelteKit UI, FastAPI backend, SQLite, zero-cost local `espeak-ng`, a
+The stack contains the SvelteKit UI, FastAPI backend, SQLite, free Edge neural speech with an
+`espeak-ng` offline fallback, a
 local Pokémon Showdown server,
 and an isolated Showdown team-validator service. Showdown is pinned to
 `b22742debfdce6e640193384f5731b9030f9cb6e`; the backend pins
@@ -50,8 +54,8 @@ docker compose --profile renderer up --build
    Battle requires no team setup.
 3. Use `/admin` to inspect capacity, queued/running/waiting matches, Showdown health, costs,
    and active tournaments.
-4. Use `/watch/:matchId` for a spectator-safe view and `/matches/:matchId/control` for local
-   production control.
+4. Use `/watch/:matchId` for a spectator-safe view and `/battle/:matchId` for local production
+   control. The default 200-turn safety limit can be changed explicitly per match.
 
 Every Manual/API turn receives a fresh, versioned player-scoped knowledge/context snapshot.
 Prompts do not depend on provider chat history. Strategy Memory is a bounded replacement note,
@@ -123,9 +127,10 @@ Details: [Video export](docs/VIDEO_EXPORT.md),
 [Offline renderer](docs/OFFLINE_RENDERER.md), and
 [OBS recording](docs/OBS_RECORDING.md).
 
-On the measured macOS development host, full 1080p60 renders improved from 70.42 s to
-51.76 s for 27.605 s of media (`0.533x` realtime). Fast Preview rendered the same media in
-14.63 s (`1.887x`). See [Performance](docs/PERFORMANCE.md) for methodology and limits.
+On the measured macOS development host, the native compositor rendered 27.617 s of 1080p60
+media in 17.673 s (`1.562x` realtime including job overhead); the corresponding compositor,
+encode, and mux span reached `2.021x`. See [Performance](docs/PERFORMANCE.md) for methodology,
+vertical and long-video results, and platform limits.
 
 ## Persistent data and backups
 
@@ -168,4 +173,8 @@ Details: [Development](docs/DEVELOPMENT.md). Documentation index: [docs/README.m
 - `scripts/setup_assets.py`: explicit third-party asset installer/status tool
 - `showdown`: reproducibly pinned local engine image
 
-Licensed under the [MIT License](LICENSE).
+KoalaBattle source is licensed under the [MIT License](LICENSE). Pokémon Showdown, `poke-env`,
+optional Pokémon media, generated media, and operator-provided content retain their own terms;
+none of the optional sprite pack is covered by this repository's MIT license. Release status
+and intentional limits: [Release readiness](docs/RELEASE_READINESS.md). Changes:
+[Changelog](CHANGELOG.md).

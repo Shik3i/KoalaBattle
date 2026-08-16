@@ -94,9 +94,7 @@ class VideoExportService:
     def pacing_profiles(self) -> tuple[PacingProfile, ...]:
         return tuple(PACING_PROFILES.values())
 
-    async def create(
-        self, request: CreateVideoExport, *, attempt: int = 1
-    ) -> VideoExportJob:
+    async def create(self, request: CreateVideoExport, *, attempt: int = 1) -> VideoExportJob:
         production = await self.productions.require(request.production_id)
         if production.status not in {
             ProductionStatus.FINALIZED,
@@ -296,17 +294,14 @@ class VideoExportService:
         raw_frame_available = (
             ffmpeg and ffprobe and playwright and chromium and writable and "libx264" in encoders
         )
-        native_available = (
-            raw_frame_available
-            or (
-                ffmpeg
-                and ffprobe
-                and playwright
-                and chromium
-                and writable
-                and webcodecs
-                and (webcodecs_h264 or (webcodecs_vp9 and bool(encoders)))
-            )
+        native_available = raw_frame_available or (
+            ffmpeg
+            and ffprobe
+            and playwright
+            and chromium
+            and writable
+            and webcodecs
+            and (webcodecs_h264 or (webcodecs_vp9 and bool(encoders)))
         )
         external = self._renderer_heartbeat() if use_heartbeat and not native_available else None
         if external is not None:
@@ -590,12 +585,8 @@ class VideoExportService:
                     "output_frame_count": int_metric(
                         renderer_metrics, "output_frames", export_manifest.frame_count
                     ),
-                    "unique_rendered_frames": int_metric(
-                        renderer_metrics, "unique_renders"
-                    ),
-                    "static_held_frames": int_metric(
-                        renderer_metrics, "static_held_frames"
-                    ),
+                    "unique_rendered_frames": int_metric(renderer_metrics, "unique_renders"),
+                    "static_held_frames": int_metric(renderer_metrics, "static_held_frames"),
                     "animated_frames": int_metric(renderer_metrics, "animated_frames"),
                     "renderer_transport": string_or_none(renderer_metrics.get("transport")),
                     "selected_encoder": export_manifest.encoder,

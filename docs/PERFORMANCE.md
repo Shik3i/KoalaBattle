@@ -47,7 +47,7 @@ task, and cache hits perform no provider call. The browser uses one 40 ms produc
 per visible production client; seeking stops old media before re-indexing cues. WAV payloads
 are capped at 16 MiB and are streamed from disk rather than SQLite.
 
-The zero-cost system smoke test validates an actual local `espeak-ng` WAV. FakeSpeechProvider
+The offline-fallback smoke test validates an actual local system WAV. FakeSpeechProvider
 is used for repeatable concurrency/cache tests; no paid network synthesis is part of the gate.
 
 ## Phase 7 video limits
@@ -62,7 +62,7 @@ Frame count is `ceil(duration_ms * fps / 1000)`. Frame time is always `index * 1
 never an accumulated delta.
 
 Actual offline renders on the same macOS development host, using Chrome 151, FFmpeg 8.1.2,
-software `libx264`, in-memory JPEG frames, and cached zero-cost system speech:
+software `libx264`, in-memory JPEG frames, and cached zero-cost speech:
 
 | Production | Output | Frames | Media duration | Render wall time | Media / wall ratio |
 | --- | --- | ---: | ---: | ---: | ---: |

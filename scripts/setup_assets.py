@@ -21,7 +21,7 @@ from urllib.request import Request, urlopen
 SOURCE_BASE = "https://play.pokemonshowdown.com/sprites/"
 SOURCE_REPOSITORY = "https://github.com/smogon/sprites"
 MANIFEST_NAME = "pokemon-showdown-assets.json"
-USER_AGENT = "KoalaBattle asset setup/0.4 (+https://github.com/Shik3i/KoalaBattle)"
+USER_AGENT = "KoalaBattle asset setup/0.10.0 (+https://github.com/Shik3i/KoalaBattle)"
 
 
 @dataclass(frozen=True)
@@ -54,7 +54,9 @@ class IndexParser(HTMLParser):
 
 def normalized_filename(source_name: str, extension: str) -> str:
     stem = Path(source_name).stem.casefold()
-    normalized = "".join(character for character in stem if character.isascii() and character.isalnum())
+    normalized = "".join(
+        character for character in stem if character.isascii() and character.isalnum()
+    )
     if not normalized:
         raise ValueError(f"unsupported source filename: {source_name!r}")
     return f"{normalized}{extension}"
@@ -122,7 +124,11 @@ def load_manifest(path: Path) -> dict[str, object] | None:
 
 def selected_categories(profile: str) -> dict[str, Category]:
     if profile == "static":
-        return {name: category for name, category in CATEGORIES.items() if not name.startswith("animated")}
+        return {
+            name: category
+            for name, category in CATEGORIES.items()
+            if not name.startswith("animated")
+        }
     return CATEGORIES
 
 
@@ -133,13 +139,19 @@ def build_plan(
     seen: dict[Path, tuple[int, str]] = {}
     for category_name, category in categories.items():
         for source_name in listings[category_name]:
-            target = category.target / normalized_filename(source_name, category.extension)
+            target = category.target / normalized_filename(
+                source_name, category.extension
+            )
             previous = seen.get(target)
             if previous:
                 previous_index, previous_source = previous
                 canonical_stem = target.stem
-                previous_is_canonical = Path(previous_source).stem.casefold() == canonical_stem
-                current_is_canonical = Path(source_name).stem.casefold() == canonical_stem
+                previous_is_canonical = (
+                    Path(previous_source).stem.casefold() == canonical_stem
+                )
+                current_is_canonical = (
+                    Path(source_name).stem.casefold() == canonical_stem
+                )
                 if current_is_canonical and not previous_is_canonical:
                     plan[previous_index] = (category_name, source_name, target)
                     seen[target] = (previous_index, source_name)
@@ -175,7 +187,8 @@ def install_file(
 def command_install(args: argparse.Namespace) -> int:
     categories = selected_categories(args.profile)
     listings = {
-        name: fetch_index(category, args.source_base) for name, category in categories.items()
+        name: fetch_index(category, args.source_base)
+        for name, category in categories.items()
     }
     plan = build_plan(listings, categories)
     manifest_path = args.vendor_root / MANIFEST_NAME
@@ -231,13 +244,17 @@ def command_install(args: argparse.Namespace) -> int:
         "files": sorted(retained + downloaded, key=lambda entry: entry["path"]),
     }
     temporary_manifest = manifest_path.with_suffix(".tmp")
-    temporary_manifest.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    temporary_manifest.write_text(
+        json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
+    )
     os.replace(temporary_manifest, manifest_path)
     print(f"Installed {len(manifest['files'])} assets in {args.asset_root}")
     return 0
 
 
-def verification(args: argparse.Namespace, *, quiet: bool = False) -> tuple[bool, list[str]]:
+def verification(
+    args: argparse.Namespace, *, quiet: bool = False
+) -> tuple[bool, list[str]]:
     manifest_path = args.vendor_root / MANIFEST_NAME
     manifest = load_manifest(manifest_path)
     if not manifest:
@@ -265,15 +282,21 @@ def command_status(args: argparse.Namespace) -> int:
     manifest = load_manifest(args.vendor_root / MANIFEST_NAME)
     installed = len(manifest.get("files", [])) if manifest else 0
     counts = {
-        name: len(list((args.asset_root / category.target).glob(f"*{category.extension}")))
+        name: len(
+            list((args.asset_root / category.target).glob(f"*{category.extension}"))
+        )
         for name, category in CATEGORIES.items()
     }
     print(f"Asset root: {args.asset_root}")
-    print(f"Manifest: {'present' if manifest else 'missing'} ({installed} managed files)")
+    print(
+        f"Manifest: {'present' if manifest else 'missing'} ({installed} managed files)"
+    )
     for name, count in counts.items():
         print(f"{name}: {count}")
     valid, problems = verification(args, quiet=True)
-    print(f"Managed installation: {'valid' if valid else 'not installed or incomplete'}")
+    print(
+        f"Managed installation: {'valid' if valid else 'not installed or incomplete'}"
+    )
     for problem in problems[:10]:
         print(f"- {problem}")
     return 0
@@ -283,7 +306,9 @@ def command_verify(args: argparse.Namespace) -> int:
     valid, problems = verification(args)
     if valid:
         manifest = load_manifest(args.vendor_root / MANIFEST_NAME)
-        print(f"Verified {len(manifest.get('files', [])) if manifest else 0} managed assets")
+        print(
+            f"Verified {len(manifest.get('files', [])) if manifest else 0} managed assets"
+        )
         return 0
     for problem in problems:
         print(problem, file=sys.stderr)
@@ -319,13 +344,19 @@ def parser() -> argparse.ArgumentParser:
     project_root = Path(__file__).resolve().parents[1]
     result = argparse.ArgumentParser(description=__doc__)
     result.add_argument("--asset-root", type=Path, default=project_root / "data/assets")
-    result.add_argument("--vendor-root", type=Path, default=project_root / "data/vendor")
+    result.add_argument(
+        "--vendor-root", type=Path, default=project_root / "data/vendor"
+    )
     subparsers = result.add_subparsers(dest="command", required=True)
     install_parser = subparsers.add_parser("install", help="download optional sprites")
-    install_parser.add_argument("--profile", choices=("static", "full"), default="static")
+    install_parser.add_argument(
+        "--profile", choices=("static", "full"), default="static"
+    )
     install_parser.add_argument("--refresh", action="store_true")
     install_parser.add_argument("--jobs", type=int, choices=range(1, 17), default=6)
-    install_parser.add_argument("--source-base", default=SOURCE_BASE, help=argparse.SUPPRESS)
+    install_parser.add_argument(
+        "--source-base", default=SOURCE_BASE, help=argparse.SUPPRESS
+    )
     subparsers.add_parser("verify", help="validate files and checksums")
     subparsers.add_parser("status", help="report local installation state")
     subparsers.add_parser("remove", help="remove only files managed by this tool")

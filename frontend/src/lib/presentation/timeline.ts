@@ -218,7 +218,9 @@ export class PresentationTimeline {
   private duration(event: BattleEvent): number {
     if (this.speed === 'instant' || this.preset === 'instant') return 0;
     const base = EVENT_DURATIONS[event.event_type] ?? 120;
-    return Math.max(16, Math.round((base * PRESET_MULTIPLIERS[this.preset]) / this.speed));
+    const backlog = this.follow ? this.events.length - this.index : 0;
+    const catchUp = backlog > 96 ? 16 : backlog > 48 ? 8 : backlog > 24 ? 4 : backlog > 12 ? 2 : 1;
+    return Math.max(16, Math.round((base * PRESET_MULTIPLIERS[this.preset]) / this.speed / catchUp));
   }
 
   private clearTimer(): void {

@@ -56,8 +56,12 @@ class ProductionService:
         self.queue = SpeechGenerationQueue(settings.speech_max_concurrency)
         self._timeline_locks: defaultdict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
         self._finalization_tasks: set[asyncio.Task[None]] = set()
+        edge_voices = (settings.speech_edge_voice_p1, settings.speech_edge_voice_p2)
         self.providers: dict[SpeechProviderKind, SpeechProvider] = {
-            SpeechProviderKind.SYSTEM: SystemSpeechProvider(),
+            SpeechProviderKind.SYSTEM: SystemSpeechProvider(
+                edge_enabled=settings.speech_edge_enabled,
+                edge_voices=edge_voices,
+            ),
             SpeechProviderKind.FAKE: FakeSpeechProvider(),
             SpeechProviderKind.OPENAI: OpenAISpeechProvider(api_key=settings.speech_openai_api_key),
             SpeechProviderKind.OPENAI_COMPATIBLE: OpenAISpeechProvider(
@@ -66,19 +70,44 @@ class ProductionService:
                 compatible=True,
             ),
         }
+        self.default_voice_assignments = (
+            {"p1": "edge-neural-p1", "p2": "edge-neural-p2"}
+            if settings.speech_edge_enabled
+            else {"p1": "system-p1", "p2": "system-p2"}
+        )
 
     async def start(self) -> None:
         defaults = (
             VoicePreset(
+                id="edge-neural-p1",
+                display_name="Edge Neural · Ava (online, free)",
+                provider=SpeechProviderKind.SYSTEM,
+                voice=self.settings.speech_edge_voice_p1,
+                model="edge-tts-7.2.8",
+                language="en-US",
+                speed=1.02,
+                enabled=self.settings.speech_edge_enabled,
+            ),
+            VoicePreset(
+                id="edge-neural-p2",
+                display_name="Edge Neural · Andrew (online, free)",
+                provider=SpeechProviderKind.SYSTEM,
+                voice=self.settings.speech_edge_voice_p2,
+                model="edge-tts-7.2.8",
+                language="en-US",
+                speed=1.02,
+                enabled=self.settings.speech_edge_enabled,
+            ),
+            VoicePreset(
                 id="system-p1",
-                display_name="System Voice A",
+                display_name="Offline System A (basic)",
                 provider=SpeechProviderKind.SYSTEM,
                 voice="system-default",
                 model="system",
             ),
             VoicePreset(
                 id="system-p2",
-                display_name="System Voice B",
+                display_name="Offline System B (basic)",
                 provider=SpeechProviderKind.SYSTEM,
                 voice="system-default",
                 model="system",
@@ -120,7 +149,7 @@ class ProductionService:
             profile = PRODUCTION_PROFILES[request.profile_id]
         except KeyError as error:
             raise ValueError(f"Unknown production profile: {request.profile_id}") from error
-        voices = {"p1": "system-p1", "p2": "system-p2", **request.voice_assignments}
+        voices = {**self.default_voice_assignments, **request.voice_assignments}
         available = {preset.id for preset in await self.repository.list_voices() if preset.enabled}
         if not set(voices.values()).issubset(available):
             raise ValueError("voice assignment references an unknown or disabled VoicePreset")
@@ -152,7 +181,11 @@ class ProductionService:
                 archive = await self.battles.get_match(event.match_id)
                 if archive is None:
                     return
-                production = build_timeline(archive, PRODUCTION_PROFILES["live-stream"])
+                production = build_timeline(
+                    archive,
+                    PRODUCTION_PROFILES["live-stream"],
+                    voices=self.default_voice_assignments,
+                )
                 await self.repository.save(production)
                 return
             for production in productions:
@@ -189,7 +222,13 @@ class ProductionService:
                 return
             productions = await self.repository.list_live_for_match(match_id)
             if not productions:
-                production = self._seal(build_timeline(archive, PRODUCTION_PROFILES["live-stream"]))
+                production = self._seal(
+                    build_timeline(
+                        archive,
+                        PRODUCTION_PROFILES["live-stream"],
+                        voices=self.default_voice_assignments,
+                    )
+                )
                 await self.repository.save(production)
                 return
             for production in productions:

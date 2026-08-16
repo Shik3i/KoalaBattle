@@ -3,6 +3,7 @@
   import BattleRenderer from '$lib/BattleRenderer.svelte';
   import ProductionConsole from '$lib/production/ProductionConsole.svelte';
   import { getPresentationMatch, wsBase } from '$lib/api';
+  import { connectLiveSocket } from '$lib/presentation/live-socket';
   import { loadRendererConfig } from '$lib/presentation/config';
   import { PresentationTimeline } from '$lib/presentation/timeline';
   import { defaultRendererConfig, type RendererConfig, type TimelineSnapshot } from '$lib/presentation/types';
@@ -12,23 +13,31 @@
   let timeline: PresentationTimeline | null = null;
   let snapshot: TimelineSnapshot | null = null;
   let config: RendererConfig = defaultRendererConfig();
-  let socket: WebSocket | null = null;
+  let stopSocket: (() => void) | null = null;
   let error = '';
-  onMount(() => { config = loadRendererConfig(); void connect(); return () => { socket?.close(); timeline?.destroy(); }; });
+  onMount(() => { config = loadRendererConfig(); void connect(); return () => { stopSocket?.(); timeline?.destroy(); }; });
   async function connect() {
     try {
-      match = await getPresentationMatch(data.id);
-      timeline = new PresentationTimeline(match, match.events, undefined, true);
-      timeline.subscribe((value) => (snapshot = value)); timeline.seek(match.events.length); timeline.play();
-      socket = new WebSocket(`${wsBase()}/api/matches/${data.id}/stream`);
-      socket.onmessage = ({ data: raw }) => {
+      await refresh();
+      stopSocket = connectLiveSocket({
+        url: `${wsBase()}/api/matches/${data.id}/stream`,
+        onConnected: refresh,
+        onStatus: (status) => (error = status === 'connected' ? '' : 'Live spectator reconnecting…'),
+        onMessage: (raw) => {
         const message = JSON.parse(raw) as { kind: string; event?: BattleEvent; match?: MatchArchive };
         if (message.kind === 'battle_event' && message.event) timeline?.append(message.event);
         if (message.kind === 'snapshot' && message.match && match) match = { ...match, status: message.match.status };
         if (message.kind === 'match_completed' && match) match.status = 'completed';
-      };
-      socket.onerror = () => (error = 'Live spectator updates disconnected.');
+        }
+      });
     } catch (caught) { error = caught instanceof Error ? caught.message : String(caught); }
+  }
+  async function refresh() {
+    const archive = await getPresentationMatch(data.id);
+    match = archive;
+    timeline?.destroy();
+    timeline = new PresentationTimeline(archive, archive.events, undefined, true);
+    timeline.subscribe((value) => (snapshot = value)); timeline.seek(archive.events.length); timeline.play();
   }
 </script>
 

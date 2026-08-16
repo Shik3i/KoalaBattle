@@ -38,5 +38,5 @@
     <div class="header-actions"><a class="button compact" href="/new">New match</a><button class="icon-button" on:click={toggleTheme} aria-label={`Use ${theme === 'dark' ? 'light' : 'dark'} application theme`}><span class:moon={theme === 'light'} class="theme-icon" aria-hidden="true"></span></button></div>
   </header>
   <main><slot /></main>
-  <footer><span>KoalaBattle 0.8</span><span>Local-first · Auditable context · Event-sourced · No Pokémon assets included</span></footer>
+  <footer><span>KoalaBattle 0.10.0</span><span>Local-first · Auditable context · Event-sourced · No Pokémon assets included</span></footer>
 {/if}

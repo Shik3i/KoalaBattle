@@ -34,6 +34,6 @@ events.
 
 ## Compatibility
 
-Unknown semantic events are ignored by the presentation reducer. Phase 1 snapshots and
+Unknown semantic events are ignored by the presentation reducer. Legacy snapshots and
 actor strings remain supported. Raw logs, dependency revisions, and seeds remain archival
 evidence; exact Showdown re-simulation is not required to render an old match.

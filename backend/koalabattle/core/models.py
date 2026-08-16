@@ -210,7 +210,7 @@ class AgentConfiguration(FrozenModel):
 
 class MatchLimits(FrozenModel):
     maximum_total_cost: float | None = Field(default=None, ge=0)
-    maximum_turns: int | None = Field(default=None, ge=1, le=10_000)
+    maximum_turns: int | None = Field(default=200, ge=1, le=10_000)
 
 
 class MoveState(FrozenModel):
@@ -500,7 +500,7 @@ class MatchConfig(FrozenModel):
             if self.team_policy is TeamPolicy.SHOWDOWN_RANDOM:
                 raise ValueError("Gen 9 OU requires validated custom teams")
             if self.team_policy is not TeamPolicy.FIXED:
-                raise ValueError("Phase 5 Gen 9 OU matches currently support fixed teams only")
+                raise ValueError("Gen 9 OU matches currently support fixed teams only")
             if any(player.team_snapshot_id is None for player in self.players):
                 raise ValueError("Gen 9 OU requires a validated team snapshot for each player")
         return self

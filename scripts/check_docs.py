@@ -27,10 +27,14 @@ def check(root: Path) -> list[str]:
                 continue
             resolved = (document.parent / target).resolve()
             if not resolved.exists():
-                problems.append(f"{document.relative_to(root)}: broken link {raw_target}")
+                problems.append(
+                    f"{document.relative_to(root)}: broken link {raw_target}"
+                )
         for script in SCRIPT.findall(text):
             if not (root / script).is_file():
-                problems.append(f"{document.relative_to(root)}: missing script {script}")
+                problems.append(
+                    f"{document.relative_to(root)}: missing script {script}"
+                )
 
     compose = (root / "docker-compose.yml").read_text(encoding="utf-8")
     for relative in COMPOSE_PATH.findall(compose):

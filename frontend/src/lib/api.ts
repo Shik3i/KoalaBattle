@@ -1,10 +1,12 @@
 import { env } from '$env/dynamic/public';
 import type { ExportBackend, ExportPreflight, MatchArchive, ProductionProfile, ProductionTimeline, RenderEngine, RendererCapabilities, VideoExportJob, VideoExportPreset, VoicePreset } from './types';
 
-export const apiBase = () =>
-  typeof location !== 'undefined' && location.pathname.startsWith('/render/')
-    ? env.PUBLIC_RENDER_API_URL || env.PUBLIC_API_URL || 'http://localhost:8001'
-    : env.PUBLIC_API_URL || 'http://localhost:8001';
+export const apiBase = () => {
+  const fallback = env.PUBLIC_API_URL || 'http://localhost:8001';
+  if (typeof location === 'undefined' || !location.pathname.startsWith('/render/')) return fallback;
+  const hostBrowser = ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname);
+  return hostBrowser ? fallback : env.PUBLIC_RENDER_API_URL || fallback;
+};
 export const wsBase = () => env.PUBLIC_WS_URL || apiBase().replace(/^http/, 'ws');
 
 export async function api<T>(path: string, options?: RequestInit): Promise<T> {

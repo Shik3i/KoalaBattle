@@ -12,7 +12,7 @@
   }
   const providerLabels: Record<ProviderKind, string> = {
     openai: 'OpenAI', gemini: 'Google Gemini', anthropic: 'Anthropic', deepseek: 'DeepSeek',
-    'openai-compatible': 'OpenAI-compatible', fake: 'Fake provider (test)'
+    'openai-compatible': 'OpenAI-compatible', fake: 'Deterministic Fake (testing)'
   };
   const defaultModels: Record<ProviderKind, string> = {
     openai: 'gpt-5-mini', gemini: 'gemini-2.5-flash', anthropic: 'claude-sonnet-4-5',
@@ -29,7 +29,7 @@
   let providers: ProviderStatus[] = [];
   let teams: TeamSnapshot[] = [];
   let format: 'gen9randombattle' | 'gen9ou' = 'gen9randombattle';
-  let seed = ''; let maximumTotalCost = ''; let maximumTurns = '';
+  let seed = ''; let maximumTotalCost = ''; let maximumTurns = '200';
   let preset: 'economy' | 'balanced' | 'power' = 'balanced';
   let loading = false; let error = ''; let discovering: number | null = null;
   let discoveredModels: Record<number, string[]> = {};
@@ -48,6 +48,16 @@
   });
   function selectProvider(index: number, value: ProviderKind) {
     players[index].provider = value; players[index].model = defaultModels[value]; players = [...players];
+  }
+  function selectAgentType(index: number, value: AgentType) {
+    players[index].agentType = value;
+    if (value === 'api') {
+      const current = providers.find((provider) => provider.id === players[index].provider);
+      const fallback = providers.find((provider) => provider.configured && provider.id !== 'fake')
+        || providers.find((provider) => provider.configured);
+      if (!current?.configured && fallback) selectProvider(index, fallback.id);
+    }
+    players = [...players];
   }
   function applyPreset(value: typeof preset) {
     preset = value;
@@ -116,7 +126,7 @@
 </script>
 
 <div class="page-head">
-  <div><span class="eyebrow">New production</span><h1>Stage a battle</h1></div>
+  <div><span class="eyebrow">New match</span><h1>Start a battle</h1></div>
   <span class="status-pill">Standard information · {format === 'gen9ou' ? 'Gen 9 OU' : 'Gen 9 Random Battle'}</span>
 </div>
 <form class="builder" on:submit|preventDefault={createBattle}>
@@ -140,7 +150,7 @@
         <header><span class="player-number">P{index + 1}</span><h2>{index ? 'Player two' : 'Player one'}</h2></header>
         <label>Display name<input bind:value={player.name} required maxlength="80" /></label>
         <label>Control mode
-          <select bind:value={player.agentType}><option value="random">Random agent</option><option value="manual">Manual Web Chat</option><option value="api">Provider API · full auto</option></select>
+          <select value={player.agentType} on:change={(event) => selectAgentType(index, event.currentTarget.value as AgentType)}><option value="random">Random agent · free local baseline</option><option value="manual">Manual Web Chat · copy and paste</option><option value="api">Provider API · full auto</option></select>
         </label>
         {#if format === 'gen9ou'}
           <label>Validated team snapshot
@@ -158,7 +168,8 @@
         {:else}
           <div class="provider-grid">
             <label>Provider<select value={player.provider} on:change={(event) => selectProvider(index, event.currentTarget.value as ProviderKind)}>
-              {#each providers as status}<option value={status.id}>{providerLabels[status.id]}{status.configured ? '' : ' · not configured'}</option>{/each}
+              <optgroup label="Providers">{#each providers.filter((status) => status.id !== 'fake') as status}<option value={status.id} disabled={!status.configured && status.id !== 'openai-compatible'}>{providerLabels[status.id]}{status.configured ? ' · ready' : status.id === 'openai-compatible' ? ' · configure URL below' : ' · not configured'}</option>{/each}</optgroup>
+              {#if providers.some((status) => status.id === 'fake')}<optgroup label="Development / Testing">{#each providers.filter((status) => status.id === 'fake') as status}<option value={status.id} disabled={!status.configured}>{providerLabels[status.id]}{status.configured ? ' · enabled' : ' · disabled'}</option>{/each}</optgroup>{/if}
             </select></label>
             <label>Model ID<input bind:value={player.model} required list={`models-${index}`} /></label>
             <datalist id={`models-${index}`}>{#each discoveredModels[index] || [] as model}<option value={model}></option>{/each}</datalist>
@@ -186,9 +197,9 @@
     <div><span class="eyebrow">Safety envelope</span><h2>Match limits</h2><p>Unknown model pricing remains unavailable; it is never guessed.</p></div>
     <label>Optional deterministic seed<input type="number" bind:value={seed} placeholder="Unseeded" /></label>
     <label>Total cost limit (USD)<input type="number" min="0" step="0.01" bind:value={maximumTotalCost} placeholder="No limit" /></label>
-    <label>Maximum turns<input type="number" min="1" bind:value={maximumTurns} placeholder="No limit" /></label>
+    <label>Maximum turns<input type="number" min="1" max="10000" bind:value={maximumTurns} /><small>Safety default: 200. Clear only for an intentionally unlimited match.</small></label>
   </section>
-  <div class="launch">{#if error}<span class="error" role="alert">{error}</span>{/if}<button class:loading class="button" disabled={loading}>{loading ? 'Starting…' : 'Review & start match →'}</button></div>
+  <div class="launch">{#if error}<span class="error" role="alert">{error}</span>{/if}<button class:loading class="button" disabled={loading}>{loading ? 'Starting…' : 'Start match →'}</button></div>
 </form>
 
 <style>

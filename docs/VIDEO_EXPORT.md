@@ -65,7 +65,7 @@ updates match events, decisions, winner, or tournament results.
 Native preflight requires a finalized production, writable output, configured free disk,
 FFmpeg/FFprobe, Playwright, Chromium, working WebCodecs H.264/VP9 or raw-frame `libx264`, and required cached
 speech. It never makes paid TTS calls.
-Use **Prepare free speech** explicitly when required clips are absent.
+Use **Prepare free neural speech** explicitly when required clips are absent.
 
 When Chromium runs in the optional external renderer container, the API reads its capability
 heartbeat from the shared video volume. The renderer refreshes it every 10 seconds and the API

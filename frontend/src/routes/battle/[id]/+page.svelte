@@ -4,6 +4,7 @@
   import { api, getMatch, wsBase } from '$lib/api';
   import { loadRendererConfig, saveRendererConfig } from '$lib/presentation/config';
   import { PresentationTimeline } from '$lib/presentation/timeline';
+  import { connectLiveSocket } from '$lib/presentation/live-socket';
   import { defaultRendererConfig, type AgentPresentationStatus, type RendererConfig, type RendererLayout, type RendererTheme, type TimelineSnapshot } from '$lib/presentation/types';
   import type { AgentLifecycleState, AgentRequest, BattleEvent, MatchArchive, Side } from '$lib/types';
 
@@ -15,7 +16,7 @@
   let submitting: Partial<Record<Side, boolean>> = {};
   let copied: Side | null = null;
   let copyTimer: ReturnType<typeof setTimeout> | null = null;
-  let error = ''; let socket: WebSocket | null = null;
+  let error = ''; let stopSocket: (() => void) | null = null;
   let timeline: PresentationTimeline | null = null; let snapshot: TimelineSnapshot | null = null;
   let config: RendererConfig = defaultRendererConfig();
   let lifecycle: Partial<Record<Side, AgentLifecycleState>> = { p1: 'idle', p2: 'idle' };
@@ -32,17 +33,29 @@
   }
   onMount(() => {
     config = loadRendererConfig(); void connect();
-    return () => { socket?.close(); timeline?.destroy(); if (copyTimer) clearTimeout(copyTimer); };
+    return () => { stopSocket?.(); timeline?.destroy(); if (copyTimer) clearTimeout(copyTimer); };
   });
   async function connect() {
     try {
-      initialize(await getMatch(data.id));
-      const result = await api<{ requests: AgentRequest[] }>(`/api/matches/${data.id}/pending`);
-      result.requests.forEach(setPending);
-      socket = new WebSocket(`${wsBase()}/api/matches/${data.id}/stream`);
-      socket.onmessage = ({ data: raw }) => handleMessage(JSON.parse(raw) as StreamMessage);
-      socket.onerror = () => (error = 'Realtime connection failed.');
+      await refreshLiveState();
+      stopSocket = connectLiveSocket({
+        url: `${wsBase()}/api/matches/${data.id}/stream`,
+        onMessage: (raw) => handleMessage(JSON.parse(raw) as StreamMessage),
+        onConnected: refreshLiveState,
+        onStatus: (status) => (error = status === 'connected' ? '' : 'Live control reconnecting…')
+      });
     } catch (caught) { error = caught instanceof Error ? caught.message : String(caught); }
+  }
+  async function refreshLiveState() {
+    const [archive, result] = await Promise.all([
+      getMatch(data.id),
+      api<{ requests: AgentRequest[] }>(`/api/matches/${data.id}/pending`)
+    ]);
+    if (!match || archive.events.length > (snapshot?.eventCount || 0)) initialize(archive);
+    else match = { ...match, ...archive, events: match.events };
+    const liveSides = new Set(result.requests.map((request) => request.side));
+    pending = Object.fromEntries(Object.entries(pending).filter(([side]) => liveSides.has(side as Side)));
+    result.requests.forEach(setPending);
   }
   function initialize(archive: MatchArchive) {
     match = archive; timeline?.destroy();
@@ -52,10 +65,13 @@
     timeline.seek(archive.events.length); timeline.play();
   }
   function setPending(request: AgentRequest) {
+    const sameRequest = pending[request.side]?.request_id === request.request_id;
     pending = { ...pending, [request.side]: request };
     lifecycle = { ...lifecycle, [request.side]: 'waiting' };
-    responses = { ...responses, [request.side]: JSON.stringify({ action: request.legal_actions[0]?.id || 'move:1', commentary: 'Short public explanation.' }, null, 2) };
-    validation = { ...validation, [request.side]: '' };
+    if (!sameRequest) {
+      responses = { ...responses, [request.side]: JSON.stringify({ action: request.legal_actions[0]?.id || 'move:1', commentary: 'Short public explanation.' }, null, 2) };
+      validation = { ...validation, [request.side]: '' };
+    }
   }
   function handleMessage(message: StreamMessage) {
     if (message.kind === 'snapshot' && message.match) {
