@@ -207,3 +207,16 @@ def test_snapshot_file_stays_machine_generated() -> None:
     # Every entry carries the fields the Showdown tools server emits, not hand-written ones.
     for entry in payload["formats"][:20]:
         assert {"id", "name", "generation", "game_type", "mechanics"} <= set(entry)
+
+
+def test_dex_names_resolve_ids_to_showdown_display_names() -> None:
+    from koalabattle.formats import ability_name, item_name
+
+    assert ability_name("ironfist") == "Iron Fist"
+    assert ability_name("moldbreaker") == "Mold Breaker"
+    assert item_name("heavydutyboots") == "Heavy-Duty Boots"
+    assert item_name("lifeorb") == "Life Orb"
+    # Unknown values fall back to the input rather than inventing a name.
+    assert ability_name("notarealability") == "notarealability"
+    assert ability_name(None) is None
+    assert item_name("") is None

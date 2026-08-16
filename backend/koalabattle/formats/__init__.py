@@ -11,6 +11,7 @@ from .catalog import (
     load_snapshot,
     search_formats,
 )
+from .dex_names import DEX_NAMES_PATH, ability_name, item_name
 from .models import (
     FORMAT_CATALOG_SCHEMA_VERSION,
     FormatCatalog,
@@ -21,6 +22,7 @@ from .models import (
 )
 
 __all__ = [
+    "DEX_NAMES_PATH",
     "FORMAT_CATALOG_SCHEMA_VERSION",
     "SNAPSHOT_PATH",
     "SUPPORTED_GAME_TYPES",
@@ -30,12 +32,14 @@ __all__ = [
     "FormatGroup",
     "FormatMechanics",
     "GameType",
+    "ability_name",
     "build_catalog",
     "capability",
     "default_catalog",
     "describe_format",
     "expand_query",
     "group_by_generation",
+    "item_name",
     "load_snapshot",
     "search_formats",
 ]

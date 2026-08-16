@@ -20,7 +20,7 @@ from koalabattle.core.models import (
     MoveState,
     PokemonState,
 )
-from koalabattle.formats import FormatMechanics
+from koalabattle.formats import FormatMechanics, ability_name, item_name
 
 PROMPT_RENDERER_VERSION = "battle-text-v1"
 
@@ -102,7 +102,8 @@ def damage_class(category: str | None, power: int | None, mechanics: FormatMecha
     parts: list[str] = []
     if category and mechanics.physical_special_split:
         parts.append(category.capitalize())
-    parts.append(f"{power} BP" if power else "no base power")
+    # Moves like Grass Knot and Low Kick carry base power 0 because it depends on the target.
+    parts.append(f"{power} BP" if power else "variable BP")
     return parts
 
 
@@ -146,9 +147,9 @@ def _own_pokemon_block(
         lines.append(f"HP: {percent(pokemon.hp_fraction)}")
     lines.append(f"Status: {status_label(pokemon.status)}")
     if mechanics.abilities:
-        lines.append(f"Ability: {title_case(pokemon.ability) if pokemon.ability else 'unknown'}")
+        lines.append(f"Ability: {ability_name(pokemon.ability) or 'unknown'}")
     if mechanics.items:
-        lines.append(f"Item: {title_case(pokemon.item) if pokemon.item else 'none'}")
+        lines.append(f"Item: {item_name(pokemon.item) or 'none'}")
     if mechanics.terastallization and pokemon.tera_type:
         state = "already Terastallized" if pokemon.terastallized else "available"
         lines.append(f"Tera type: {title_case(pokemon.tera_type)} ({state})")
@@ -173,11 +174,9 @@ def _known_pokemon_block(pokemon: KnownPokemon, mechanics: FormatMechanics) -> l
     lines.append(f"HP: {percent(pokemon.hp_fraction)}{' (fainted)' if pokemon.fainted else ''}")
     lines.append(f"Status: {status_label(pokemon.status)}")
     if mechanics.abilities:
-        ability = title_case(pokemon.revealed_ability) if pokemon.revealed_ability else "unknown"
-        lines.append(f"Known ability: {ability}")
+        lines.append(f"Known ability: {ability_name(pokemon.revealed_ability) or 'unknown'}")
     if mechanics.items:
-        item = title_case(pokemon.revealed_item) if pokemon.revealed_item else "unknown"
-        lines.append(f"Known item: {item}")
+        lines.append(f"Known item: {item_name(pokemon.revealed_item) or 'unknown'}")
     if mechanics.terastallization and pokemon.revealed_tera_type:
         lines.append(f"Terastallized into: {title_case(pokemon.revealed_tera_type)}")
     if pokemon.revealed_moves:
@@ -239,11 +238,11 @@ def humanize_event(entry: str, own_side: str = "p1") -> str | None:
     if command == "-curestatus" and len(fields) >= 2:
         return f"{actor()} recovered from {status_label(fields[1])}."
     if command == "-ability" and len(fields) >= 2:
-        return f"{actor()} revealed the ability {title_case(fields[1])}."
+        return f"{actor()} revealed the ability {ability_name(fields[1])}."
     if command == "-item" and len(fields) >= 2:
-        return f"{actor()} revealed the item {title_case(fields[1])}."
+        return f"{actor()} revealed the item {item_name(fields[1])}."
     if command == "-enditem" and len(fields) >= 2:
-        return f"{actor()} lost its {title_case(fields[1])}."
+        return f"{actor()} lost its {item_name(fields[1])}."
     if command == "-terastallize" and len(fields) >= 2:
         return f"{actor()} Terastallized into {title_case(fields[1])}."
     if command == "-weather" and fields:

@@ -193,6 +193,7 @@ def test_gen1_prompt_omits_mechanics_that_do_not_exist() -> None:
 
 def test_gen9_prompt_keeps_modern_mechanics() -> None:
     prompt = render(_snapshot("gen9ou")).combined
+    # Display names come from the Showdown dex, not from title-casing the raw ID.
     assert "Ability: Intimidate" in prompt
     assert "Item: Leftovers" in prompt
     assert "Tera type: Fire (available)" in prompt
@@ -278,3 +279,57 @@ def test_rendered_prompt_reports_deterministic_metrics(agent_request: AgentReque
     assert first == second
     assert metrics.rendered_characters == len(first.combined)
     assert metrics.estimated_tokens > 0
+
+
+def test_ability_and_item_ids_are_rendered_as_display_names() -> None:
+    prompt = render(
+        _snapshot("gen9ou").model_copy(
+            update={
+                "knowledge": _snapshot("gen9ou").knowledge.model_copy(
+                    update={
+                        "own_side": _snapshot("gen9ou").knowledge.own_side.model_copy(
+                            update={
+                                "active": _snapshot("gen9ou").knowledge.own_side.active.model_copy(  # type: ignore[union-attr]
+                                    update={"ability": "ironfist", "item": "heavydutyboots"}
+                                )
+                            }
+                        )
+                    }
+                )
+            }
+        )
+    ).combined
+    assert "Ability: Iron Fist" in prompt
+    assert "Item: Heavy-Duty Boots" in prompt
+    assert "Ironfist" not in prompt
+    assert "Heavydutyboots" not in prompt
+
+
+def test_variable_power_moves_are_not_reported_as_powerless() -> None:
+    snapshot = _snapshot("gen9ou")
+    active = snapshot.knowledge.own_side.active
+    assert active is not None
+    grass_knot = MoveState(
+        id="grassknot",
+        name="Grass Knot",
+        type="grass",
+        category="special",
+        power=0,
+        accuracy=100,
+        current_pp=32,
+        max_pp=32,
+    )
+    updated = snapshot.model_copy(
+        update={
+            "knowledge": snapshot.knowledge.model_copy(
+                update={
+                    "own_side": snapshot.knowledge.own_side.model_copy(
+                        update={"active": active.model_copy(update={"moves": (grass_knot,)})}
+                    )
+                }
+            )
+        }
+    )
+    prompt = render(updated).combined
+    assert "Grass · Special · variable BP · 100% · 32/32 PP" in prompt
+    assert "no base power" not in prompt

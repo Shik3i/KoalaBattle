@@ -86,6 +86,29 @@ function describe(format) {
   };
 }
 
+let cachedNames = null;
+
+/**
+ * Display names for abilities and items. Showdown stores these as IDs on a battle request
+ * ("ironfist"), and only the Dex knows they read as "Iron Fist".
+ */
+function dexNames() {
+  if (cachedNames) return cachedNames;
+  const collect = (entries) => {
+    const result = {};
+    for (const entry of entries) {
+      if (entry && entry.exists !== false && entry.id && entry.name) result[entry.id] = entry.name;
+    }
+    return result;
+  };
+  cachedNames = {
+    schema_version: CATALOG_SCHEMA_VERSION,
+    abilities: collect(Dex.abilities.all()),
+    items: collect(Dex.items.all())
+  };
+  return cachedNames;
+}
+
 let cachedCatalog = null;
 
 function catalog() {
@@ -147,6 +170,10 @@ const server = http.createServer((request, response) => {
   }
   if (request.method === 'GET' && request.url === '/formats') {
     reply(response, 200, catalog());
+    return;
+  }
+  if (request.method === 'GET' && request.url === '/dex-names') {
+    reply(response, 200, dexNames());
     return;
   }
   if (request.method !== 'POST' || request.url !== '/validate') {

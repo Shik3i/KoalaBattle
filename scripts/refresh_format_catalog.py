@@ -22,23 +22,24 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_TARGET = (
     PROJECT_ROOT / "backend/koalabattle/formats/showdown-format-catalog.json"
 )
+DEX_NAMES_TARGET = PROJECT_ROOT / "backend/koalabattle/formats/showdown-dex-names.json"
 DEFAULT_SOURCE = "http://localhost:8002"
 
 
-def fetch(source: str, timeout: float) -> dict[str, object]:
+def fetch(source: str, timeout: float, path: str = "formats") -> dict[str, object]:
     request = Request(
-        f"{source.rstrip('/')}/formats", headers={"Accept": "application/json"}
+        f"{source.rstrip('/')}/{path}", headers={"Accept": "application/json"}
     )
     try:
         with urlopen(request, timeout=timeout) as response:  # noqa: S310
             payload = json.loads(response.read(8_000_000))
     except (HTTPError, URLError, TimeoutError, OSError) as error:
         raise RuntimeError(
-            f"could not read the Showdown format registry at {source}: {error}. "
+            f"could not read {path} from the Showdown tools server at {source}: {error}. "
             "Start it with: docker compose up -d showdown team-validator"
         ) from error
-    if not isinstance(payload, dict) or not isinstance(payload.get("formats"), list):
-        raise RuntimeError("Showdown format endpoint returned an unexpected payload")
+    if not isinstance(payload, dict):
+        raise RuntimeError(f"Showdown {path} endpoint returned an unexpected payload")
     return payload
 
 
@@ -55,8 +56,12 @@ def main() -> int:
         print(error, file=sys.stderr)
         return 1
 
-    formats = payload["formats"]
-    assert isinstance(formats, list)
+    formats = payload.get("formats")
+    if not isinstance(formats, list):
+        print(
+            "Showdown formats endpoint returned an unexpected payload", file=sys.stderr
+        )
+        return 1
     payload["formats"] = sorted(
         formats,
         key=lambda item: (-int(item.get("generation", 0)), str(item.get("id", ""))),
@@ -68,6 +73,26 @@ def main() -> int:
     generations = sorted({int(item["generation"]) for item in payload["formats"]})
     print(f"Wrote {len(payload['formats'])} formats to {args.target}")
     print(f"Generations: {', '.join(str(item) for item in generations)}")
+
+    try:
+        names = fetch(args.source, args.timeout, "dex-names")
+    except RuntimeError as error:
+        print(error, file=sys.stderr)
+        return 1
+    abilities = names.get("abilities")
+    items = names.get("items")
+    if not isinstance(abilities, dict) or not isinstance(items, dict):
+        print(
+            "Showdown dex-names endpoint returned an unexpected payload",
+            file=sys.stderr,
+        )
+        return 1
+    DEX_NAMES_TARGET.write_text(
+        json.dumps(names, indent=1, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    print(
+        f"Wrote {len(abilities)} ability and {len(items)} item names to {DEX_NAMES_TARGET}"
+    )
     return 0
 
 

@@ -21,14 +21,19 @@ mechanics { items, abilities, physical_special_split, mega_evolution, z_moves,
 Mechanics are derived from the generation *and* the format's own rule table, so a format that
 bans a mechanic (Dynamax Clause, Terastal Clause) reports it as absent.
 
-The backend fetches this at start-up. When Showdown is unreachable it falls back to a
-generated snapshot shipped with the backend:
+The backend fetches this at start-up. When Showdown is unreachable it falls back to generated
+snapshots shipped with the backend:
 
 ```
-backend/koalabattle/formats/showdown-format-catalog.json
+backend/koalabattle/formats/showdown-format-catalog.json   # the format registry
+backend/koalabattle/formats/showdown-dex-names.json        # ability and item display names
 ```
 
-That file is machine-generated and must never be hand-edited. Regenerate it whenever the
+Showdown reports abilities and items as IDs on a battle request (`ironfist`,
+`heavydutyboots`) and only its Dex knows they read as "Iron Fist" and "Heavy-Duty Boots";
+poke-env ships no equivalent table, so those names come from `GET /dex-names`.
+
+Both files are machine-generated and must never be hand-edited. Regenerate them whenever the
 pinned Showdown commit changes:
 
 ```bash
