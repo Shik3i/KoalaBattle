@@ -1,4 +1,4 @@
-<script lang="ts">
+﻿<script lang="ts">
   import { goto } from '$app/navigation';
   import { onMount } from 'svelte';
   import FormatSelector from '$lib/FormatSelector.svelte';
@@ -62,6 +62,7 @@
   let teamValidation: Record<number, TeamValidationResult | null> = {};
   let importing: number | null = null;
   let promptCopied: number | null = null;
+  let teamPanelOpen = false;
 
   $: allFormats = formatGroups.flatMap((group) => group.formats);
   $: descriptor = allFormats.find((item) => item.id === format) || descriptor;
@@ -97,6 +98,10 @@
         ? player.teamSnapshotId
         : ''
     }));
+    // Offer the import panel when this format has nothing to select yet. Set once here rather
+    // than derived, so later state changes cannot slam an open panel shut.
+    teamPanelOpen = next.custom_team_required
+      && !teams.some((team) => team.format === next.id);
   }
   async function copyTeamPrompt(index: number) {
     error = '';
@@ -129,7 +134,7 @@
         {
           method: 'POST',
           body: JSON.stringify({
-            name: `${players[index].name || `Player ${index + 1}`} · ${descriptor?.display_name || format}`,
+            name: `${players[index].name || `Player ${index + 1}`} · ${descriptor?.name || format}`,
             format,
             team_text: text,
             source: 'imported',
@@ -203,7 +208,7 @@
   async function createBattle() {
     if (loading) return;
     if (needsCustomTeam && players.some((player) => !player.teamSnapshotId)) {
-      error = `Select one validated ${descriptor?.display_name || format} team for each player.`; return;
+      error = `Select one validated ${descriptor?.name || format} team for each player.`; return;
     }
     loading = true; error = '';
     try {
@@ -277,36 +282,42 @@
               <option value="">Select a validated team…</option>
               {#each eligibleTeams as team}<option value={team.id}>{team.name} · {team.source}</option>{/each}
             </select>
-            <small class="field-hint">{eligibleTeams.length ? `${eligibleTeams.length} validated ${descriptor?.display_name} team(s)` : 'No validated team for this format yet — paste one below.'}</small>
+            <small class="field-hint">{eligibleTeams.length ? `${eligibleTeams.length} validated ${descriptor?.name} team(s)` : 'No validated team for this format yet — paste one below.'}</small>
           </label>
-          <details class="team-import" open={!eligibleTeams.length}>
+          <!-- One shared open state, so both player columns expand and collapse together and
+               the two cards never drift out of alignment. -->
+          <details class="team-import" bind:open={teamPanelOpen}>
             <summary>Paste a Showdown export instead</summary>
-            <p class="team-steps">Copy the prompt into any web chat, then paste the team it returns.</p>
-            <button type="button" class="button secondary compact" on:click={() => copyTeamPrompt(index)}>
-              <i class="ph ph-copy" aria-hidden="true"></i>
-              {promptCopied === index ? 'Prompt copied' : 'Copy team prompt'}
-            </button>
-            <textarea
-              rows="6"
-              bind:value={teamDrafts[index]}
-              placeholder={`Paste the Showdown export for ${descriptor?.display_name || format} here…`}
-            ></textarea>
-            <button
-              type="button"
-              class="button secondary compact"
-              disabled={importing === index || !(teamDrafts[index] || '').trim()}
-              on:click={() => importTeam(index)}
-            >
-              <i class="ph ph-shield-check" aria-hidden="true"></i>
-              {importing === index ? 'Validating…' : 'Validate and use'}
-            </button>
-            {#if teamValidation[index]}
-              <div class="team-result" class:valid={teamValidation[index]?.valid}>
-                <strong>{teamValidation[index]?.valid ? `✓ Legal ${descriptor?.display_name || format} team — selected` : 'Invalid team'}</strong>
-                {#each teamValidation[index]?.errors || [] as item}<p>{item}</p>{/each}
+            <div class="team-body">
+              <p class="team-steps">Copy the prompt into any web chat, then paste the team it returns.</p>
+              <div class="team-actions">
+                <button type="button" class="button secondary compact" on:click={() => copyTeamPrompt(index)}>
+                  <i class={`ph ${promptCopied === index ? 'ph-check' : 'ph-copy'}`} aria-hidden="true"></i>
+                  {promptCopied === index ? 'Prompt copied' : 'Copy team prompt'}
+                </button>
+                <button
+                  type="button"
+                  class="button secondary compact"
+                  disabled={importing === index || !(teamDrafts[index] || '').trim()}
+                  on:click={() => importTeam(index)}
+                >
+                  <i class="ph ph-shield-check" aria-hidden="true"></i>
+                  {importing === index ? 'Validating…' : 'Validate and use'}
+                </button>
               </div>
-            {/if}
-            <small class="field-hint">Validated against {descriptor?.display_name || format} by the local Showdown validator and saved as an immutable snapshot.</small>
+              <textarea
+                rows="6"
+                bind:value={teamDrafts[index]}
+                placeholder={`Paste the Showdown export for ${descriptor?.name || format} here…`}
+              ></textarea>
+              {#if teamValidation[index]}
+                <div class="team-result" class:valid={teamValidation[index]?.valid}>
+                  <strong>{teamValidation[index]?.valid ? `✓ Legal ${descriptor?.name || format} team — selected` : 'Invalid team'}</strong>
+                  {#each teamValidation[index]?.errors || [] as item}<p>{item}</p>{/each}
+                </div>
+              {/if}
+              <small class="field-hint">Validated against {descriptor?.name || format} by the local Showdown validator and saved as an immutable snapshot.</small>
+            </div>
           </details>
         {/if}
       </section>
@@ -402,8 +413,10 @@
 
 <style>
   .builder{display:grid;gap:1rem;width:min(var(--content),100%);margin-inline:auto}
-  .row{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
-  .card{display:grid;align-content:start;gap:.85rem;padding:1.25rem 1.35rem;border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--panel)}
+  /* min-width:0 lets both columns actually share the row: without it a grid item refuses to
+     shrink below its content and the wider side pushes the other one out of alignment. */
+  .row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem;align-items:start}
+  .card{display:grid;align-content:start;gap:.85rem;min-width:0;padding:1.25rem 1.35rem;border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--panel)}
   .card h2{margin:0;font-size:var(--step-1);letter-spacing:-.01em}
   .card h3{margin:0 0 .2rem;font-size:.88rem}
   .player{position:relative;overflow:hidden}
@@ -414,10 +427,14 @@
   .name{min-height:40px;padding:.4rem .6rem;border-color:transparent;background:transparent;font-size:var(--step-1);font-weight:750;letter-spacing:-.02em}
   .name:hover{border-color:var(--border)}
   .mode-note{margin:0;color:var(--muted);font-size:.78rem;line-height:1.5}
-  .team-import{display:grid;gap:.55rem;padding:.7rem .8rem;border:1px solid var(--border);border-radius:var(--radius);background:var(--panel-strong)}
+  /* The grid lives on an explicit wrapper: Chrome puts every non-summary child of <details>
+     into one ::details-content box, so a grid on <details> itself never reaches them. */
+  .team-import{padding:.7rem .8rem;border:1px solid var(--border);border-radius:var(--radius);background:var(--panel-strong)}
   .team-import summary{color:var(--accent);font-size:.75rem;font-weight:650;cursor:pointer}
-  .team-import textarea{width:100%;padding:.55rem .65rem;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg);color:var(--text);font:.72rem/1.5 var(--mono);resize:vertical}
-  .team-import .button{justify-self:start}
+  .team-import summary:hover{color:var(--accent-strong)}
+  .team-body{display:grid;gap:.55rem;margin-top:.55rem;min-width:0}
+  .team-import textarea{width:100%;min-width:0;padding:.55rem .65rem;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg);color:var(--text);font:.72rem/1.5 var(--mono);resize:vertical}
+  .team-actions{display:flex;flex-wrap:wrap;gap:.5rem}
   .team-steps{margin:0;color:var(--muted);font-size:.75rem;line-height:1.5}
   .team-result{padding:.5rem .65rem;border:1px solid var(--danger);border-radius:var(--radius);color:var(--danger);font-size:.75rem}
   .team-result.valid{border-color:var(--accent);color:var(--accent)}
