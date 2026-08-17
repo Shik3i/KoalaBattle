@@ -212,7 +212,9 @@
   }
   async function createBattle() {
     if (loading) return;
-    if (needsCustomTeam && players.some((player) => !player.teamSnapshotId)) {
+    if (needsCustomTeam && players.some((player) => !eligibleTeams.some((team) => team.id === player.teamSnapshotId))) {
+      // Covers both "nothing chosen" and a snapshot that has since been deleted or belongs to
+      // another format; the server would otherwise reject the create with a bare 422.
       error = `Select one validated ${descriptor?.name || format} team for each player.`; return;
     }
     loading = true; error = '';

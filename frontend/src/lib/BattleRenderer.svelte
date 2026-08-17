@@ -41,7 +41,10 @@
   $: farSide = nearSide === 'p1' ? 'p2' : 'p1';
   $: near = presentation ? battleSide(presentation, nearSide) : null;
   $: far = presentation ? battleSide(presentation, farSide) : null;
-  $: generation = presentation?.battle?.generation ?? 9;
+  // The format id carries the generation, so a match that has not produced its first event yet
+  // still labels itself correctly instead of falling back to Gen 9 for every format.
+  $: generation =
+    presentation?.battle?.generation ?? generationFromFormat(presentation?.format) ?? 9;
   // Gen 1 and 2 sprites are pixel art by intent; everything later is smoothed.
   $: retro = RETRO_GENERATIONS.has(generation);
   $: attackerSide = presentation
@@ -75,6 +78,11 @@
     const player = state.players[side];
     if (player.commentaryPhase === 'resolved' || player.commentaryPhase === 'waiting') return null;
     return player;
+  }
+
+  function generationFromFormat(id: string | undefined) {
+    const match = /^gen(\d+)/.exec(id || '');
+    return match ? Number(match[1]) : null;
   }
 
   function formatName(id: string, gen: number) {

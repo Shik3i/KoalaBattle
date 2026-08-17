@@ -154,7 +154,7 @@
   function setAgent(index: number, agentType: AgentType) { participants[index].agentType = agentType; participants = [...participants]; }
 
   async function create() {
-    if (needsCustomTeam && participants.some((entry) => !entry.teamSnapshotId)) {
+    if (needsCustomTeam && participants.some((entry) => !eligibleTeams.some((team) => team.id === entry.teamSnapshotId))) {
       step = 6;
       error = `Give every participant a validated ${descriptor?.display_name || battleFormat} team.`;
       return;

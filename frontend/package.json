@@ -8,7 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
-    "test": "node --test src/lib/presentation/*.test.ts src/lib/production/*.test.ts"
+    "test": "node --test src/lib/*.test.ts src/lib/presentation/*.test.ts src/lib/production/*.test.ts"
   },
   "overrides": {
     "cookie": "0.7.2"

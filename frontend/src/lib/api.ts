@@ -1,4 +1,5 @@
 import { env } from '$env/dynamic/public';
+import { errorMessage } from './errors';
 import type { BrandAsset, BrandAssetKind, BrandAssetLibrary, ExportBackend, ExportPreflight, FormatCatalog, FormatDescriptor, FormatGroup, MatchArchive, ProductionProfile, ProductionStyle, ProductionTimeline, RenderEngine, RendererCapabilities, StylePreset, VideoExportJob, VideoExportPreset, VoicePreset } from './types';
 
 export const apiBase = () => {
@@ -16,7 +17,7 @@ export async function api<T>(path: string, options?: RequestInit): Promise<T> {
   });
   if (!response.ok) {
     const body = await response.json().catch(() => ({ detail: response.statusText }));
-    throw new Error(body.detail || `Request failed: ${response.status}`);
+    throw new Error(errorMessage(body?.detail, response.status));
   }
   return response.json() as Promise<T>;
 }
