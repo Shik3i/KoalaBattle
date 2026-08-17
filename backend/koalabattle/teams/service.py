@@ -15,6 +15,7 @@ from .models import (
     TEAM_BUILD_PROFILE_VERSION,
     TeamBuildAudit,
     TeamBuildRequest,
+    TeamPromptContext,
     TeamSnapshot,
     TeamValidationResult,
 )
@@ -125,23 +126,80 @@ class TeamBuilder:
 
 
 def _build_prompt(request: TeamBuildRequest) -> str:
-    return json.dumps(
-        {
-            "task": "team_build",
-            "profile_version": TEAM_BUILD_PROFILE_VERSION,
-            "format": "Gen 9 OU",
-            "objective": "Build the strongest legal balanced team you can for this format.",
-            "team_size": 6,
-            "rules": [
-                "Use current standard Gen 9 OU legality.",
-                "Return a complete Pokemon Showdown import/export team.",
-                "Do not include markdown fences or explanations inside the team field.",
-            ],
-            "response_schema": {"team": "Pokemon Showdown import/export text"},
-        },
-        indent=2,
-        sort_keys=True,
-    )
+    return render_team_prompt(request.format, request.participant, request.context)
+
+
+def render_team_prompt(
+    format_id: str,
+    participant: str,
+    context: TeamPromptContext,
+) -> str:
+    """Render the team-building prompt for one participant.
+
+    The same text serves the automated builder and the copy-and-paste workflow, so a
+    manually built team is answering exactly the question an API team answers.
+    """
+    label = context.format_name or format_id
+    rules = [
+        f"Use current standard {label} legality.",
+        "Return a complete Pokemon Showdown import/export team.",
+        "Do not include markdown fences or explanations inside the team field.",
+    ]
+    payload: dict[str, object] = {
+        "task": "team_build",
+        "profile_version": TEAM_BUILD_PROFILE_VERSION,
+        "format": label,
+        "format_id": format_id,
+        "objective": f"Build the strongest legal balanced team you can for {label}.",
+        "team_size": context.team_size,
+        "response_schema": {"team": "Pokemon Showdown import/export text"},
+    }
+    if participant:
+        payload["participant"] = participant
+    if context.generation is not None:
+        payload["generation"] = context.generation
+        rules.append(
+            f"Only Generation {context.generation} mechanics exist. Do not rely on later ones."
+        )
+    if context.game_type:
+        payload["game_type"] = context.game_type
+    if context.mechanics:
+        payload["available_mechanics"] = list(context.mechanics)
+    if context.absent_mechanics:
+        payload["absent_mechanics"] = list(context.absent_mechanics)
+    if context.opponent:
+        payload["opponent"] = context.opponent
+    if context.maximum_turns is not None:
+        payload["maximum_turns"] = context.maximum_turns
+        rules.append(
+            f"The battle is cut off after {context.maximum_turns} turns; a stall win is not"
+            " guaranteed."
+        )
+    competition = _competition_payload(context)
+    if competition:
+        payload["competition"] = competition
+    payload["rules"] = rules
+    return json.dumps(payload, indent=2, sort_keys=True)
+
+
+def _competition_payload(context: TeamPromptContext) -> dict[str, object]:
+    competition: dict[str, object] = {}
+    if context.tournament_name:
+        competition["name"] = context.tournament_name
+    if context.tournament_structure:
+        competition["structure"] = context.tournament_structure
+    if context.rounds is not None:
+        competition["rounds"] = context.rounds
+    if context.games_per_series is not None:
+        competition["games_per_series"] = context.games_per_series
+    if context.team_reused_across_series is not None:
+        competition["team_reused_across_series"] = context.team_reused_across_series
+        competition["note"] = (
+            "The same team is used for every series; build for a varied field, not one matchup."
+            if context.team_reused_across_series
+            else "The team may be rebuilt between series."
+        )
+    return competition
 
 
 def _repair_prompt(original_prompt: str, errors: tuple[str, ...]) -> str:

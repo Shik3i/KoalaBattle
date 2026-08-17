@@ -61,6 +61,7 @@
   let teamDrafts: Record<number, string> = {};
   let teamValidation: Record<number, TeamValidationResult | null> = {};
   let importing: number | null = null;
+  let promptCopied: number | null = null;
 
   $: allFormats = formatGroups.flatMap((group) => group.formats);
   $: descriptor = allFormats.find((item) => item.id === format) || descriptor;
@@ -96,6 +97,27 @@
         ? player.teamSnapshotId
         : ''
     }));
+  }
+  async function copyTeamPrompt(index: number) {
+    error = '';
+    try {
+      const result = await api<{ prompt: string }>('/api/teams/prompt', {
+        method: 'POST',
+        body: JSON.stringify({
+          format,
+          participant: players[index].name || `Player ${index + 1}`,
+          context: {
+            opponent: players[1 - index].name || `Player ${2 - index}`,
+            maximum_turns: Number(maximumTurns) || null
+          }
+        })
+      });
+      await navigator.clipboard.writeText(result.prompt);
+      promptCopied = index;
+      setTimeout(() => { if (promptCopied === index) promptCopied = null; }, 2000);
+    } catch (caught) {
+      error = caught instanceof Error ? caught.message : String(caught);
+    }
   }
   async function importTeam(index: number) {
     const text = (teamDrafts[index] || '').trim();
@@ -259,6 +281,11 @@
           </label>
           <details class="team-import" open={!eligibleTeams.length}>
             <summary>Paste a Showdown export instead</summary>
+            <p class="team-steps">Copy the prompt into any web chat, then paste the team it returns.</p>
+            <button type="button" class="button secondary compact" on:click={() => copyTeamPrompt(index)}>
+              <i class="ph ph-copy" aria-hidden="true"></i>
+              {promptCopied === index ? 'Prompt copied' : 'Copy team prompt'}
+            </button>
             <textarea
               rows="6"
               bind:value={teamDrafts[index]}
@@ -391,6 +418,7 @@
   .team-import summary{color:var(--accent);font-size:.75rem;font-weight:650;cursor:pointer}
   .team-import textarea{width:100%;padding:.55rem .65rem;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg);color:var(--text);font:.72rem/1.5 var(--mono);resize:vertical}
   .team-import .button{justify-self:start}
+  .team-steps{margin:0;color:var(--muted);font-size:.75rem;line-height:1.5}
   .team-result{padding:.5rem .65rem;border:1px solid var(--danger);border-radius:var(--radius);color:var(--danger);font-size:.75rem}
   .team-result.valid{border-color:var(--accent);color:var(--accent)}
   .team-result p{margin:.25rem 0 0;line-height:1.45}

@@ -6,9 +6,25 @@ Showdown-generated and need no setup. A custom-team format requires one immutabl
 snapshot per player, validated against that exact format, and the
 `fixed` team policy.
 
+## Copy-and-paste flow
+
+`/new` carries the whole custom-team workflow, so a match never has to be abandoned to go set
+up a team first. Each player block offers **Copy team prompt**, a paste box, and
+**Validate and use**.
+
+`POST /api/teams/prompt` renders that prompt. Format facts — display name with generation,
+generation number, game type, and which optional mechanics the format actually has — come from
+the pinned Showdown catalog rather than the caller, so a copied prompt cannot describe a format
+the battle will not run. The caller adds only situational context: opponent name, turn limit,
+and, for a tournament, its name, structure, round count, games per series, and whether one team
+is reused across series.
+
+The automated builder and the copy-and-paste flow render the same text, so a manually built team
+answers exactly the question an API team answers.
+
 ## Import flow
 
-Use `/teams` or `POST /api/teams/validate`. Input is limited to 50,000 UTF-8 bytes and rejects
+Use `/new`, `/teams`, or `POST /api/teams/validate`. Input is limited to 50,000 UTF-8 bytes and rejects
 control characters and unsupported formats before network work. The isolated local validator
 passes export text to the pinned Pokémon Showdown `Teams.import`, `TeamValidator`, `Teams.export`,
 and `Teams.pack` APIs. KoalaBattle does not recreate legality rules.

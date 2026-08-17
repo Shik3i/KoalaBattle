@@ -49,6 +49,35 @@ class TeamSnapshot(FrozenTeamModel):
     created_at: datetime
 
 
+class TeamPromptContext(FrozenTeamModel):
+    """What the team builder is building *for*.
+
+    A team is only as good as the situation it is built for, so the prompt has to name
+    the real format and, when there is one, the competition around it. Everything here is
+    optional: a standalone match simply omits the tournament fields.
+    """
+
+    format_name: str = Field(default="", max_length=120)
+    generation: int | None = Field(default=None, ge=1, le=9)
+    game_type: str = Field(default="singles", max_length=40)
+    team_size: int = Field(default=6, ge=1, le=6)
+    mechanics: tuple[str, ...] = ()
+    absent_mechanics: tuple[str, ...] = ()
+    opponent: str = Field(default="", max_length=120)
+    maximum_turns: int | None = Field(default=None, ge=1)
+    tournament_name: str = Field(default="", max_length=120)
+    tournament_structure: str = Field(default="", max_length=80)
+    rounds: int | None = Field(default=None, ge=1)
+    games_per_series: int | None = Field(default=None, ge=1)
+    team_reused_across_series: bool | None = None
+
+
+class TeamPromptRequest(FrozenTeamModel):
+    format: FormatId = DEFAULT_CUSTOM_FORMAT
+    participant: str = Field(default="", max_length=80)
+    context: TeamPromptContext = Field(default_factory=TeamPromptContext)
+
+
 class TeamBuildRequest(FrozenTeamModel):
     name: str = Field(min_length=1, max_length=120)
     participant: str = Field(min_length=1, max_length=80)
@@ -57,6 +86,7 @@ class TeamBuildRequest(FrozenTeamModel):
     model: str = Field(min_length=1, max_length=200)
     configuration: AgentConfiguration = Field(default_factory=AgentConfiguration)
     max_repair_attempts: int = Field(default=2, ge=0, le=3)
+    context: TeamPromptContext = Field(default_factory=TeamPromptContext)
 
 
 class TeamBuildAudit(FrozenTeamModel):

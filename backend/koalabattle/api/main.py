@@ -50,7 +50,15 @@ from koalabattle.production import (
 from koalabattle.production.models import VoicePreviewRequest
 from koalabattle.service import BattleService
 from koalabattle.storage import BattleRepository, Database
-from koalabattle.teams import TeamBuildAudit, TeamBuildRequest, TeamRepository, TeamSnapshot
+from koalabattle.teams import (
+    TEAM_BUILD_PROFILE_VERSION,
+    TeamBuildAudit,
+    TeamBuildRequest,
+    TeamPromptRequest,
+    TeamRepository,
+    TeamSnapshot,
+    render_team_prompt,
+)
 from koalabattle.tournaments.models import (
     CreateTournament,
     MatchTemplateSnapshot,
@@ -600,6 +608,35 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             LOGGER.warning("Model discovery failed: %s", error)
             raise HTTPException(status_code=502, detail=str(error)) from error
         return {"models": [model.model_dump(mode="json") for model in models]}
+
+    @app.post("/api/teams/prompt")
+    async def render_team_building_prompt(
+        payload: TeamPromptRequest, request: Request
+    ) -> dict[str, object]:
+        """Render the team-building prompt so it can be pasted into any external chat.
+
+        Format facts come from the pinned Showdown catalog rather than the caller, so a
+        copied prompt cannot describe a format the battle will not actually run.
+        """
+        descriptor = _service(request).formats.get(payload.format)
+        if descriptor is None:
+            raise HTTPException(status_code=404, detail=f"unknown format {payload.format}")
+        context = payload.context.model_copy(
+            update={
+                # `name` carries the generation ("[Gen 1] OU"); `display_name` is just "OU"
+                # and would read identically for every generation.
+                "format_name": descriptor.name,
+                "generation": descriptor.generation,
+                "game_type": descriptor.game_type,
+                "mechanics": descriptor.mechanics.actionable(),
+                "absent_mechanics": descriptor.mechanics.unavailable(),
+            }
+        )
+        return {
+            "format": descriptor.id,
+            "profile_version": TEAM_BUILD_PROFILE_VERSION,
+            "prompt": render_team_prompt(descriptor.id, payload.participant, context),
+        }
 
     @app.post("/api/teams/validate")
     async def validate_team(payload: TeamValidationInput, request: Request) -> dict[str, object]:
