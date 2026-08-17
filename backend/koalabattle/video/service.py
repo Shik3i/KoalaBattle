@@ -219,8 +219,7 @@ class VideoExportService:
             if cue.track is Track.VOICE and cue.event_sequence is not None
         }
         uses_basic_system_speech = any(
-            preset_id.startswith("system-")
-            for preset_id in production.voice_assignments.values()
+            preset_id.startswith("system-") for preset_id in production.voice_assignments.values()
         )
         for sequence in sorted(commentary_sequences - voiced_sequences):
             missing.append(f"event-{sequence}")
@@ -230,9 +229,7 @@ class VideoExportService:
                 f"{len(commentary_sequences) - len(missing)}/{len(commentary_sequences)} cached"
             ),
             "voice_quality": (
-                "basic offline system speech"
-                if uses_basic_system_speech
-                else "neural / configured"
+                "basic offline system speech" if uses_basic_system_speech else "neural / configured"
             ),
             "sprites": "local asset provider",
             "music": "optional / local only",

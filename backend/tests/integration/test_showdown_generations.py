@@ -122,6 +122,7 @@ def _assert_battle_is_complete(archive: MatchArchive) -> None:
 
 
 def _assert_prompt_is_generation_correct(archive: MatchArchive, generation: int) -> None:
+    """A mechanic must never appear before the generation that introduced it."""
     record = archive.decisions[min(3, len(archive.decisions) - 1)]
     assert record.request.context is not None
     context = record.request.context
@@ -129,28 +130,92 @@ def _assert_prompt_is_generation_correct(archive: MatchArchive, generation: int)
     prompt = record.generated_prompt
     assert f"Generation {generation}" in prompt
     assert "LEGAL ACTIONS" in prompt and "YOUR ACTIVE POKEMON" in prompt
-    if generation < 9:
-        # An impossible mechanic must never reach the model or the action list.
+
+    mechanics = context.mechanics
+    assert mechanics.items is (generation >= 2)
+    assert mechanics.abilities is (generation >= 3)
+    assert mechanics.physical_special_split is (generation >= 4)
+    assert mechanics.z_moves is (generation == 7)
+    assert mechanics.mega_evolution is (6 <= generation <= 7)
+
+    # A field is only rendered when the generation actually has that mechanic.
+    assert ("Item:" in prompt) is mechanics.items
+    assert ("Known item" in prompt) is mechanics.items
+    assert ("Ability:" in prompt) is mechanics.abilities
+    assert ("Known ability" in prompt) is mechanics.abilities
+
+    # A mechanic is only advertised as available when a legal action can actually carry it.
+    advertised = prompt.split("Available mechanics: ", 1)
+    if len(advertised) > 1:
+        offered = advertised[1].splitlines()[0]
+        for never_actionable in ("Mega Evolution", "Z-Move", "Dynamax", "Gigantamax"):
+            assert never_actionable not in offered, (
+                f"gen {generation} advertises {never_actionable}, which has no action"
+            )
+    for label in mechanics.unavailable():
+        assert "KoalaBattle cannot select it" in prompt, (
+            f"gen {generation} has {label} but the prompt does not say it is unselectable"
+        )
+    if not mechanics.terastallization:
         assert "Terastallize" not in prompt
-        assert all(not action.terastallize for action in record.request.legal_actions)
-    if generation < 3:
-        assert "Ability:" not in prompt
-        assert "Known ability" not in prompt
-    if generation < 2:
-        assert "Item:" not in prompt
-        assert "Known item" not in prompt
+        assert "Tera type" not in prompt
+    assert all(
+        action.terastallize is False or mechanics.terastallization
+        for action in record.request.legal_actions
+    )
+    if generation < 4:
+        # Before the split, naming a per-move damage class would state a rule that does
+        # not exist in that generation.
+        assert " · Physical · " not in prompt
+        assert " · Special · " not in prompt
+
     # Switch actions use display names, never machine species IDs.
     for action in record.request.legal_actions:
         if action.type.value == "switch":
             assert action.species and action.species[0].isupper()
 
 
+def _assert_bench_is_actionable(archive: MatchArchive, generation: int) -> None:
+    """An agent that cannot see what its bench does cannot switch well."""
+    record = next(
+        (
+            item
+            for item in archive.decisions
+            if item.request.context is not None
+            and any(action.type.value == "switch" for action in item.request.legal_actions)
+        ),
+        None,
+    )
+    assert record is not None, "no decision offered a switch"
+    context = record.request.context
+    assert context is not None
+    bench = [
+        item for item in context.knowledge.own_side.team if not item.active and not item.fainted
+    ]
+    assert bench, "no healthy bench Pokemon to describe"
+    prompt = record.generated_prompt
+    bench_section = prompt.split("YOUR BENCH", 1)[1].split("OPPONENT ACTIVE", 1)[0]
+    for member in bench:
+        assert member.name in bench_section, f"{member.name} missing from the bench block"
+        assert member.moves, f"{member.name} has no moves in the snapshot"
+        for move in member.moves:
+            assert move.name in bench_section, f"{move.name} missing for {member.name}"
+            assert move.type, f"{move.name} has no type"
+            if move.max_pp is not None:
+                assert f"{move.current_pp}/{move.max_pp} PP" in bench_section
+        assert f"Type: {'/'.join(part.capitalize() for part in member.types)}" in bench_section
+    if generation >= 2:
+        assert "Item:" in bench_section
+    if generation >= 3:
+        assert "Ability:" in bench_section
+
+
 @requires_showdown
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    ("format_id", "generation"), [("gen1randombattle", 1), ("gen9randombattle", 9)]
-)
-async def test_random_battles_run_across_generations(tmp_path, format_id, generation) -> None:
+@pytest.mark.parametrize("generation", list(range(1, 10)))
+async def test_random_battles_run_across_generations(tmp_path, generation) -> None:
+    """One real local Showdown Random Battle per generation, start to persisted replay."""
+    format_id = f"gen{generation}randombattle"
     settings = _settings(tmp_path, format_id)
     database = Database(settings.database_url)
     await database.create_schema()
@@ -174,8 +239,15 @@ async def test_random_battles_run_across_generations(tmp_path, format_id, genera
     _assert_battle_is_complete(archive)
     assert archive.config.generation == generation
     _assert_prompt_is_generation_correct(archive, generation)
+    _assert_bench_is_actionable(archive, generation)
     await service.close()
     await database.close()
+
+    # The archive must survive a reopen, which is what replay and the UI read back.
+    reopened = Database(settings.database_url)
+    persisted = await BattleRepository(reopened).get_match(archive.id)
+    assert persisted is not None and persisted.events == archive.events
+    await reopened.close()
 
 
 @requires_showdown

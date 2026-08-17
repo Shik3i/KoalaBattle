@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createProductionScene, AUTHORITATIVE_IMPACT_PROGRESS } from './scene.ts';
+import { createProductionScene, isKnockedOut, AUTHORITATIVE_IMPACT_PROGRESS } from './scene.ts';
 
 const pokemon = (hp: number) => ({ id: 'pikachu', name: 'Pikachu', species: 'Pikachu', hp_fraction: hp, status: null, types: ['electric'], active: true, fainted: false });
 const battle = (hp: number) => ({ turn: 3, player: { side: 'p1', active: pokemon(1), team: [pokemon(1)] }, opponent: { side: 'p2', active: pokemon(hp), team: [pokemon(hp)] }, weather: [], fields: [] });
@@ -59,4 +59,16 @@ test('scene does not replay the previous move during agent commentary', () => {
   assert.equal(scene.effect.progress, 0);
   assert.equal(scene.effect.moveName, null);
   assert.equal(scene.commentary, 'I will pivot.');
+});
+
+test('a knocked out Pokemon stays down until it is replaced', () => {
+  const standing = { active: { hp_fraction: 0.4, fainted: false } } as never;
+  const fainted = { active: { hp_fraction: 0, fainted: true } } as never;
+  // Showdown reports 0 HP before the faint line on some turns, so either signal counts.
+  const zeroed = { active: { hp_fraction: 0, fainted: false } } as never;
+  const empty = { active: null } as never;
+  assert.equal(isKnockedOut(standing), false);
+  assert.equal(isKnockedOut(fainted), true);
+  assert.equal(isKnockedOut(zeroed), true);
+  assert.equal(isKnockedOut(empty), false);
 });

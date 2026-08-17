@@ -1,4 +1,5 @@
 import type { PokemonType } from '../presentation/types.ts';
+import { isKnockedOut } from './scene.ts';
 import type { ProductionScene, ProductionSceneSide } from './scene.ts';
 
 const TYPE_COLORS: Record<PokemonType, string> = {
@@ -19,6 +20,14 @@ export class ProductionCompositor {
   private resolvedImages = new Map<string, ImageBitmap | null>();
   private assetLoads = 0;
   private assetFailures = 0;
+  /**
+   * The arena itself does not change between frames, but redrawing its gradients, ridges and
+   * perspective grid dominated per-frame cost. Painting it once per distinct look lets every
+   * frame be re-rendered cheaply, which is what allows the Pokemon to keep breathing instead
+   * of being frozen by the frame-hold optimisation.
+   */
+  private worldCache: HTMLCanvasElement | OffscreenCanvas | null = null;
+  private worldKey = '';
 
   constructor(private canvas: HTMLCanvasElement) {
     const context = canvas.getContext('2d', { alpha: false, desynchronized: true });
@@ -33,7 +42,7 @@ export class ProductionCompositor {
     const camera = cameraOffset(scene, scale);
     this.context.save();
     this.context.translate(camera.x, camera.y);
-    this.drawWorld(scene, width, height, scale);
+    this.paintWorld(scene, width, height, scale);
     this.drawCombatants(scene, width, height, scale);
     this.drawEffect(scene, width, height, scale);
     this.context.restore();
@@ -63,8 +72,35 @@ export class ProductionCompositor {
     return pending;
   }
 
-  private drawWorld(scene: ProductionScene, width: number, height: number, scale: number) {
-    const context = this.context;
+  /** Blit the cached arena, rebuilding it only when its appearance actually changes. */
+  private paintWorld(scene: ProductionScene, width: number, height: number, scale: number) {
+    // Weather is time-varying, so it stays outside the cache and is drawn per frame.
+    const key = [width, height, scene.vertical, scene.effect.seed, scene.fields.join()].join('|');
+    if (!this.worldCache || this.worldKey !== key) {
+      const surface =
+        typeof OffscreenCanvas === 'function'
+          ? new OffscreenCanvas(width, height)
+          : Object.assign(document.createElement('canvas'), { width, height });
+      const surfaceContext = surface.getContext('2d') as CanvasRenderingContext2D | null;
+      if (!surfaceContext) {
+        this.drawWorld(this.context, scene, width, height, scale);
+        return;
+      }
+      this.drawWorld(surfaceContext, scene, width, height, scale);
+      this.worldCache = surface;
+      this.worldKey = key;
+    }
+    this.context.drawImage(this.worldCache as CanvasImageSource, 0, 0);
+    this.drawAtmosphere(scene, width, height, scale);
+  }
+
+  private drawWorld(
+    context: CanvasRenderingContext2D,
+    scene: ProductionScene,
+    width: number,
+    height: number,
+    scale: number
+  ) {
     const sky = context.createLinearGradient(0, 0, width, height);
     sky.addColorStop(0, '#07191c'); sky.addColorStop(.43, '#0c2730'); sky.addColorStop(.7, '#17202e'); sky.addColorStop(1, '#080a10');
     context.fillStyle = sky; context.fillRect(-40, -40, width + 80, height + 80);
@@ -89,7 +125,6 @@ export class ProductionCompositor {
     for (let index = -10; index <= 10; index += 1) { context.beginPath(); context.moveTo(width / 2, horizon); context.lineTo(width / 2 + index * width * .12, height); context.stroke(); }
     for (let row = 1; row < 10; row += 1) { const y = horizon + (height - horizon) * Math.pow(row / 9, 1.65); context.beginPath(); context.moveTo(0, y); context.lineTo(width, y); context.stroke(); }
     context.fillStyle = 'rgba(105,255,177,.035)'; context.beginPath(); context.ellipse(width / 2, height * .73, width * .44, height * .19, 0, 0, Math.PI * 2); context.fill();
-    this.drawAtmosphere(scene, width, height, scale);
   }
 
   private drawCombatants(scene: ProductionScene, width: number, height: number, scale: number) {
@@ -118,11 +153,21 @@ export class ProductionCompositor {
     const recoil = impact * size * .1 * direction;
     const shake = impact * Math.sin(scene.effect.impactProgress * 72) * size * .025;
     const idle = Math.sin(scene.timeMs / 640 + (side.near ? 0 : 2.1));
-    const faint = scene.effect.kind === 'pokemon_fainted' && scene.effect.target === side.side ? easeInOut(scene.effect.progress) : 0;
+    // A fainted Pokemon stays down until it is replaced. Driving this only from the faint
+    // cue made it spring back to a healthy standing pose the moment that cue ended.
+    const fainting =
+      scene.effect.kind === 'pokemon_fainted' && scene.effect.target === side.side
+        ? easeInOut(scene.effect.progress)
+        : 0;
+    const down = isKnockedOut(side);
+    const faint = down ? Math.max(fainting, 1) : fainting;
     const appear = scene.effect.kind === 'pokemon_switched' && scene.effect.actor === side.side ? easeOut(scene.effect.progress) : 1;
     const bitmap = side.spriteUrl ? this.resolvedImages.get(side.spriteUrl) : null;
-    context.save(); context.translate(x + lunge + recoil + shake, y - Math.max(0, idle) * size * .018);
-    context.globalAlpha = (1 - faint) * appear; context.rotate((recoil / size) * .16 + faint * direction * .12); context.scale(.78 + appear * .22 + attacking * .06, .78 + appear * .22 - attacking * .025);
+    const breath = idle * size * .014;
+    context.save(); context.translate(x + lunge + recoil + shake, y - size * .012 - breath);
+    // Squash on the inhale and stretch on the exhale so even a static PNG has weight.
+    const squash = idle * .008;
+    context.globalAlpha = (1 - faint) * appear; context.rotate((recoil / size) * .16 + faint * direction * .12); context.scale(.78 + appear * .22 + attacking * .06 + squash, .78 + appear * .22 - attacking * .025 - squash);
     context.shadowColor = impact ? '#fff4bd' : 'rgba(0,0,0,.75)'; context.shadowBlur = impact ? size * .15 : size * .055;
     if (attacking > .18 && bitmap) { context.save(); context.globalAlpha = attacking * .16; context.translate(-direction * size * .11, 0); context.drawImage(bitmap, -size / 2, -size, size, size); context.restore(); }
     if (bitmap) context.drawImage(bitmap, -size / 2, -size, size, size); else this.drawPlaceholder(side, size);
@@ -165,7 +210,7 @@ export class ProductionCompositor {
     context.fillStyle = '#fff'; context.font = `950 ${39 * scale}px system-ui`; context.fillText((side.active?.name || 'AWAITING POKÉMON').toUpperCase(), anchor, y + 66 * scale, width * .66);
     const types = side.active?.types.slice(0, 2) || [];
     types.forEach((type, index) => this.drawTypeChip(type, alignRight ? x + pad + index * 88 * scale : x + width - pad - index * 88 * scale, y + 43 * scale, alignRight, scale));
-    const hp = clamp(side.active?.hp_fraction ?? 0); const previous = clamp(side.previousHpFraction ?? hp); const barX = x + 74 * scale; const barY = y + 91 * scale; const barWidth = width - 150 * scale; const barHeight = 31 * scale;
+    const hp = clamp(side.active?.hp_fraction ?? 0); const previous = clamp(side.previousHpFraction ?? hp); const barX = x + 74 * scale; const barY = y + 91 * scale; const readoutWidth = 132 * scale; const barWidth = width - 150 * scale - readoutWidth; const barHeight = 31 * scale;
     context.fillStyle = '#edf3ef'; context.font = `950 ${18 * scale}px ui-monospace, monospace`; context.textAlign = 'left'; context.fillText('HP', x + 28 * scale, barY + 23 * scale);
     context.fillStyle = '#161b20'; context.fillRect(barX, barY, barWidth, barHeight); context.strokeStyle = 'rgba(255,255,255,.72)'; context.lineWidth = 2 * scale; context.strokeRect(barX, barY, barWidth, barHeight);
     const fill = (fraction: number, fillStyle: string | CanvasGradient) => { const fillWidth = barWidth * fraction; context.fillStyle = fillStyle; context.fillRect(alignRight ? barX + barWidth - fillWidth : barX, barY, fillWidth, barHeight); };
@@ -256,7 +301,13 @@ export class ProductionCompositor {
     const x = scene.vertical ? (width - boxWidth) / 2 : scene.commentarySide === 'p2' ? width - boxWidth - 52 * scale : 52 * scale; const y = scene.vertical ? height * .705 : height * .655;
     context.save(); slashRect(context, x, y, boxWidth, 118 * scale, 22 * scale, scene.commentarySide === 'p2'); context.fillStyle = 'rgba(4,7,11,.91)'; context.fill(); context.strokeStyle = withAlpha(color, .62); context.lineWidth = 3 * scale; context.stroke();
     context.fillStyle = color; context.font = `900 ${14 * scale}px ui-monospace, monospace`; context.textAlign = 'left'; const side = scene.commentarySide === 'p2' ? scene.p2 : scene.p1; context.fillText(`${side.displayName.toUpperCase()} // FIGHTER INTENT`, x + 28 * scale, y + 27 * scale);
-    context.fillStyle = '#f5f7f5'; context.font = `750 ${22 * scale}px system-ui`; const lines = wrap(context, scene.commentary, boxWidth - 56 * scale, 22 * scale).slice(0, 3); lines.forEach((line, index) => context.fillText(line, x + 28 * scale, y + (58 + index * 25) * scale)); context.restore();
+    // The caption already carries the spoken words; repeating them here is noise.
+    const spoken = scene.caption && scene.commentary.startsWith(scene.caption.slice(0, 18));
+    context.fillStyle = spoken ? withAlpha('#f5f7f5', .55) : '#f5f7f5';
+    context.font = `750 ${22 * scale}px system-ui`;
+    const lines = wrap(context, scene.commentary, boxWidth - 56 * scale, 22 * scale).slice(0, spoken ? 1 : 3);
+    lines.forEach((line, index) => context.fillText(line, x + 28 * scale, y + (58 + index * 25) * scale));
+    context.restore();
   }
 
   private drawCaption(scene: ProductionScene, width: number, height: number, scale: number) {

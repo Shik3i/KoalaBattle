@@ -4,6 +4,19 @@ import type { ProductionFrameState } from './frame-state.ts';
 
 export const AUTHORITATIVE_IMPACT_PROGRESS = 0.72;
 
+/**
+ * Whether a Pokemon should be drawn knocked out.
+ *
+ * This must not depend on the faint cue being active: that cue lasts under a second, while
+ * the knocked-out Pokemon stays on the field until its replacement is sent out. Driving the
+ * pose from the cue alone made the sprite spring back up moments after the KO.
+ */
+export function isKnockedOut(side: ProductionSceneSide): boolean {
+  const active = side.active;
+  if (!active) return false;
+  return Boolean(active.fainted) || active.hp_fraction <= 0;
+}
+
 export interface ProductionSceneSide {
   side: Side;
   displayName: string;

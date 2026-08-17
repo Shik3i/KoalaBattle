@@ -1,6 +1,6 @@
 import type { ProductionCue, ProductionTimeline } from '../types.ts';
 
-export type RenderReason = 'initial' | 'animated' | 'cue-boundary' | 'static-hold';
+export type RenderReason = 'initial' | 'animated' | 'cue-boundary' | 'idle' | 'static-hold';
 
 export interface RenderPlanFrame {
   index: number;
@@ -9,6 +9,16 @@ export interface RenderPlanFrame {
   animated: boolean;
   reason: RenderReason;
 }
+
+/**
+ * Frames rendered per second during stretches with no animated cue.
+ *
+ * Holding an identical frame for seconds at a time froze the Pokemon mid-battle, which read
+ * as "the sprites are static" even though the compositor animates idle breathing. Rendering
+ * a reduced cadence through those stretches restores the motion while keeping most of the
+ * saving, because breathing is slow enough that 15 Hz is indistinguishable from 60 Hz.
+ */
+export const IDLE_RENDER_HZ = 15;
 
 export interface RenderPlan {
   version: '1.0';
@@ -19,6 +29,7 @@ export interface RenderPlan {
   plannedUniqueRenders: number;
   plannedStaticHeldFrames: number;
   plannedAnimatedFrames: number;
+  plannedIdleFrames: number;
   frames: RenderPlanFrame[];
 }
 
@@ -55,21 +66,35 @@ export function createRenderPlan(
     }
   }
   const frames: RenderPlanFrame[] = [];
+  const idleStride = Math.max(1, Math.round(fps / IDLE_RENDER_HZ));
   let unique = 0;
   let animatedFrames = 0;
+  let idleFrames = 0;
   for (let index = 0; index < outputFrames; index += 1) {
     const logicalTimeMs = startMs + index * 1000 / fps;
     const animated = relevant.some((cue) => cueAnimatedAt(cue, logicalTimeMs));
     const boundary = boundaries.has(index);
-    const render = index === 0 || animated || boundary;
+    // Purely index-based, so the plan stays deterministic for a given range and fps.
+    const idle = !animated && !boundary && index % idleStride === 0;
+    const render = index === 0 || animated || boundary || idle;
     if (render) unique += 1;
     if (animated) animatedFrames += 1;
+    if (idle) idleFrames += 1;
     frames.push({
       index,
       logicalTimeMs,
       render,
       animated,
-      reason: index === 0 ? 'initial' : animated ? 'animated' : boundary ? 'cue-boundary' : 'static-hold'
+      reason:
+        index === 0
+          ? 'initial'
+          : animated
+            ? 'animated'
+            : boundary
+              ? 'cue-boundary'
+              : idle
+                ? 'idle'
+                : 'static-hold'
     });
   }
   return {
@@ -81,6 +106,7 @@ export function createRenderPlan(
     plannedUniqueRenders: unique,
     plannedStaticHeldFrames: outputFrames - unique,
     plannedAnimatedFrames: animatedFrames,
+    plannedIdleFrames: idleFrames,
     frames
   };
 }

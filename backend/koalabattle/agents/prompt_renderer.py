@@ -305,7 +305,6 @@ def _format_section(snapshot: AgentContextSnapshot) -> list[str]:
         snapshot.format_name or snapshot.format,
         f"Generation {snapshot.generation} · {snapshot.game_type} · one active Pokemon per side",
     ]
-    enabled = mechanics.enabled()
     absent = [
         label
         for label, present in (
@@ -314,8 +313,17 @@ def _format_section(snapshot: AgentContextSnapshot) -> list[str]:
         )
         if not present
     ]
-    if enabled:
-        lines.append(f"Available mechanics: {', '.join(enabled)}")
+    actionable = mechanics.actionable()
+    unavailable = mechanics.unavailable()
+    if actionable:
+        lines.append(f"Available mechanics: {', '.join(actionable)}")
+    if unavailable:
+        # Never advertise a mechanic that has no legal action behind it. The opponent can
+        # still use one, so say so plainly rather than staying silent.
+        lines.append(
+            f"{', '.join(unavailable)} exists in this format but KoalaBattle cannot select "
+            "it; the opponent may still use it."
+        )
     if absent:
         lines.append(f"This generation has no {' and no '.join(absent)}.")
     if not mechanics.physical_special_split:

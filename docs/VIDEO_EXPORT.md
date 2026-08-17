@@ -44,6 +44,30 @@ success is not sufficient: FFprobe validation precedes atomic publication. The m
 records visual profile version, codec path, output/unique/static/animated frame counts, asset
 cache counts, encode-queue high-water mark, stage timings, and measured media/wall ratio.
 
+## Review media
+
+Visual review needs motion, not stills: choreography, pacing, HP interpolation and speech
+timing cannot be judged from a screenshot. Two scripts produce a local review pack under the
+ignored `data/review-pack/<name>/`:
+
+```bash
+# A battle whose public commentary reads like a real Manual Web Chat answer.
+python3 scripts/drive_manual_match.py --format gen9randombattle --name "Review battle"
+
+# Short MP4 clips plus their caption sidecars, exported through the normal pipeline.
+python3 scripts/capture_review_clips.py --match <uuid> --output data/review-pack/<name>
+```
+
+`capture_review_clips.py` locates the interesting windows itself — the commentary that
+introduces a landing move, the densest stretch of distinct action, and the result banner —
+then exports each as a time range of a real production. Nothing is stitched from stills and
+nothing bypasses the exporter, so a clip that looks wrong is evidence of a real production
+problem. Stills pulled from those clips are the same pixels the reviewer sees in motion.
+
+Speech must be prepared *before* export and never rebuilt afterwards: `rebuild` regenerates
+the timeline from the archive and drops synthesized voice cues.
+
+
 ## API
 
 - `GET /api/video/presets`

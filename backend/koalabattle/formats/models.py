@@ -27,14 +27,36 @@ class FormatMechanics(FrozenFormatModel):
     natures: bool = False
     held_item_switching: bool = False
 
-    def enabled(self) -> tuple[str, ...]:
-        labels = {
-            "mega_evolution": "Mega Evolution",
-            "z_moves": "Z-Moves",
-            "dynamax": "Dynamax",
-            "terastallization": "Terastallization",
-        }
-        return tuple(label for key, label in labels.items() if getattr(self, key))
+    #: Battle mechanics that need their own action to be usable. KoalaBattle only issues
+    #: Terastallization today, so the others exist in the format but cannot be chosen.
+    _OPTIONAL_MECHANIC_LABELS = {
+        "mega_evolution": "Mega Evolution",
+        "z_moves": "Z-Moves",
+        "dynamax": "Dynamax",
+        "terastallization": "Terastallization",
+    }
+    _ACTIONABLE = ("terastallization",)
+
+    def actionable(self) -> tuple[str, ...]:
+        """Mechanics an agent can actually select, because a legal action carries them."""
+        return tuple(
+            label
+            for key, label in self._OPTIONAL_MECHANIC_LABELS.items()
+            if key in self._ACTIONABLE and getattr(self, key)
+        )
+
+    def unavailable(self) -> tuple[str, ...]:
+        """Mechanics this format has that KoalaBattle cannot issue an action for.
+
+        Naming these is not pedantry: an agent told a mechanic is "available" will plan
+        around a move it can never make, and an agent told nothing will be surprised when
+        the opponent uses one.
+        """
+        return tuple(
+            label
+            for key, label in self._OPTIONAL_MECHANIC_LABELS.items()
+            if key not in self._ACTIONABLE and getattr(self, key)
+        )
 
 
 class FormatDescriptor(FrozenFormatModel):

@@ -333,3 +333,29 @@ def test_variable_power_moves_are_not_reported_as_powerless() -> None:
     prompt = render(updated).combined
     assert "Grass · Special · variable BP · 100% · 32/32 PP" in prompt
     assert "no base power" not in prompt
+
+
+def test_mechanics_without_an_action_are_not_advertised_as_available() -> None:
+    """Gen 6-8 have Mega Evolution, Z-Moves and Dynamax; KoalaBattle issues none of them."""
+    # Formats chosen because their rule table actually permits the mechanic; gen8ou bans
+    # Dynamax outright, so it would prove nothing here.
+    for format_id, label in (
+        ("gen6ou", "Mega Evolution"),
+        ("gen7anythinggoes", "Z-Moves"),
+        ("gen8anythinggoes", "Dynamax"),
+    ):
+        snapshot = _snapshot(format_id)
+        prompt = render(snapshot).combined
+        available = [
+            line for line in prompt.splitlines() if line.startswith("Available mechanics:")
+        ]
+        assert all(label not in line for line in available), f"{format_id} advertises {label}"
+        # The opponent can still use it, so the prompt says so instead of staying silent.
+        assert label in prompt
+        assert "KoalaBattle cannot select it" in prompt
+
+
+def test_terastallization_is_advertised_because_an_action_carries_it() -> None:
+    prompt = render(_snapshot("gen9ou")).combined
+    assert "Available mechanics: Terastallization" in prompt
+    assert "KoalaBattle cannot select it" not in prompt

@@ -59,6 +59,20 @@ A Gen 1 prompt therefore contains no `Ability:`, `Item:` or `Tera type:` lines, 
 damage class follows the move's type, and never lists a `move:N:tera` action. Legal actions
 always come from Showdown, so an impossible mechanic cannot appear.
 
+### Available versus merely present
+
+A mechanic is only listed under `Available mechanics:` when a legal action can carry it.
+KoalaBattle issues Terastallization and nothing else, so a Gen 6-8 format that permits Mega
+Evolution, Z-Moves or Dynamax says so explicitly instead:
+
+```
+Mega Evolution exists in this format but KoalaBattle cannot select it; the opponent may
+still use it.
+```
+
+Advertising a mechanic with no action behind it made agents plan around moves they could
+never make; staying silent about it left them unprepared when the opponent used one.
+
 ## Hidden information
 
 The old `Do not infer hidden state.` and `Use only information in this prompt.` rules were

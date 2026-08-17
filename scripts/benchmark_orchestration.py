@@ -410,7 +410,9 @@ async def main() -> None:
     parser.add_argument("--skip-runtime", action="store_true")
     args = parser.parse_args()
     measurements: list[Measurement] = []
-    with tempfile.TemporaryDirectory(prefix="koalabattle-orchestration-benchmark-") as value:
+    with tempfile.TemporaryDirectory(
+        prefix="koalabattle-orchestration-benchmark-"
+    ) as value:
         root = Path(value)
         for count in (1_000, 5_000, 10_000):
             measurements.append(benchmark_replay(count))
