@@ -10,6 +10,35 @@ enabled when speech is disabled. A rebuild increments the revision and never mut
 events or recalls an LLM. A rebuild creates a new production ID and leaves the previous
 timeline untouched. Multiple production records may reference the same match.
 
+## Presentation is separate from history
+
+Every production carries a versioned `ProductionStyle` describing how it should look, and an
+optional display title. Neither can reach battle events, agent decisions, commentary text,
+teams, the winner or historical timing — a production is a *view* of an archive.
+
+```text
+MATCH        what happened
+REPLAY       reconstructs what happened
+PRODUCTION   how this replay should look and sound   ← style lives here
+EXPORT       the resulting video file
+```
+
+Productions of one match are fully independent: editing, duplicating or deleting one never
+affects another, and deleting a production never deletes the match. A rebuild regenerates
+timing from the archive but preserves the style and title the user configured.
+
+Old productions saved before styles existed validate with the built-in Koala Broadcast
+defaults, so nothing needs migrating to keep rendering. See [THEMES.md](THEMES.md) for the
+settings and [VIDEO_STUDIO.md](VIDEO_STUDIO.md) for the editing workflow.
+
+### Speech and the production clock
+
+Preparing speech replaces estimated commentary durations with real cached audio durations
+and then **re-times the whole clock** against them, so cue starts and `duration_ms` always
+describe the audio that will actually play. Callers must re-read the production after
+preparing: a copy held from before that call describes the estimated timing and any window
+computed from it points at the wrong moment.
+
 ## Incremental lifecycle
 
 New matches receive a live production on the first persisted `battle_started` event. The

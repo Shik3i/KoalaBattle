@@ -713,6 +713,7 @@ class LegacyScreenshotRendererExporter(VideoExporter):
             source_start_ms=job.start_ms,
             source_end_ms=job.end_ms,
             assets={"network": "local-only", "output": final.name},
+            style=style_snapshot(production),
             renderer_metrics=metrics.manifest(job.duration_ms),
             created_at=datetime.now(UTC),
         )
@@ -1266,6 +1267,39 @@ def validate_probe(metadata: dict[str, Any], job: VideoExportJob, *, audio_expec
     tolerance = max(0.1, 1 / job.preset.fps + 0.05)
     if abs(duration - job.duration_ms / 1000) > tolerance:
         raise ValueError("encoded output duration differs from production range")
+
+
+def style_snapshot(production: ProductionTimeline) -> dict[str, Any]:
+    """Auditable presentation metadata for the export manifest.
+
+    Only the settings that changed how this render looked, plus the asset ids it pointed
+    at. No binary media, no filesystem paths, no credentials.
+    """
+    style = production.style
+    return {
+        "schema_version": style.schema_version,
+        "preset_id": style.id,
+        "preset_version": style.version,
+        "display_name": style.display_name,
+        "title": production.title,
+        "show_format": style.show_format,
+        "show_generation": style.show_generation,
+        "koala_branding": style.show_koala_branding,
+        "stage": style.stage.model_dump(mode="json"),
+        "hud": style.hud.model_dump(mode="json"),
+        "typography": style.typography.model_dump(mode="json"),
+        "move": style.move.model_dump(mode="json"),
+        "damage": style.damage.model_dump(mode="json"),
+        "commentary": style.commentary.model_dump(mode="json"),
+        "caption": style.caption.model_dump(mode="json"),
+        "effect": style.effect.model_dump(mode="json"),
+        "intro": style.intro.model_dump(mode="json"),
+        "result": style.result.model_dump(mode="json"),
+        "watermark": style.watermark.model_dump(mode="json"),
+        "players": {side: value.model_dump(mode="json") for side, value in style.players.items()},
+        "series": style.series.model_dump(mode="json"),
+        "brand_asset_ids": list(style.asset_ids()),
+    }
 
 
 def captions_to_srt(production: ProductionTimeline, output: Path) -> None:

@@ -47,9 +47,11 @@ export async function renderNativeFrame(
 ): Promise<CompositorMetrics> {
   canvas.width = request.width;
   canvas.height = request.height;
-  const compositor = new ProductionCompositor(canvas);
+  const compositor = new ProductionCompositor(canvas, request.assetApiBase);
   const frame = createProductionFrameRenderer(match, production).renderAt(request.timeMs);
-  await compositor.render(createProductionScene(frame, request.height > request.width, request.assetApiBase));
+  await compositor.render(
+    createProductionScene(frame, request.height > request.width, request.assetApiBase, production.style, production.title)
+  );
   return compositor.metrics();
 }
 
@@ -115,7 +117,7 @@ async function renderWebCodecsProduction(
     error(error) { encoderError = new Error(String(error)); }
   });
   encoder.configure(selected.config);
-  const compositor = new ProductionCompositor(canvas);
+  const compositor = new ProductionCompositor(canvas, request.assetApiBase);
   const frameRenderer = createProductionFrameRenderer(match, production);
   const durationUs = Math.round(1_000_000 / request.fps);
   let rasterSeconds = 0;
@@ -142,7 +144,7 @@ async function renderWebCodecsProduction(
       if (instruction.render) {
         const rasterStarted = performance.now();
         const frameState = frameRenderer.renderAt(instruction.logicalTimeMs);
-        const scene = createProductionScene(frameState, request.height > request.width, request.assetApiBase);
+        const scene = createProductionScene(frameState, request.height > request.width, request.assetApiBase, production.style, production.title);
         await compositor.render(scene);
         rasterSeconds += (performance.now() - rasterStarted) / 1000;
         uniqueRenders += 1;
@@ -215,7 +217,7 @@ async function renderRawProduction(
   const planStarted = performance.now();
   const plan = createRenderPlan(production, request.startMs, request.endMs, request.fps);
   const renderPlanSeconds = (performance.now() - planStarted) / 1000;
-  const compositor = new ProductionCompositor(canvas);
+  const compositor = new ProductionCompositor(canvas, request.assetApiBase);
   const frameRenderer = createProductionFrameRenderer(match, production);
   const context = canvas.getContext('2d', {alpha: false});
   if (!context) throw new Error('Canvas 2D raw-frame readback is unavailable');
@@ -233,7 +235,7 @@ async function renderRawProduction(
     }
     const rasterStarted = performance.now();
     const frameState = frameRenderer.renderAt(instruction.logicalTimeMs);
-    const scene = createProductionScene(frameState, request.height > request.width, request.assetApiBase);
+    const scene = createProductionScene(frameState, request.height > request.width, request.assetApiBase, production.style, production.title);
     await compositor.render(scene);
     rasterSeconds += (performance.now() - rasterStarted) / 1000;
     uniqueRenders += 1;

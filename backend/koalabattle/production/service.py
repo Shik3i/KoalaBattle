@@ -3,19 +3,22 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import re
 from collections import defaultdict
 from datetime import UTC, datetime
 from pathlib import Path
-from uuid import UUID
+from uuid import UUID, uuid4
 
+from koalabattle.branding.marks import mark_for
 from koalabattle.config import Settings
-from koalabattle.core.models import BattleEvent, MatchStatus
+from koalabattle.core.models import BattleEvent, MatchArchive, MatchStatus
 from koalabattle.storage import BattleRepository, Database
 
 from .models import (
     CreateProduction,
     DirectorCommand,
     DirectorState,
+    DuplicateProduction,
     PrepareSpeechRequest,
     ProductionCue,
     ProductionProfile,
@@ -26,6 +29,7 @@ from .models import (
     SpeechProviderStatus,
     SpeechRequest,
     Track,
+    UpdateProduction,
     VoicePreset,
 )
 from .profiles import PRODUCTION_PROFILES
@@ -39,7 +43,44 @@ from .speech import (
     SystemSpeechProvider,
 )
 from .speech.cache import ValidatedAudio, speech_cache_key
+from .style import ParticipantBranding, ProductionStyle, SaveStylePreset, StylePreset
+from .style_presets import BUILTIN_STYLES, builtin_presets, suggest_style
 from .timeline import build_timeline, cues_for_event, final_cues, retime_for_audio, segment_caption
+
+
+def _generation(format_id: str) -> int:
+    match = re.match(r"^gen(\d)", format_id.lower())
+    return int(match.group(1)) if match else 9
+
+
+def _preset_id(display_name: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", display_name.lower()).strip("-")[:58]
+    if len(slug) < 3:
+        raise ValueError("style preset name must contain at least three usable characters")
+    return slug
+
+
+def apply_default_branding(style: ProductionStyle, archive: MatchArchive) -> ProductionStyle:
+    """Fill in each player's identity from the match, without overwriting user choices.
+
+    A brand-new production should already show sensible names, marks and accents. Anything
+    the user has explicitly set on the style survives, because a preset carried between
+    matches must not silently rename this match's players.
+    """
+    players = dict(style.players)
+    for player in archive.config.players:
+        side = player.side.value
+        existing = players.get(side, ParticipantBranding())
+        mark = mark_for(player.agent_type.value, player.provider)
+        players[side] = existing.model_copy(
+            update={
+                "display_name": existing.display_name or player.display_name,
+                "logo_mark": existing.logo_mark or mark.id,
+                "accent": existing.accent or mark.accent,
+                "secondary_accent": existing.secondary_accent or mark.secondary_accent,
+            }
+        )
+    return style.model_copy(update={"players": players})
 
 
 class ProductionService:
@@ -153,7 +194,19 @@ class ProductionService:
         available = {preset.id for preset in await self.repository.list_voices() if preset.enabled}
         if not set(voices.values()).issubset(available):
             raise ValueError("voice assignment references an unknown or disabled VoicePreset")
-        production = build_timeline(archive, profile, voices=voices)
+        style = request.style or await self.style_for(
+            request.style_id
+            or suggest_style(
+                generation=_generation(archive.config.format),
+                vertical=profile.aspect_ratio == "9:16",
+            )
+        )
+        production = build_timeline(archive, profile, voices=voices).model_copy(
+            update={
+                "style": apply_default_branding(style, archive),
+                "title": request.title,
+            }
+        )
         if production.status is ProductionStatus.FINALIZED:
             production = self._seal(production)
         return await self.repository.save(production)
@@ -168,10 +221,107 @@ class ProductionService:
             previous.profile,
             revision=previous.revision + 1,
             voices=previous.voice_assignments,
-        ).model_copy(update={"overrides": previous.overrides})
+        ).model_copy(
+            update={
+                "overrides": previous.overrides,
+                # Rebuilding regenerates timing from the archive; it must not silently
+                # reset the presentation the user configured.
+                "style": previous.style,
+                "title": previous.title,
+            }
+        )
         if rebuilt.status is ProductionStatus.FINALIZED:
             rebuilt = self._seal(rebuilt)
         return await self.repository.save(rebuilt)
+
+    # ----------------------------------------------------------------- styles
+
+    async def styles(self) -> tuple[StylePreset, ...]:
+        """Built-in presets first, then the user's saved ones."""
+        return (*builtin_presets(), *await self.repository.list_style_presets())
+
+    async def style_for(self, style_id: str) -> ProductionStyle:
+        builtin = BUILTIN_STYLES.get(style_id)
+        if builtin is not None:
+            return builtin
+        saved = next(
+            (
+                preset
+                for preset in await self.repository.list_style_presets()
+                if preset.id == style_id
+            ),
+            None,
+        )
+        if saved is None:
+            raise ValueError(f"Unknown production style: {style_id}")
+        return saved.style
+
+    async def save_style_preset(self, request: SaveStylePreset) -> StylePreset:
+        preset_id = _preset_id(request.display_name)
+        if preset_id in BUILTIN_STYLES:
+            # Built-ins are the escape route users come back to after experimenting.
+            raise ValueError("built-in style presets cannot be overwritten; choose another name")
+        return await self.repository.save_style_preset(
+            StylePreset(
+                id=preset_id,
+                display_name=request.display_name,
+                description=request.description,
+                builtin=False,
+                style=request.style.model_copy(
+                    update={
+                        "id": preset_id,
+                        "display_name": request.display_name,
+                        "builtin": False,
+                    }
+                ),
+            )
+        )
+
+    async def delete_style_preset(self, preset_id: str) -> bool:
+        if preset_id in BUILTIN_STYLES:
+            raise ValueError("built-in style presets cannot be deleted")
+        return await self.repository.delete_style_preset(preset_id)
+
+    # ------------------------------------------------------------ productions
+
+    async def update(self, production_id: UUID, request: UpdateProduction) -> ProductionTimeline:
+        """Apply a presentation edit. Cues, events and results are left exactly as they are."""
+        production = await self.require(production_id)
+        update: dict[str, object] = {"updated_at": datetime.now(UTC)}
+        if request.style is not None:
+            update["style"] = request.style
+        if request.clear_title:
+            update["title"] = None
+        elif request.title is not None:
+            update["title"] = request.title
+        updated = production.model_copy(update=update)
+        if updated.status is ProductionStatus.FINALIZED:
+            updated = self._seal(updated)
+        return await self.repository.save(updated)
+
+    async def duplicate(
+        self, production_id: UUID, request: DuplicateProduction
+    ) -> ProductionTimeline:
+        """Copy a production's presentation onto a fresh id sharing the same match."""
+        source = await self.require(production_id)
+        style = await self.style_for(request.style_id) if request.style_id else source.style
+        now = datetime.now(UTC)
+        copy = source.model_copy(
+            update={
+                "id": uuid4(),
+                "style": style,
+                "title": request.title or source.title,
+                "revision": 1,
+                "created_at": now,
+                "updated_at": now,
+            }
+        )
+        if copy.status is ProductionStatus.FINALIZED:
+            copy = self._seal(copy)
+        return await self.repository.save(copy)
+
+    async def delete(self, production_id: UUID) -> bool:
+        return await self.repository.delete(production_id)
 
     async def on_event(self, event: BattleEvent) -> None:
         """Incrementally extend every live production after the event transaction commits."""
@@ -349,6 +499,14 @@ class ProductionService:
             except Exception as error:
                 failures.append(f"{cue.id}: {error}")
         cues = self._with_speech(production.cues, generated, production)
+        # Real speech is longer or shorter than the estimate the timeline was built from, so
+        # the clock has to be normalized against it. Live matches got this through
+        # `_finalize`; a production created in the Video Studio from an archived match never
+        # ran that path, which left its cue starts and `duration_ms` describing estimated
+        # durations while the cues themselves carried real audio. Windows computed from that
+        # production then pointed at the wrong moment — that is how the result card ended up
+        # outside a "victory" export range.
+        cues, duration = retime_for_audio(cues, production.profile)
         # Speech is optional presentation media. Keep captions and the production
         # exportable when an online provider is unavailable, even if every cue failed.
         status = ProductionStatus.PARTIAL if failures else ProductionStatus.READY
@@ -356,6 +514,7 @@ class ProductionService:
         updated = production.model_copy(
             update={
                 "cues": cues,
+                "duration_ms": duration,
                 "status": status,
                 "overrides": overrides,
                 "updated_at": datetime.now(UTC),

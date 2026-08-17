@@ -1,5 +1,5 @@
 import { env } from '$env/dynamic/public';
-import type { ExportBackend, ExportPreflight, FormatCatalog, FormatDescriptor, FormatGroup, MatchArchive, ProductionProfile, ProductionTimeline, RenderEngine, RendererCapabilities, VideoExportJob, VideoExportPreset, VoicePreset } from './types';
+import type { BrandAsset, BrandAssetKind, BrandAssetLibrary, ExportBackend, ExportPreflight, FormatCatalog, FormatDescriptor, FormatGroup, MatchArchive, ProductionProfile, ProductionStyle, ProductionTimeline, RenderEngine, RendererCapabilities, StylePreset, VideoExportJob, VideoExportPreset, VoicePreset } from './types';
 
 export const apiBase = () => {
   const fallback = env.PUBLIC_API_URL || 'http://localhost:8001';
@@ -33,11 +33,51 @@ export const getPresentationMatch = (id: string) =>
 export const getProductions = (matchId: string) =>
   api<ProductionTimeline[]>(`/api/matches/${matchId}/productions`);
 export const getProduction = (id: string) => api<ProductionTimeline>(`/api/productions/${id}`);
-export const createProduction = (matchId: string, profileId: string, voiceAssignments: Record<string, string>) =>
+export const createProduction = (
+  matchId: string,
+  profileId: string,
+  voiceAssignments: Record<string, string>,
+  options: { styleId?: string; title?: string | null } = {}
+) =>
   api<ProductionTimeline>(`/api/matches/${matchId}/productions`, {
     method: 'POST',
-    body: JSON.stringify({ profile_id: profileId, voice_assignments: voiceAssignments })
+    body: JSON.stringify({
+      profile_id: profileId,
+      voice_assignments: voiceAssignments,
+      style_id: options.styleId || null,
+      title: options.title || null
+    })
   });
+/** Saves presentation settings only; the recorded battle is never modified. */
+export const updateProduction = (id: string, patch: { style?: ProductionStyle; title?: string | null; clearTitle?: boolean }) =>
+  api<ProductionTimeline>(`/api/productions/${id}/update`, {
+    method: 'POST',
+    body: JSON.stringify({ style: patch.style ?? null, title: patch.title ?? null, clear_title: patch.clearTitle ?? false })
+  });
+export const duplicateProduction = (id: string, options: { title?: string | null; styleId?: string | null } = {}) =>
+  api<ProductionTimeline>(`/api/productions/${id}/duplicate`, {
+    method: 'POST',
+    body: JSON.stringify({ title: options.title || null, style_id: options.styleId || null })
+  });
+export const deleteProduction = (id: string) =>
+  api<{ deleted: boolean }>(`/api/productions/${id}/delete`, { method: 'POST' });
+export const getStylePresets = () => api<StylePreset[]>('/api/production/styles');
+export const saveStylePreset = (displayName: string, description: string, style: ProductionStyle) =>
+  api<StylePreset>('/api/production/styles', {
+    method: 'POST',
+    body: JSON.stringify({ display_name: displayName, description, style })
+  });
+export const deleteStylePreset = (presetId: string) =>
+  api<{ deleted: boolean }>(`/api/production/styles/${presetId}/delete`, { method: 'POST' });
+export const getBrandAssets = () => api<BrandAssetLibrary>('/api/branding/assets');
+export const uploadBrandAsset = (kind: BrandAssetKind, displayName: string, dataBase64: string) =>
+  api<BrandAsset>('/api/branding/assets', {
+    method: 'POST',
+    body: JSON.stringify({ kind, display_name: displayName, data_base64: dataBase64 })
+  });
+export const deleteBrandAsset = (id: string, force = false) =>
+  api<{ deleted: boolean }>(`/api/branding/assets/${id}/delete?force=${force}`, { method: 'POST' });
+export const brandAssetUrl = (id: string) => `${apiBase()}/api/branding/assets/${id}/media`;
 export const previewVoice = (presetId: string) =>
   api<{ media_url: string }>('/api/production/voices/preview', {
     method: 'POST',

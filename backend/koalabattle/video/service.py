@@ -11,6 +11,7 @@ from typing import cast
 from urllib.parse import urlsplit
 from uuid import UUID, uuid4
 
+from koalabattle.branding import BrandingService
 from koalabattle.config import Settings
 from koalabattle.production import ProductionService
 from koalabattle.production.models import ProductionStatus, Track
@@ -40,6 +41,13 @@ from .models import (
 )
 from .repository import VideoExportRepository
 
+
+def _asset_check(asset_id: str | None, missing: tuple[str, ...]) -> str:
+    if asset_id is None:
+        return "not configured"
+    return "missing — falls back" if asset_id in missing else "ready"
+
+
 _RUNNING = {
     ExportStatus.PREPARING,
     ExportStatus.RENDERING,
@@ -60,6 +68,7 @@ class VideoExportService:
         self.battles = battles
         self.productions = productions
         self.settings = settings
+        self.branding = BrandingService(database, settings.branding_root)
         self.storage = VideoStorage(settings.video_root)
         self.exporters = {
             ExportBackend.OFFLINE: OfflineRendererExporter(settings, self.storage),
@@ -223,8 +232,34 @@ class VideoExportService:
         )
         for sequence in sorted(commentary_sequences - voiced_sequences):
             missing.append(f"event-{sequence}")
+        style = production.style
+        # Custom media is optional presentation: a deleted logo must degrade to the
+        # generated mark rather than block an export the user asked for.
+        missing_assets = await self.branding.missing(style.asset_ids())
+        fonts = tuple(
+            asset
+            for asset in (style.typography.display_asset_id, style.typography.body_asset_id)
+            if asset
+        )
         checks = {
             "production": production.status.value,
+            "production_style": f"{style.id} v{style.version}",
+            "player_branding": (
+                f"{len(style.players)}/2 configured"
+                if len(style.players) < 2
+                else "p1 + p2 resolved"
+            ),
+            "background": _asset_check(style.stage.background.asset_id, missing_assets)
+            if style.stage.background.kind == "image"
+            else f"generated / {style.stage.background.kind}",
+            "fonts": (
+                "curated local stacks" if not fonts else _asset_check(fonts[0], missing_assets)
+            ),
+            "watermark": (
+                "off"
+                if not style.watermark.enabled
+                else _asset_check(style.watermark.asset_id, missing_assets)
+            ),
             "speech": (
                 f"{len(commentary_sequences) - len(missing)}/{len(commentary_sequences)} cached"
             ),
@@ -272,6 +307,11 @@ class VideoExportService:
                 "This production uses basic offline system speech. Regenerate it with the "
                 "Edge Neural presets before a production export."
                 if production.profile.speech_enabled and uses_basic_system_speech
+                else None,
+                f"{len(missing_assets)} custom brand asset(s) referenced by this style are "
+                "no longer on disk. They render with the documented fallback; replace them "
+                "in the Video Studio to restore the intended look."
+                if missing_assets
                 else None,
             )
             if warning is not None

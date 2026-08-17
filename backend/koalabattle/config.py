@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     team_validator_url: str = "http://localhost:8002"
     showdown_version: str = "b22742debfdce6e640193384f5731b9030f9cb6e"
     asset_root: Path = Path("data/assets")
+    #: User-uploaded logos, backgrounds, watermarks and fonts. Runtime media, never
+    #: committed; see docs/ASSETS.md for the backup implications.
+    branding_root: Path = Path("data/branding")
     cors_origins: Annotated[tuple[str, ...], NoDecode] = (
         "http://localhost:5173",
         "http://localhost:3000",

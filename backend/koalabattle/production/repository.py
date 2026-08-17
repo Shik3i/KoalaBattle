@@ -6,10 +6,16 @@ from uuid import UUID
 
 from sqlalchemy import select
 
-from koalabattle.models.orm import ProductionRow, SpeechCacheRow, VoicePresetRow
+from koalabattle.models.orm import (
+    ProductionRow,
+    SpeechCacheRow,
+    StylePresetRow,
+    VoicePresetRow,
+)
 from koalabattle.storage.database import Database
 
 from .models import ProductionTimeline, SpeechArtifact, SpeechProviderKind, VoicePreset
+from .style import ProductionStyle, StylePreset
 
 
 class ProductionRepository:
@@ -31,6 +37,11 @@ class ProductionRepository:
                 "voice_assignments_json": json.dumps(production.voice_assignments, sort_keys=True),
                 "overrides_json": json.dumps(production.overrides, sort_keys=True),
                 "authoritative_client_id": production.authoritative_client_id,
+                # Denormalized so asset-reference lookups and style filtering do not have
+                # to parse an entire timeline.
+                "style_id": production.style.id,
+                "style_json": production.style.model_dump_json(),
+                "title": production.title,
                 "created_at": production.created_at,
                 "updated_at": production.updated_at,
             }
@@ -64,6 +75,59 @@ class ProductionRepository:
             for production in await self.list_for_match(match_id)
             if production.status.value in {"draft", "live", "finalizing"}
         )
+
+    async def delete(self, production_id: UUID) -> bool:
+        """Remove one production. The match it was built from is never touched."""
+        async with self.database.sessions() as session:
+            row = await session.get(ProductionRow, str(production_id))
+            if row is None:
+                return False
+            await session.delete(row)
+            await session.commit()
+        return True
+
+    async def save_style_preset(self, preset: StylePreset) -> StylePreset:
+        now = datetime.now(UTC)
+        async with self.database.sessions() as session:
+            row = await session.get(StylePresetRow, preset.id)
+            if row is None:
+                row = StylePresetRow(id=preset.id, created_at=now, schema_version="1.0")
+                session.add(row)
+            row.display_name = preset.display_name
+            row.description = preset.description
+            row.style_json = preset.style.model_dump_json()
+            row.updated_at = now
+            await session.commit()
+        return preset.model_copy(
+            update={"created_at": row.created_at.isoformat(), "updated_at": now.isoformat()}
+        )
+
+    async def list_style_presets(self) -> tuple[StylePreset, ...]:
+        async with self.database.sessions() as session:
+            rows = (
+                await session.scalars(select(StylePresetRow).order_by(StylePresetRow.display_name))
+            ).all()
+        return tuple(
+            StylePreset(
+                id=row.id,
+                display_name=row.display_name,
+                description=row.description,
+                builtin=False,
+                style=ProductionStyle.model_validate_json(row.style_json),
+                created_at=row.created_at.isoformat(),
+                updated_at=row.updated_at.isoformat(),
+            )
+            for row in rows
+        )
+
+    async def delete_style_preset(self, preset_id: str) -> bool:
+        async with self.database.sessions() as session:
+            row = await session.get(StylePresetRow, preset_id)
+            if row is None:
+                return False
+            await session.delete(row)
+            await session.commit()
+        return True
 
     async def upsert_voice(self, preset: VoicePreset) -> None:
         now = datetime.now(UTC)

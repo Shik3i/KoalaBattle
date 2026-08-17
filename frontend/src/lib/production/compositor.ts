@@ -1,6 +1,16 @@
 import type { PokemonType } from '../presentation/types.ts';
-import { isKnockedOut } from './scene.ts';
+import type { ProductionStyle } from '../types.ts';
+import { damageCallout, directorCard, isKnockedOut } from './scene.ts';
 import type { ProductionScene, ProductionSceneSide } from './scene.ts';
+import { commentaryMotion, hpReadout, hudLayout, mix, withAlpha } from './layout.ts';
+import {
+  assetUrl,
+  cameraScale,
+  ensureStyleFonts,
+  fontFamily,
+  idleScale,
+  intensityScale
+} from './style.ts';
 
 const TYPE_COLORS: Record<PokemonType, string> = {
   normal: '#d9d7ca', fire: '#ff633f', water: '#3cc8ff', electric: '#ffe148', grass: '#79f05d',
@@ -8,11 +18,32 @@ const TYPE_COLORS: Record<PokemonType, string> = {
   psychic: '#ff5bac', bug: '#b9e744', rock: '#cfb56f', ghost: '#a17cff', dragon: '#766dff',
   dark: '#8a7772', steel: '#b5cbd6', fairy: '#ff96d2'
 };
-const P1 = '#6fffa8';
-const P2 = '#e36fff';
+
+const TONE_COLORS: Record<string, string> = {
+  damage: '#ff6a5c', heal: '#7bf0a2', crit: '#ffd451', effective: '#ffb44c',
+  resist: '#9fb4c2', immune: '#c8cfd4', miss: '#dfe6ea'
+};
 
 export interface CompositorMetrics { assetLoads: number; assetFailures: number; cachedAssets: number }
 interface Point { x: number; y: number }
+
+/** Everything derived once per frame so draw calls stay cheap and consistent. */
+interface Resolved {
+  style: ProductionStyle;
+  display: string;
+  body: string;
+  mono: string;
+  scale: number;
+  upper: boolean;
+  outline: boolean;
+  shadow: boolean;
+  tracking: number;
+  weight: number;
+  effect: number;
+  camera: number;
+  idle: number;
+  accent: string;
+}
 
 export class ProductionCompositor {
   private context: CanvasRenderingContext2D;
@@ -20,42 +51,80 @@ export class ProductionCompositor {
   private resolvedImages = new Map<string, ImageBitmap | null>();
   private assetLoads = 0;
   private assetFailures = 0;
+  private fontsReady: Promise<string[]> | null = null;
+  /** Asset ids whose file is gone. Rendered as the documented fallback, never substituted. */
+  private missingAssets = new Set<string>();
   /**
-   * The arena itself does not change between frames, but redrawing its gradients, ridges and
-   * perspective grid dominated per-frame cost. Painting it once per distinct look lets every
-   * frame be re-rendered cheaply, which is what allows the Pokemon to keep breathing instead
-   * of being frozen by the frame-hold optimisation.
+   * The stage does not change between frames, but redrawing its gradients, ridges and
+   * perspective grid dominated per-frame cost. Painting it once per distinct look lets
+   * every frame be re-rendered cheaply, which is what allows the Pokemon to keep breathing
+   * instead of being frozen by the frame-hold optimisation. Custom background images are
+   * decoded once and composited into the same cache rather than per frame.
    */
   private worldCache: HTMLCanvasElement | OffscreenCanvas | null = null;
   private worldKey = '';
 
-  constructor(private canvas: HTMLCanvasElement) {
+  constructor(private canvas: HTMLCanvasElement, private assetApiBase = '') {
     const context = canvas.getContext('2d', { alpha: false, desynchronized: true });
     if (!context) throw new Error('Canvas 2D compositor is unavailable');
     this.context = context;
   }
 
+  /** Decode every asset this scene needs. Safe to call repeatedly; results are cached. */
+  async preload(scene: ProductionScene): Promise<void> {
+    const style = scene.style;
+    if (!this.fontsReady) this.fontsReady = ensureStyleFonts(style, this.assetApiBase);
+    const missingFonts = await this.fontsReady;
+    for (const id of missingFonts) this.missingAssets.add(id);
+    const background = style.stage.background.kind === 'image' ? style.stage.background.asset_id : null;
+    await Promise.all(
+      [
+        scene.p1.spriteUrl,
+        scene.p2.spriteUrl,
+        scene.p1.logoUrl,
+        scene.p2.logoUrl,
+        assetUrl(this.assetApiBase, background),
+        style.watermark.enabled ? assetUrl(this.assetApiBase, style.watermark.asset_id) : null
+      ].map((url) => this.load(url))
+    );
+    for (const [id, url] of [
+      [background, assetUrl(this.assetApiBase, background)],
+      [style.players.p1?.logo_asset_id, scene.p1.logoUrl],
+      [style.players.p2?.logo_asset_id, scene.p2.logoUrl],
+      [style.watermark.asset_id, assetUrl(this.assetApiBase, style.watermark.asset_id)]
+    ] as [string | null | undefined, string | null][]) {
+      if (id && url && this.resolvedImages.get(url) === null) this.missingAssets.add(id);
+    }
+  }
+
   async render(scene: ProductionScene): Promise<void> {
-    await Promise.all([this.load(scene.p1.spriteUrl), this.load(scene.p2.spriteUrl)]);
+    await this.preload(scene);
+    const resolved = resolve(scene);
     const { width, height } = this.canvas;
     const scale = Math.min(width / (scene.vertical ? 1080 : 1920), height / (scene.vertical ? 1920 : 1080));
-    const camera = cameraOffset(scene, scale);
+    const camera = cameraOffset(scene, scale, resolved.camera);
     this.context.save();
     this.context.translate(camera.x, camera.y);
-    this.paintWorld(scene, width, height, scale);
-    this.drawCombatants(scene, width, height, scale);
-    this.drawEffect(scene, width, height, scale);
+    this.paintWorld(scene, resolved, width, height, scale);
+    this.drawCombatants(scene, resolved, width, height, scale);
+    this.drawEffect(scene, resolved, width, height, scale);
     this.context.restore();
-    this.drawHud(scene, width, height, scale);
-    this.drawCommentary(scene, width, height, scale);
-    this.drawCaption(scene, width, height, scale);
-    this.drawDirector(scene, width, height, scale);
-    this.drawFrame(width, height, scale);
+    this.drawHud(scene, resolved, width, height, scale);
+    this.drawMoveCallout(scene, resolved, width, height, scale);
+    this.drawDamageCallout(scene, resolved, width, height, scale);
+    this.drawCommentary(scene, resolved, width, height, scale);
+    this.drawCaption(scene, resolved, width, height, scale);
+    this.drawDirector(scene, resolved, width, height, scale);
+    this.drawWatermark(scene, resolved, width, height, scale);
+    this.drawFrame(resolved, width, height, scale);
   }
 
   metrics(): CompositorMetrics {
     return { assetLoads: this.assetLoads, assetFailures: this.assetFailures, cachedAssets: this.images.size };
   }
+
+  /** Assets a production references that are no longer on disk. */
+  missing(): string[] { return [...this.missingAssets]; }
 
   private async load(url: string | null): Promise<ImageBitmap | null> {
     if (!url) return null;
@@ -63,7 +132,7 @@ export class ProductionCompositor {
     if (!pending) {
       this.assetLoads += 1;
       pending = fetch(url, { credentials: 'omit', cache: 'force-cache' })
-        .then((response) => { if (!response.ok) throw new Error(`sprite ${response.status}`); return response.blob(); })
+        .then((response) => { if (!response.ok) throw new Error(`asset ${response.status}`); return response.blob(); })
         .then((blob) => createImageBitmap(blob))
         .catch(() => { this.assetFailures += 1; return null; })
         .then((image) => { this.resolvedImages.set(url, image); return image; });
@@ -72,10 +141,23 @@ export class ProductionCompositor {
     return pending;
   }
 
-  /** Blit the cached arena, rebuilding it only when its appearance actually changes. */
-  private paintWorld(scene: ProductionScene, width: number, height: number, scale: number) {
+  private bitmap(url: string | null): ImageBitmap | null {
+    return url ? this.resolvedImages.get(url) || null : null;
+  }
+
+  // ------------------------------------------------------------------ stage
+
+  private paintWorld(scene: ProductionScene, resolved: Resolved, width: number, height: number, scale: number) {
+    const stage = scene.style.stage;
     // Weather is time-varying, so it stays outside the cache and is drawn per frame.
-    const key = [width, height, scene.vertical, scene.effect.seed, scene.fields.join()].join('|');
+    const key = [
+      width, height, scene.vertical, scene.effect.seed, scene.fields.join(),
+      stage.background.kind, stage.background.color, stage.background.secondary_color,
+      stage.background.asset_id, stage.background.fit, stage.background.position,
+      stage.background.brightness, stage.background.contrast, stage.background.blur,
+      stage.background.overlay_opacity, stage.background.vignette, stage.arena,
+      stage.floor_visible, stage.stage_lighting, stage.ambient_intensity, stage.accent
+    ].join('|');
     if (!this.worldCache || this.worldKey !== key) {
       const surface =
         typeof OffscreenCanvas === 'function'
@@ -83,156 +165,187 @@ export class ProductionCompositor {
           : Object.assign(document.createElement('canvas'), { width, height });
       const surfaceContext = surface.getContext('2d') as CanvasRenderingContext2D | null;
       if (!surfaceContext) {
-        this.drawWorld(this.context, scene, width, height, scale);
+        this.drawWorld(this.context, scene, resolved, width, height, scale);
         return;
       }
-      this.drawWorld(surfaceContext, scene, width, height, scale);
+      this.drawWorld(surfaceContext, scene, resolved, width, height, scale);
       this.worldCache = surface;
       this.worldKey = key;
     }
     this.context.drawImage(this.worldCache as CanvasImageSource, 0, 0);
-    this.drawAtmosphere(scene, width, height, scale);
+    if (scene.style.stage.background_motion) this.drawAtmosphere(scene, width, height, scale);
   }
 
   private drawWorld(
     context: CanvasRenderingContext2D,
     scene: ProductionScene,
+    resolved: Resolved,
     width: number,
     height: number,
     scale: number
   ) {
-    const sky = context.createLinearGradient(0, 0, width, height);
-    sky.addColorStop(0, '#07191c'); sky.addColorStop(.43, '#0c2730'); sky.addColorStop(.7, '#17202e'); sky.addColorStop(1, '#080a10');
-    context.fillStyle = sky; context.fillRect(-40, -40, width + 80, height + 80);
-    const sunX = scene.vertical ? width * .72 : width * .58;
-    const glow = context.createRadialGradient(sunX, height * .22, 0, sunX, height * .22, width * .38);
-    glow.addColorStop(0, 'rgba(129,255,183,.24)'); glow.addColorStop(.35, 'rgba(43,193,186,.11)'); glow.addColorStop(1, 'rgba(0,0,0,0)');
-    context.fillStyle = glow; context.fillRect(0, 0, width, height);
+    const stage = scene.style.stage;
+    const background = stage.background;
+    context.fillStyle = background.color;
+    context.fillRect(0, 0, width, height);
+    if (background.kind === 'image') {
+      this.drawBackgroundImage(context, scene, width, height);
+    } else if (background.kind === 'gradient' || background.kind === 'arena') {
+      const sky = context.createLinearGradient(0, 0, width, height);
+      sky.addColorStop(0, background.color);
+      sky.addColorStop(.62, mix(background.color, background.secondary_color, .55));
+      sky.addColorStop(1, background.secondary_color);
+      context.fillStyle = sky;
+      context.fillRect(-40, -40, width + 80, height + 80);
+    }
+    if (background.kind === 'arena') this.drawArenaSky(context, scene, resolved, width, height, scale);
+    if (stage.stage_lighting > 0) {
+      const sunX = scene.vertical ? width * .72 : width * .58;
+      const glow = context.createRadialGradient(sunX, height * .22, 0, sunX, height * .22, width * .42);
+      glow.addColorStop(0, withAlpha(stage.accent, .3 * stage.stage_lighting));
+      glow.addColorStop(.4, withAlpha(stage.accent, .1 * stage.stage_lighting));
+      glow.addColorStop(1, 'rgba(0,0,0,0)');
+      context.fillStyle = glow;
+      context.fillRect(0, 0, width, height);
+    }
+    if (background.overlay_opacity > 0) {
+      context.fillStyle = withAlpha(background.secondary_color, background.overlay_opacity);
+      context.fillRect(0, 0, width, height);
+    }
+    this.drawArena(context, scene, resolved, width, height, scale);
+    if (background.vignette > 0) {
+      const vignette = context.createRadialGradient(
+        width / 2, height / 2, Math.min(width, height) * .3,
+        width / 2, height / 2, Math.max(width, height) * .78
+      );
+      vignette.addColorStop(0, 'rgba(0,0,0,0)');
+      vignette.addColorStop(1, `rgba(0,0,0,${background.vignette})`);
+      context.fillStyle = vignette;
+      context.fillRect(0, 0, width, height);
+    }
+  }
 
-    context.fillStyle = '#071113';
+  private drawBackgroundImage(
+    context: CanvasRenderingContext2D,
+    scene: ProductionScene,
+    width: number,
+    height: number
+  ) {
+    const background = scene.style.stage.background;
+    const bitmap = this.bitmap(assetUrl(this.assetApiBase, background.asset_id));
+    // A missing background degrades to the style's solid colour, which is already painted.
+    if (!bitmap) return;
+    const ratio = bitmap.width / bitmap.height;
+    const cover = background.fit === 'cover';
+    let drawWidth = width;
+    let drawHeight = width / ratio;
+    if (cover ? drawHeight < height : drawHeight > height) {
+      drawHeight = height;
+      drawWidth = height * ratio;
+    }
+    const offsetX = background.position === 'left' ? 0 : background.position === 'right' ? width - drawWidth : (width - drawWidth) / 2;
+    const offsetY = background.position === 'top' ? 0 : background.position === 'bottom' ? height - drawHeight : (height - drawHeight) / 2;
+    context.save();
+    const filters: string[] = [];
+    if (background.brightness !== 1) filters.push(`brightness(${background.brightness})`);
+    if (background.contrast !== 1) filters.push(`contrast(${background.contrast})`);
+    if (background.blur > 0) filters.push(`blur(${background.blur}px)`);
+    if (filters.length) context.filter = filters.join(' ');
+    context.drawImage(bitmap, offsetX, offsetY, drawWidth, drawHeight);
+    context.restore();
+  }
+
+  private drawArenaSky(
+    context: CanvasRenderingContext2D,
+    scene: ProductionScene,
+    resolved: Resolved,
+    width: number,
+    height: number,
+    scale: number
+  ) {
+    const accent = scene.style.stage.accent;
+    context.fillStyle = withAlpha(scene.style.stage.background.secondary_color, .85);
     context.beginPath(); context.moveTo(0, height * .18); context.lineTo(width * .12, height * .32); context.lineTo(width * .21, height * .24); context.lineTo(width * .32, height * .43); context.lineTo(width * .39, height * .35); context.lineTo(width * .48, height * .51); context.lineTo(0, height * .57); context.closePath(); context.fill();
     context.beginPath(); context.moveTo(width, height * .12); context.lineTo(width * .87, height * .27); context.lineTo(width * .8, height * .21); context.lineTo(width * .7, height * .42); context.lineTo(width * .61, height * .35); context.lineTo(width * .55, height * .53); context.lineTo(width, height * .58); context.closePath(); context.fill();
-    context.strokeStyle = 'rgba(117,255,178,.2)'; context.lineWidth = Math.max(1, 2 * scale);
+    context.strokeStyle = withAlpha(accent, .2 * resolved.style.stage.ambient_intensity);
+    context.lineWidth = Math.max(1, 2 * scale);
     for (let index = 0; index < 12; index += 1) {
-      const x = hash(scene.effect.seed + index * 47) * width; const y = hash(scene.effect.seed + index * 83) * height * .48;
+      const x = hash(scene.effect.seed + index * 47) * width;
+      const y = hash(scene.effect.seed + index * 83) * height * .48;
       context.beginPath(); context.moveTo(x, y); context.lineTo(x + 18 * scale, y - 55 * scale); context.stroke();
     }
+  }
+
+  private drawArena(
+    context: CanvasRenderingContext2D,
+    scene: ProductionScene,
+    resolved: Resolved,
+    width: number,
+    height: number,
+    scale: number
+  ) {
+    const stage = scene.style.stage;
+    if (stage.arena === 'none' || !stage.floor_visible) return;
+    const accent = stage.accent;
     const horizon = height * (scene.vertical ? .48 : .52);
     const floor = context.createLinearGradient(0, horizon, 0, height);
-    floor.addColorStop(0, '#12282a'); floor.addColorStop(1, '#06080c'); context.fillStyle = floor;
-    context.beginPath(); context.moveTo(0, horizon); context.lineTo(width, horizon); context.lineTo(width, height); context.lineTo(0, height); context.closePath(); context.fill();
-    context.strokeStyle = 'rgba(112,255,174,.13)'; context.lineWidth = Math.max(1, 2 * scale);
-    for (let index = -10; index <= 10; index += 1) { context.beginPath(); context.moveTo(width / 2, horizon); context.lineTo(width / 2 + index * width * .12, height); context.stroke(); }
-    for (let row = 1; row < 10; row += 1) { const y = horizon + (height - horizon) * Math.pow(row / 9, 1.65); context.beginPath(); context.moveTo(0, y); context.lineTo(width, y); context.stroke(); }
-    context.fillStyle = 'rgba(105,255,177,.035)'; context.beginPath(); context.ellipse(width / 2, height * .73, width * .44, height * .19, 0, 0, Math.PI * 2); context.fill();
-  }
-
-  private drawCombatants(scene: ProductionScene, width: number, height: number, scale: number) {
-    const positions = combatantPositions(scene, width, height);
-    const p1Size = (scene.vertical ? 455 : 475) * scale;
-    const p2Size = (scene.vertical ? 425 : 445) * scale;
-    this.drawPlatform(positions.p2.x, positions.p2.y, p2Size * .55, p2Size * .09, P2);
-    this.drawPokemon(scene, scene.p2, positions.p2.x, positions.p2.y, p2Size);
-    this.drawPlatform(positions.p1.x, positions.p1.y, p1Size * .58, p1Size * .095, P1);
-    this.drawPokemon(scene, scene.p1, positions.p1.x, positions.p1.y, p1Size);
-  }
-
-  private drawPlatform(x: number, y: number, rx: number, ry: number, color: string) {
-    const gradient = this.context.createRadialGradient(x, y, 0, x, y, rx);
-    gradient.addColorStop(0, withAlpha(color, .34)); gradient.addColorStop(.48, withAlpha(color, .11)); gradient.addColorStop(1, 'rgba(0,0,0,0)');
-    this.context.fillStyle = gradient; this.context.beginPath(); this.context.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2); this.context.fill();
-    this.context.strokeStyle = withAlpha(color, .34); this.context.lineWidth = Math.max(1, ry * .05); this.context.beginPath(); this.context.ellipse(x, y, rx * .73, ry * .47, 0, 0, Math.PI * 2); this.context.stroke();
-  }
-
-  private drawPokemon(scene: ProductionScene, side: ProductionSceneSide, x: number, y: number, size: number) {
-    const context = this.context;
-    const attacking = scene.effect.actor === side.side ? anticipationLunge(scene.effect.progress) : 0;
-    const impact = scene.effect.target === side.side ? impactEnvelope(scene.effect.impactProgress) : 0;
-    const direction = side.near ? 1 : -1;
-    const lunge = attacking * size * .24 * direction;
-    const recoil = impact * size * .1 * direction;
-    const shake = impact * Math.sin(scene.effect.impactProgress * 72) * size * .025;
-    const idle = Math.sin(scene.timeMs / 640 + (side.near ? 0 : 2.1));
-    // A fainted Pokemon stays down until it is replaced. Driving this only from the faint
-    // cue made it spring back to a healthy standing pose the moment that cue ended.
-    const fainting =
-      scene.effect.kind === 'pokemon_fainted' && scene.effect.target === side.side
-        ? easeInOut(scene.effect.progress)
-        : 0;
-    const down = isKnockedOut(side);
-    const faint = down ? Math.max(fainting, 1) : fainting;
-    const appear = scene.effect.kind === 'pokemon_switched' && scene.effect.actor === side.side ? easeOut(scene.effect.progress) : 1;
-    const bitmap = side.spriteUrl ? this.resolvedImages.get(side.spriteUrl) : null;
-    const breath = idle * size * .014;
-    context.save(); context.translate(x + lunge + recoil + shake, y - size * .012 - breath);
-    // Squash on the inhale and stretch on the exhale so even a static PNG has weight.
-    const squash = idle * .008;
-    context.globalAlpha = (1 - faint) * appear; context.rotate((recoil / size) * .16 + faint * direction * .12); context.scale(.78 + appear * .22 + attacking * .06 + squash, .78 + appear * .22 - attacking * .025 - squash);
-    context.shadowColor = impact ? '#fff4bd' : 'rgba(0,0,0,.75)'; context.shadowBlur = impact ? size * .15 : size * .055;
-    if (attacking > .18 && bitmap) { context.save(); context.globalAlpha = attacking * .16; context.translate(-direction * size * .11, 0); context.drawImage(bitmap, -size / 2, -size, size, size); context.restore(); }
-    if (bitmap) context.drawImage(bitmap, -size / 2, -size, size, size); else this.drawPlaceholder(side, size);
-    context.restore();
-  }
-
-  private drawPlaceholder(side: ProductionSceneSide, size: number) {
-    const color = side.near ? P1 : P2; const gradient = this.context.createLinearGradient(0, -size, 0, 0);
-    gradient.addColorStop(0, withAlpha(color, .95)); gradient.addColorStop(1, withAlpha(color, .25)); this.context.fillStyle = gradient;
-    this.context.beginPath(); this.context.ellipse(0, -size * .43, size * .31, size * .43, side.near ? -.18 : .18, 0, Math.PI * 2); this.context.fill();
-    this.context.fillStyle = '#fff'; this.context.beginPath(); this.context.arc(side.near ? size * .08 : -size * .08, -size * .57, size * .035, 0, Math.PI * 2); this.context.fill();
-  }
-
-  private drawHud(scene: ProductionScene, width: number, height: number, scale: number) {
-    if (scene.vertical) {
-      this.drawHeader(scene, width, 38 * scale, scale);
-      this.drawHealth(scene.p2, 46 * scale, 144 * scale, width - 92 * scale, 190 * scale, true, scale);
-      this.drawHealth(scene.p1, 46 * scale, height - 370 * scale, width - 92 * scale, 190 * scale, false, scale);
+    // An opaque floor hid the lower half of an uploaded background entirely, and a flat
+    // tint left a hard seam at the horizon. Over a custom image the floor fades in from
+    // nothing, so the picture stays visible and the Pokemon still read as grounded.
+    const custom = stage.background.kind === 'image';
+    if (custom) {
+      floor.addColorStop(0, withAlpha(stage.background.color, 0));
+      floor.addColorStop(.35, withAlpha(stage.background.color, .3));
+      floor.addColorStop(1, withAlpha(stage.background.secondary_color, .62));
     } else {
-      this.drawHeader(scene, width, 30 * scale, scale);
-      this.drawHealth(scene.p1, 55 * scale, 102 * scale, 750 * scale, 190 * scale, false, scale);
-      this.drawHealth(scene.p2, width - 805 * scale, 102 * scale, 750 * scale, 190 * scale, true, scale);
+      floor.addColorStop(0, mix(stage.background.color, '#ffffff', .06));
+      floor.addColorStop(1, stage.background.secondary_color);
     }
-    this.drawMoveCallout(scene, width, height, scale);
-  }
-
-  private drawHeader(scene: ProductionScene, width: number, y: number, scale: number) {
-    const context = this.context; context.save(); context.textAlign = 'center'; context.fillStyle = 'rgba(4,7,11,.9)';
-    slashRect(context, width / 2 - 205 * scale, y, 410 * scale, 62 * scale, 18 * scale); context.fill(); context.strokeStyle = 'rgba(126,255,174,.58)'; context.lineWidth = 2 * scale; context.stroke();
-    context.fillStyle = '#82ffae'; context.font = `900 ${18 * scale}px ui-monospace, monospace`; context.fillText('KOALABATTLE // VERDANT CIRCUIT', width / 2, y + 25 * scale);
-    context.fillStyle = '#f5f7f5'; context.font = `900 ${23 * scale}px system-ui`; context.fillText(`TURN ${scene.turn || '—'}   ·   ${formatLabel(scene.format)}`, width / 2, y + 50 * scale); context.restore();
-  }
-
-  private drawHealth(side: ProductionSceneSide, x: number, y: number, width: number, height: number, alignRight: boolean, scale: number) {
-    const context = this.context; const sideColor = side.near ? P1 : P2; const typeColor = pokemonTypeColor(side.active?.types); const pad = 28 * scale;
-    context.save(); slashRect(context, x, y, width, height, 30 * scale, alignRight); context.fillStyle = 'rgba(5,8,13,.96)'; context.fill(); context.strokeStyle = 'rgba(238,245,241,.72)'; context.lineWidth = 3 * scale; context.stroke();
-    context.fillStyle = typeColor; context.fillRect(alignRight ? x + width - 9 * scale : x, y + 8 * scale, 9 * scale, height - 16 * scale);
-    context.textAlign = alignRight ? 'right' : 'left'; const anchor = alignRight ? x + width - pad : x + pad;
-    context.fillStyle = withAlpha(sideColor, .92); context.font = `900 ${13 * scale}px ui-monospace, monospace`; context.fillText(`TRAINER ${side.displayName.toUpperCase()}  ·  ${side.providerLabel.toUpperCase()}`, anchor, y + 24 * scale, width - pad * 2);
-    context.fillStyle = '#fff'; context.font = `950 ${39 * scale}px system-ui`; context.fillText((side.active?.name || 'AWAITING POKÉMON').toUpperCase(), anchor, y + 66 * scale, width * .66);
-    const types = side.active?.types.slice(0, 2) || [];
-    types.forEach((type, index) => this.drawTypeChip(type, alignRight ? x + pad + index * 88 * scale : x + width - pad - index * 88 * scale, y + 43 * scale, alignRight, scale));
-    const hp = clamp(side.active?.hp_fraction ?? 0); const previous = clamp(side.previousHpFraction ?? hp); const barX = x + 74 * scale; const barY = y + 91 * scale; const readoutWidth = 132 * scale; const barWidth = width - 150 * scale - readoutWidth; const barHeight = 31 * scale;
-    context.fillStyle = '#edf3ef'; context.font = `950 ${18 * scale}px ui-monospace, monospace`; context.textAlign = 'left'; context.fillText('HP', x + 28 * scale, barY + 23 * scale);
-    context.fillStyle = '#161b20'; context.fillRect(barX, barY, barWidth, barHeight); context.strokeStyle = 'rgba(255,255,255,.72)'; context.lineWidth = 2 * scale; context.strokeRect(barX, barY, barWidth, barHeight);
-    const fill = (fraction: number, fillStyle: string | CanvasGradient) => { const fillWidth = barWidth * fraction; context.fillStyle = fillStyle; context.fillRect(alignRight ? barX + barWidth - fillWidth : barX, barY, fillWidth, barHeight); };
-    if (previous > hp) fill(previous, '#f5c64e');
-    if (hp > 0) { const hpGradient = context.createLinearGradient(barX, 0, barX + barWidth, 0); const tone = hp > .5 ? '#55dc75' : hp > .2 ? '#f5c64e' : '#f04e57'; hpGradient.addColorStop(0, tone); hpGradient.addColorStop(1, hp > .5 ? '#b8f28d' : hp > .2 ? '#ffe683' : '#ff8b79'); fill(hp, hpGradient); }
-    context.fillStyle = '#f8fbf9'; context.font = `950 ${18 * scale}px ui-monospace, monospace`; context.textAlign = 'right'; context.fillText(hpReadout(side), x + width - 27 * scale, barY + 23 * scale);
-    const status = side.active?.status?.toUpperCase(); if (status) { context.fillStyle = statusColor(status); roundedRect(context, x + 28 * scale, y + 140 * scale, 58 * scale, 25 * scale, 5 * scale); context.fill(); context.fillStyle = '#111'; context.font = `950 ${13 * scale}px ui-monospace, monospace`; context.textAlign = 'center'; context.fillText(status, x + 57 * scale, y + 157 * scale); }
-    const tags = side.sideConditions.slice(0, 2).map(readableCondition).join(' · '); context.fillStyle = '#dce6e0'; context.font = `800 ${12 * scale}px ui-monospace, monospace`; context.textAlign = alignRight ? 'left' : 'right'; context.fillText(tags, alignRight ? x + 102 * scale : x + width - 102 * scale, y + 157 * scale, width * .44);
-    const members = side.team.length || 1; for (let index = 0; index < Math.min(6, members); index += 1) { const member = side.team[index]; const px = alignRight ? x + width - pad - index * 27 * scale : x + pad + index * 27 * scale; const py = y + 178 * scale; context.fillStyle = member?.fainted ? 'rgba(255,255,255,.12)' : index % 2 ? typeColor : sideColor; context.beginPath(); context.arc(px, py, 8 * scale, 0, Math.PI * 2); context.fill(); context.strokeStyle = member?.active ? '#fff' : 'rgba(255,255,255,.45)'; context.lineWidth = member?.active ? 3 * scale : 1.5 * scale; context.stroke(); }
+    context.save();
+    context.fillStyle = floor;
+    context.beginPath(); context.moveTo(0, horizon); context.lineTo(width, horizon); context.lineTo(width, height); context.lineTo(0, height); context.closePath(); context.fill();
     context.restore();
-  }
-
-  private drawTypeChip(type: string, x: number, y: number, alignRight: boolean, scale: number) {
-    const context = this.context; const width = 78 * scale; const left = alignRight ? x : x - width; roundedRect(context, left, y, width, 25 * scale, 12 * scale); context.fillStyle = pokemonTypeColor([type]); context.fill(); context.fillStyle = '#07100b'; context.font = `950 ${11 * scale}px ui-monospace, monospace`; context.textAlign = 'center'; context.fillText(type.toUpperCase(), left + width / 2, y + 17 * scale);
-  }
-
-  private drawMoveCallout(scene: ProductionScene, width: number, height: number, scale: number) {
-    if (!scene.effect.moveName || scene.effect.progress <= 0 || scene.effect.progress >= 1) return;
-    const context = this.context; const color = TYPE_COLORS[scene.effect.type]; const alpha = Math.min(1, scene.effect.progress * 6, (1 - scene.effect.progress) * 5); const y = scene.vertical ? height * .48 : height * .275;
-    context.save(); context.globalAlpha = alpha; context.textAlign = 'center'; context.fillStyle = 'rgba(4,6,10,.88)'; slashRect(context, width / 2 - 290 * scale, y - 42 * scale, 580 * scale, 86 * scale, 24 * scale); context.fill(); context.strokeStyle = color; context.lineWidth = 4 * scale; context.stroke();
-    context.fillStyle = color; context.font = `900 ${16 * scale}px ui-monospace, monospace`; context.fillText(`${scene.effect.type.toUpperCase()} // ${scene.effect.archetype.toUpperCase()}`, width / 2, y - 10 * scale);
-    context.fillStyle = '#fff'; context.font = `950 ${38 * scale}px system-ui`; context.fillText(scene.effect.moveName.toUpperCase(), width / 2, y + 29 * scale, 520 * scale); context.restore();
+    const ambient = stage.ambient_intensity;
+    if (stage.arena === 'grid') {
+      context.strokeStyle = withAlpha(accent, .16 * ambient); context.lineWidth = Math.max(1, 2 * scale);
+      for (let index = -10; index <= 10; index += 1) { context.beginPath(); context.moveTo(width / 2, horizon); context.lineTo(width / 2 + index * width * .12, height); context.stroke(); }
+      for (let row = 1; row < 10; row += 1) { const y = horizon + (height - horizon) * Math.pow(row / 9, 1.65); context.beginPath(); context.moveTo(0, y); context.lineTo(width, y); context.stroke(); }
+    } else if (stage.arena === 'stadium') {
+      // Tiered seating above the horizon plus a lit oval floor: reads as a venue rather
+      // than an abstract plane, without copying any real stadium or game artwork.
+      for (let tier = 0; tier < 5; tier += 1) {
+        const y = horizon - (tier + 1) * height * .045;
+        context.fillStyle = withAlpha(mix(stage.background.secondary_color, accent, .1 + tier * .04), .9);
+        context.fillRect(0, y, width, height * .04);
+        context.fillStyle = withAlpha(accent, .09 * ambient);
+        for (let seat = 0; seat < 46; seat += 1) {
+          const x = (seat + (tier % 2) * .5) * (width / 46);
+          context.fillRect(x, y + height * .008, width / 90, height * .022);
+        }
+      }
+      context.fillStyle = withAlpha(accent, .1 * ambient);
+      context.beginPath(); context.ellipse(width / 2, height * .78, width * .46, height * .2, 0, 0, Math.PI * 2); context.fill();
+      context.strokeStyle = withAlpha(accent, .4 * ambient); context.lineWidth = Math.max(2, 5 * scale);
+      context.beginPath(); context.ellipse(width / 2, height * .78, width * .46, height * .2, 0, 0, Math.PI * 2); context.stroke();
+      context.beginPath(); context.ellipse(width / 2, height * .78, width * .3, height * .13, 0, 0, Math.PI * 2); context.stroke();
+    } else if (stage.arena === 'platform') {
+      context.fillStyle = withAlpha(accent, .12 * ambient);
+      for (const position of Object.values(combatantPositions(scene, width, height))) {
+        context.beginPath(); context.ellipse(position.x, position.y, width * .17, height * .045, 0, 0, Math.PI * 2); context.fill();
+      }
+      context.strokeStyle = withAlpha(accent, .3 * ambient); context.lineWidth = Math.max(1, 3 * scale);
+      for (const position of Object.values(combatantPositions(scene, width, height))) {
+        context.beginPath(); context.ellipse(position.x, position.y, width * .17, height * .045, 0, 0, Math.PI * 2); context.stroke();
+      }
+    } else if (stage.arena === 'minimal-floor') {
+      context.strokeStyle = withAlpha(accent, .22 * ambient); context.lineWidth = Math.max(1, 2 * scale);
+      context.beginPath(); context.moveTo(0, horizon); context.lineTo(width, horizon); context.stroke();
+    }
+    if (stage.arena !== 'minimal-floor') {
+      context.fillStyle = withAlpha(accent, .035 * ambient);
+      context.beginPath(); context.ellipse(width / 2, height * .73, width * .44, height * .19, 0, 0, Math.PI * 2); context.fill();
+    }
+    void resolved;
   }
 
   private drawAtmosphere(scene: ProductionScene, width: number, height: number, scale: number) {
@@ -243,41 +356,657 @@ export class ProductionCompositor {
     if (scene.weather.length || scene.fields.length) { this.context.fillStyle = scene.fields.length ? 'rgba(105,255,177,.065)' : 'rgba(112,190,255,.06)'; this.context.fillRect(0, 0, width, height); }
   }
 
-  private drawEffect(scene: ProductionScene, width: number, height: number, scale: number) {
-    const effect = scene.effect; if (effect.progress <= 0 || effect.progress >= 1) return;
-    const positions = combatantPositions(scene, width, height); const targetSide = effect.target || (effect.actor === 'p1' ? 'p2' : 'p1'); const end = positions[targetSide]; const color = TYPE_COLORS[effect.type]; const context = this.context;
+  // ------------------------------------------------------------- combatants
+
+  private drawCombatants(scene: ProductionScene, resolved: Resolved, width: number, height: number, scale: number) {
+    const positions = combatantPositions(scene, width, height);
+    const p1Size = (scene.vertical ? 455 : 475) * scale;
+    const p2Size = (scene.vertical ? 425 : 445) * scale;
+    if (scene.style.stage.ground_shadow) {
+      this.drawPlatform(positions.p2.x, positions.p2.y, p2Size * .55, p2Size * .09, scene.p2.accent);
+    }
+    this.drawPokemon(scene, resolved, scene.p2, positions.p2.x, positions.p2.y, p2Size);
+    if (scene.style.stage.ground_shadow) {
+      this.drawPlatform(positions.p1.x, positions.p1.y, p1Size * .58, p1Size * .095, scene.p1.accent);
+    }
+    this.drawPokemon(scene, resolved, scene.p1, positions.p1.x, positions.p1.y, p1Size);
+  }
+
+  private drawPlatform(x: number, y: number, rx: number, ry: number, color: string) {
+    const gradient = this.context.createRadialGradient(x, y, 0, x, y, rx);
+    gradient.addColorStop(0, withAlpha(color, .34)); gradient.addColorStop(.48, withAlpha(color, .11)); gradient.addColorStop(1, 'rgba(0,0,0,0)');
+    this.context.fillStyle = gradient; this.context.beginPath(); this.context.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2); this.context.fill();
+    this.context.strokeStyle = withAlpha(color, .34); this.context.lineWidth = Math.max(1, ry * .05); this.context.beginPath(); this.context.ellipse(x, y, rx * .73, ry * .47, 0, 0, Math.PI * 2); this.context.stroke();
+  }
+
+  private drawPokemon(scene: ProductionScene, resolved: Resolved, side: ProductionSceneSide, x: number, y: number, size: number) {
+    const context = this.context;
+    const attacking = scene.effect.actor === side.side ? anticipationLunge(scene.effect.progress) : 0;
+    const impact = scene.effect.target === side.side ? impactEnvelope(scene.effect.impactProgress) : 0;
+    const direction = side.near ? 1 : -1;
+    const lunge = attacking * size * .24 * direction;
+    const recoil = impact * size * .1 * direction * resolved.effect;
+    const shake = impact * Math.sin(scene.effect.impactProgress * 72) * size * .025 * resolved.effect;
+    const idle = Math.sin(scene.timeMs / 640 + (side.near ? 0 : 2.1)) * resolved.idle;
+    // A fainted Pokemon stays down until it is replaced. Driving this only from the faint
+    // cue made it spring back to a healthy standing pose the moment that cue ended.
+    const fainting =
+      scene.effect.kind === 'pokemon_fainted' && scene.effect.target === side.side
+        ? easeInOut(scene.effect.progress)
+        : 0;
+    const down = isKnockedOut(side);
+    const faint = down ? Math.max(fainting, 1) : fainting;
+    const appear = scene.effect.kind === 'pokemon_switched' && scene.effect.actor === side.side ? easeOut(scene.effect.progress) : 1;
+    const bitmap = this.bitmap(side.spriteUrl);
+    const breath = idle * size * .014;
+    context.save(); context.translate(x + lunge + recoil + shake, y - size * .012 - breath);
+    // Squash on the inhale and stretch on the exhale so even a static PNG has weight.
+    const squash = idle * .008;
+    context.globalAlpha = (1 - faint) * appear; context.rotate((recoil / size) * .16 + faint * direction * .12); context.scale(.78 + appear * .22 + attacking * .06 + squash, .78 + appear * .22 - attacking * .025 - squash);
+    context.shadowColor = impact ? '#fff4bd' : 'rgba(0,0,0,.75)'; context.shadowBlur = impact ? size * .15 : size * .055;
+    if (resolved.effect > 0 && attacking > .18 && bitmap) { context.save(); context.globalAlpha = attacking * .16; context.translate(-direction * size * .11, 0); context.drawImage(bitmap, -size / 2, -size, size, size); context.restore(); }
+    if (bitmap) context.drawImage(bitmap, -size / 2, -size, size, size); else this.drawPlaceholder(side, size);
+    context.restore();
+  }
+
+  private drawPlaceholder(side: ProductionSceneSide, size: number) {
+    const color = side.accent; const gradient = this.context.createLinearGradient(0, -size, 0, 0);
+    gradient.addColorStop(0, withAlpha(color, .95)); gradient.addColorStop(1, withAlpha(color, .25)); this.context.fillStyle = gradient;
+    this.context.beginPath(); this.context.ellipse(0, -size * .43, size * .31, size * .43, side.near ? -.18 : .18, 0, Math.PI * 2); this.context.fill();
+    this.context.fillStyle = '#fff'; this.context.beginPath(); this.context.arc(side.near ? size * .08 : -size * .08, -size * .57, size * .035, 0, Math.PI * 2); this.context.fill();
+  }
+
+  // -------------------------------------------------------------------- HUD
+
+  private drawHud(scene: ProductionScene, resolved: Resolved, width: number, height: number, scale: number) {
+    const hud = scene.style.hud;
+    const boxes = hudLayout(hud.preset, scene.vertical, width, height, scale);
+    if (hud.show_turn) this.drawHeader(scene, resolved, width, height, scale);
+    this.drawHealth(scene, resolved, scene.p1, boxes.p1, false, scale);
+    this.drawHealth(scene, resolved, scene.p2, boxes.p2, true, scale);
+  }
+
+  private drawHeader(scene: ProductionScene, resolved: Resolved, width: number, height: number, scale: number) {
+    const context = this.context;
+    const hud = scene.style.hud;
+    const y = (scene.vertical ? 38 : 30) * scale;
+    const parts: string[] = [];
+    if (scene.turn) parts.push(`TURN ${scene.turn}`);
+    if (scene.style.show_format) parts.push(scene.formatLabel.toUpperCase());
+    if (hud.show_weather && scene.weather.length) parts.push(scene.weather[0].toUpperCase());
+    if (!parts.length) return;
+    const label = parts.join('   ·   ');
+    context.save();
+    context.textAlign = 'center';
+    context.font = this.font(resolved, 'display', 23 * scale, resolved.weight);
+    const boxWidth = Math.max(380 * scale, context.measureText(label).width + 90 * scale);
+    const headerY = scene.style.hud.preset === 'fighting' || scene.style.hud.preset === 'esports' ? height - 78 * scale : y;
+    context.fillStyle = 'rgba(4,7,11,.9)';
+    this.shape(context, scene, width / 2 - boxWidth / 2, headerY, boxWidth, (scene.style.show_koala_branding ? 62 : 42) * scale, 18 * scale);
+    context.fill();
+    context.strokeStyle = withAlpha(resolved.accent, .58); context.lineWidth = 2 * scale; context.stroke();
+    let textY = headerY + 28 * scale;
+    if (scene.style.show_koala_branding) {
+      context.fillStyle = resolved.accent;
+      context.font = this.font(resolved, 'mono', 18 * scale, 900);
+      context.fillText('KOALABATTLE', width / 2, headerY + 25 * scale);
+      textY = headerY + 50 * scale;
+    }
+    context.fillStyle = '#f5f7f5';
+    context.font = this.font(resolved, 'display', 23 * scale, resolved.weight);
+    context.fillText(this.text(resolved, label), width / 2, textY);
+    context.restore();
+  }
+
+  private drawHealth(
+    scene: ProductionScene,
+    resolved: Resolved,
+    side: ProductionSceneSide,
+    box: { x: number; y: number; width: number; height: number },
+    alignRight: boolean,
+    scale: number
+  ) {
+    const context = this.context;
+    const hud = scene.style.hud;
+    const { x, y, width, height } = box;
+    const sideColor = side.accent;
+    const typeColor = pokemonTypeColor(side.active?.types);
+    const pad = 28 * scale;
+    const compact = hud.preset === 'minimal';
+    context.save();
+    this.shape(context, scene, x, y, width, height, 30 * scale, alignRight);
+    context.fillStyle = compact ? 'rgba(5,8,13,.72)' : 'rgba(5,8,13,.96)';
+    context.fill();
+    context.strokeStyle = compact ? withAlpha(sideColor, .5) : 'rgba(238,245,241,.72)';
+    context.lineWidth = (compact ? 2 : 3) * scale;
+    context.stroke();
+    if (!compact) {
+      context.fillStyle = typeColor;
+      context.fillRect(alignRight ? x + width - 9 * scale : x, y + 8 * scale, 9 * scale, height - 16 * scale);
+    }
+    context.textAlign = alignRight ? 'right' : 'left';
+    const anchor = alignRight ? x + width - pad : x + pad;
+    let cursor = y + 24 * scale;
+    if (hud.show_player_name) {
+      const bits: string[] = [];
+      if (hud.show_player_slot) bits.push(side.slot);
+      bits.push(side.displayName.toUpperCase());
+      if (hud.show_provider) bits.push(side.providerLabel.toUpperCase());
+      context.fillStyle = withAlpha(sideColor, .95);
+      context.font = this.font(resolved, 'mono', 13 * scale, 900);
+      context.fillText(this.text(resolved, bits.join('  ·  ')), anchor, cursor, width - pad * 2 - (hud.show_logo ? 60 * scale : 0));
+    }
+    if (hud.show_logo) {
+      this.drawLogo(side, alignRight ? x + pad : x + width - pad - 44 * scale, y + 8 * scale, 44 * scale, resolved);
+    }
+    cursor = y + (compact ? 56 : 66) * scale;
+    const nameSize = (compact ? 28 : 39) * scale;
+    context.fillStyle = '#fff';
+    context.font = this.font(resolved, 'display', nameSize, resolved.weight);
+    const name = side.active?.name || 'AWAITING POKÉMON';
+    const level = hud.show_level && side.active?.level ? `  Lv${side.active.level}` : '';
+    this.paintText(context, resolved, this.text(resolved, name) + level, anchor, cursor, width * .66);
+    if (hud.show_types) {
+      const types = side.active?.types.slice(0, 2) || [];
+      types.forEach((type, index) =>
+        this.drawTypeChip(resolved, type, alignRight ? x + pad + index * 88 * scale : x + width - pad - index * 88 * scale, y + 43 * scale, alignRight, scale)
+      );
+    }
+    const hp = clamp(side.active?.hp_fraction ?? 0);
+    const previous = clamp(side.previousHpFraction ?? hp);
+    const barHeight = hud.hp_thickness * scale;
+    const barY = y + (compact ? 68 : 91) * scale;
+    const readout = hpReadout(side, hud);
+    context.font = this.font(resolved, 'mono', 18 * scale, 950);
+    const readoutWidth = readout ? context.measureText(readout).width + 22 * scale : 0;
+    const labelWidth = compact ? 0 : 46 * scale;
+    const barX = x + pad + labelWidth;
+    const barWidth = width - pad * 2 - labelWidth - readoutWidth;
+    if (!compact) {
+      context.fillStyle = '#edf3ef'; context.textAlign = 'left';
+      context.fillText('HP', x + pad, barY + barHeight * .72);
+    }
+    this.drawHpBar(scene, barX, barY, barWidth, barHeight, hp, previous, alignRight, scale);
+    if (readout) {
+      context.fillStyle = '#f8fbf9'; context.textAlign = 'right';
+      context.font = this.font(resolved, 'mono', 18 * scale, 950);
+      context.fillText(readout, x + width - pad, barY + barHeight * .72);
+    }
+    const status = hud.show_status ? side.active?.status?.toUpperCase() : null;
+    if (status) {
+      context.fillStyle = statusColor(status);
+      roundedRect(context, x + pad, y + height - 50 * scale, 62 * scale, 25 * scale, 5 * scale);
+      context.fill();
+      context.fillStyle = '#111'; context.textAlign = 'center';
+      context.font = this.font(resolved, 'mono', 13 * scale, 950);
+      context.fillText(readableStatus(status), x + pad + 31 * scale, y + height - 32 * scale);
+    }
+    this.drawTeamDots(scene, side, x, y, width, height, alignRight, typeColor, scale);
+    context.restore();
+  }
+
+  private drawHpBar(
+    scene: ProductionScene,
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    hp: number,
+    previous: number,
+    alignRight: boolean,
+    scale: number
+  ) {
+    const context = this.context;
+    const hud = scene.style.hud;
+    const radius = hud.hp_shape === 'pill' ? height / 2 : hud.hp_shape === 'rounded' ? height * .28 : 0;
+    const track = () => {
+      if (hud.hp_shape === 'slash') slashRect(context, x, y, width, height, height * .5, alignRight);
+      else roundedRect(context, x, y, width, height, radius);
+    };
+    track(); context.fillStyle = '#161b20'; context.fill();
+    context.strokeStyle = 'rgba(255,255,255,.72)'; context.lineWidth = 2 * scale; context.stroke();
+    context.save(); track(); context.clip();
+    const fill = (fraction: number, fillStyle: string | CanvasGradient) => {
+      const fillWidth = width * fraction;
+      context.fillStyle = fillStyle;
+      context.fillRect(alignRight ? x + width - fillWidth : x, y, fillWidth, height);
+    };
+    // The ghost bar is what makes a hit legible at a glance: it holds the pre-hit value
+    // for a moment so the viewer sees how much was taken, not just where HP landed.
+    if (hud.damage_ghost && previous > hp) fill(previous, '#f5c64e');
+    if (hp > 0) {
+      const gradient = context.createLinearGradient(x, 0, x + width, 0);
+      const tone = hp > .5 ? '#55dc75' : hp > .2 ? '#f5c64e' : '#f04e57';
+      gradient.addColorStop(0, tone);
+      gradient.addColorStop(1, hp > .5 ? '#b8f28d' : hp > .2 ? '#ffe683' : '#ff8b79');
+      fill(hp, gradient);
+    }
+    context.restore();
+  }
+
+  private drawTeamDots(
+    scene: ProductionScene,
+    side: ProductionSceneSide,
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    alignRight: boolean,
+    typeColor: string,
+    scale: number
+  ) {
+    const mode = scene.style.hud.team_indicators;
+    if (mode === 'hidden') return;
+    const context = this.context;
+    // `revealed` respects hidden information: the public presentation archive only ever
+    // exposes opponent Pokemon the spectator has already seen, so filtering here can
+    // narrow visibility but never widen it.
+    const members = side.team.filter((member) => {
+      if (mode === 'fainted-only') return member.fainted || member.active;
+      if (mode === 'revealed') return member.active || member.fainted || member.hp_fraction < 1;
+      return true;
+    });
+    const pad = 28 * scale;
+    members.slice(0, 6).forEach((member, index) => {
+      const px = alignRight ? x + width - pad - index * 27 * scale : x + pad + index * 27 * scale;
+      const py = y + height - 14 * scale;
+      context.fillStyle = member.fainted ? 'rgba(255,255,255,.12)' : index % 2 ? typeColor : side.accent;
+      context.beginPath(); context.arc(px, py, 8 * scale, 0, Math.PI * 2); context.fill();
+      context.strokeStyle = member.active ? '#fff' : 'rgba(255,255,255,.45)';
+      context.lineWidth = member.active ? 3 * scale : 1.5 * scale; context.stroke();
+    });
+  }
+
+  private drawTypeChip(resolved: Resolved, type: string, x: number, y: number, alignRight: boolean, scale: number) {
+    const context = this.context; const width = 78 * scale; const left = alignRight ? x : x - width;
+    roundedRect(context, left, y, width, 25 * scale, 12 * scale);
+    context.fillStyle = pokemonTypeColor([type]); context.fill();
+    context.fillStyle = '#07100b'; context.textAlign = 'center';
+    context.font = this.font(resolved, 'mono', 11 * scale, 950);
+    context.fillText(type.toUpperCase(), left + width / 2, y + 17 * scale);
+  }
+
+  /**
+   * A participant logo, or the generated wordmark when none is set or the file is gone.
+   * Aspect ratio is always preserved — a squashed logo looks broken and misrepresents a
+   * brand the user does not own.
+   */
+  private drawLogo(side: ProductionSceneSide, x: number, y: number, size: number, resolved: Resolved) {
+    const context = this.context;
+    const bitmap = this.bitmap(side.logoUrl);
+    context.save();
+    if (bitmap) {
+      const ratio = bitmap.width / bitmap.height;
+      const drawWidth = ratio >= 1 ? size : size * ratio;
+      const drawHeight = ratio >= 1 ? size / ratio : size;
+      context.drawImage(bitmap, x + (size - drawWidth) / 2, y + (size - drawHeight) / 2, drawWidth, drawHeight);
+    } else {
+      roundedRect(context, x, y, size, size, size * .24);
+      context.fillStyle = withAlpha(side.accent, .18); context.fill();
+      context.strokeStyle = withAlpha(side.accent, .7); context.lineWidth = Math.max(1, size * .05); context.stroke();
+      context.fillStyle = side.accent; context.textAlign = 'center';
+      const label = side.markLabel.slice(0, 8);
+      context.font = this.font(resolved, 'mono', size * (label.length > 5 ? .21 : .28), 950);
+      context.fillText(label, x + size / 2, y + size * .58);
+    }
+    context.restore();
+  }
+
+  // -------------------------------------------------------------- overlays
+
+  private drawMoveCallout(scene: ProductionScene, resolved: Resolved, width: number, height: number, scale: number) {
+    const move = scene.style.move;
+    if (move.layout === 'off') return;
+    if (!scene.effect.moveName || scene.effect.progress <= 0 || scene.effect.progress >= 1) return;
+    const context = this.context;
+    const color = TYPE_COLORS[scene.effect.type];
+    const alpha = Math.min(1, scene.effect.progress * 6 * move.duration_scale, (1 - scene.effect.progress) * 5 * move.duration_scale);
+    const y = move.layout === 'lower-third' ? height * .8 : scene.vertical ? height * .48 : height * .275;
+    const meta = [move.show_type ? scene.effect.type.toUpperCase() : null, move.show_archetype ? scene.effect.archetype.toUpperCase() : null]
+      .filter(Boolean).join(' // ');
+    context.save();
+    context.globalAlpha = alpha;
+    context.textAlign = 'center';
+    if (move.layout === 'minimal') {
+      context.fillStyle = color;
+      context.font = this.font(resolved, 'display', 34 * scale, resolved.weight);
+      this.paintText(context, resolved, this.text(resolved, scene.effect.moveName), width / 2, y, width * .7);
+      context.restore();
+      return;
+    }
+    const impact = move.layout === 'impact';
+    const boxWidth = (impact ? 700 : 580) * scale;
+    const boxHeight = (impact ? 104 : 86) * scale;
+    if (impact) {
+      context.translate(width / 2, y);
+      context.scale(1 + (1 - alpha) * .18, 1 + (1 - alpha) * .18);
+      context.translate(-width / 2, -y);
+    }
+    context.fillStyle = 'rgba(4,6,10,.88)';
+    this.shape(context, scene, width / 2 - boxWidth / 2, y - boxHeight / 2, boxWidth, boxHeight, 24 * scale);
+    context.fill();
+    context.strokeStyle = color; context.lineWidth = (impact ? 6 : 4) * scale; context.stroke();
+    if (meta) {
+      context.fillStyle = color;
+      context.font = this.font(resolved, 'mono', 16 * scale, 900);
+      context.fillText(meta, width / 2, y - boxHeight * .16);
+    }
+    context.fillStyle = '#fff';
+    context.font = this.font(resolved, 'display', (impact ? 46 : 38) * scale, resolved.weight);
+    this.paintText(context, resolved, this.text(resolved, scene.effect.moveName), width / 2, y + boxHeight * (meta ? .3 : .12), boxWidth - 60 * scale);
+    context.restore();
+  }
+
+  private drawDamageCallout(scene: ProductionScene, resolved: Resolved, width: number, height: number, scale: number) {
+    const callout = damageCallout(scene);
+    if (!callout || scene.style.damage.intensity === 'off') return;
+    const strength = intensityScale(scene.style.damage.intensity);
+    const positions = combatantPositions(scene, width, height);
+    const target = positions[scene.effect.target || 'p2'];
+    const rise = easeOut(callout.progress) * 90 * scale * (0.6 + strength * .5);
+    const context = this.context;
+    context.save();
+    context.globalAlpha = Math.min(1, (1 - callout.progress) * 2.4);
+    context.textAlign = 'center';
+    const size = (callout.tone === 'damage' || callout.tone === 'heal' ? 64 : 42) * scale * (0.85 + strength * .2);
+    context.font = this.font(resolved, 'display', size, 950);
+    context.lineWidth = Math.max(2, 6 * scale);
+    context.strokeStyle = 'rgba(2,4,7,.9)';
+    context.strokeText(callout.text, target.x, target.y - 230 * scale - rise);
+    context.fillStyle = TONE_COLORS[callout.tone];
+    context.fillText(callout.text, target.x, target.y - 230 * scale - rise);
+    context.restore();
+  }
+
+  private drawCommentary(scene: ProductionScene, resolved: Resolved, width: number, height: number, scale: number) {
+    const layout = scene.style.commentary.layout;
+    if (layout === 'off' || layout === 'caption' || !scene.commentary) return;
+    const context = this.context;
+    const side = scene.commentarySide === 'p2' ? scene.p2 : scene.p1;
+    const color = side.accent;
+    const lower = layout === 'lower-third';
+    const boxWidth = lower
+      ? Math.min(width * .82, 1280 * scale)
+      : Math.min(width * (scene.vertical ? .88 : .42), (scene.vertical ? 900 : 760) * scale);
+    const x = lower
+      ? (width - boxWidth) / 2
+      : scene.vertical
+        ? (width - boxWidth) / 2
+        : scene.commentarySide === 'p2'
+          ? width - boxWidth - 52 * scale
+          : 52 * scale;
+    // In vertical framing the near player's HUD occupies the bottom fifth, so a lower third
+    // placed at .78 landed on top of it and made both unreadable. Sit above that panel.
+    const baseY = lower
+      ? scene.vertical
+        ? height * .60
+        : height * .78
+      : scene.vertical
+        ? height * .60
+        : height * .655;
+    const motion = commentaryMotion(scene, scale);
+    const boxHeight = (lower ? 128 : 118) * scale;
+    context.save();
+    context.globalAlpha = motion.alpha;
+    context.translate(motion.dx, motion.dy);
+    const bubble = layout === 'bubble';
+    if (bubble) roundedRect(context, x, baseY, boxWidth, boxHeight, 26 * scale);
+    else this.shape(context, scene, x, baseY, boxWidth, boxHeight, 22 * scale, scene.commentarySide === 'p2' && !lower);
+    context.fillStyle = 'rgba(4,7,11,.91)'; context.fill();
+    context.strokeStyle = withAlpha(color, .62); context.lineWidth = 3 * scale; context.stroke();
+    let textLeft = x + 28 * scale;
+    if (scene.style.commentary.show_logo) {
+      this.drawLogo(side, x + 20 * scale, baseY + 20 * scale, boxHeight - 40 * scale, resolved);
+      textLeft = x + boxHeight - 4 * scale;
+    }
+    let textTop = baseY + 58 * scale;
+    if (scene.style.commentary.show_agent_name || scene.style.commentary.show_label) {
+      const heading = [
+        scene.style.commentary.show_agent_name ? side.displayName.toUpperCase() : null,
+        scene.style.commentary.show_label ? 'FIGHTER INTENT' : null
+      ].filter(Boolean).join(' // ');
+      context.fillStyle = color; context.textAlign = 'left';
+      context.font = this.font(resolved, 'mono', 14 * scale, 900);
+      context.fillText(heading, textLeft, baseY + 27 * scale);
+    } else {
+      textTop = baseY + 44 * scale;
+    }
+    // The caption already carries the spoken words; repeating them here is noise.
+    const spoken = scene.caption && scene.commentary.startsWith(scene.caption.slice(0, 18));
+    context.fillStyle = spoken ? withAlpha('#f5f7f5', .55) : '#f5f7f5';
+    context.textAlign = 'left';
+    const bodyFont = this.font(resolved, 'body', 22 * scale, 750);
+    context.font = bodyFont;
+    const lines = wrap(context, scene.commentary, boxWidth - (textLeft - x) - 28 * scale, bodyFont).slice(0, spoken ? 1 : 3);
+    lines.forEach((line, index) => context.fillText(line, textLeft, textTop + index * 25 * scale));
+    context.restore();
+  }
+
+  private drawCaption(scene: ProductionScene, resolved: Resolved, width: number, height: number, scale: number) {
+    const caption = scene.style.caption;
+    if (caption.preset === 'off' || !scene.caption) return;
+    const context = this.context;
+    const maxWidth = Math.min(width * .84, (scene.vertical ? 920 : 1180) * scale);
+    const fontSize = (scene.vertical || caption.preset === 'vertical' ? 34 : 30) * caption.size_scale * scale;
+    const y = caption.position === 'top' ? height * .12 : caption.position === 'center' ? height * .5 : scene.vertical ? height * .947 : height * .875;
+    const font = this.font(resolved, 'body', fontSize, 850);
+    const lines = wrap(context, scene.caption, maxWidth - 86 * scale, font).slice(0, 2);
+    const boxHeight = (lines.length * fontSize * 1.26 + 28 * scale);
+    context.save();
+    if (caption.background_opacity > 0) {
+      roundedRect(context, (width - maxWidth) / 2, y - boxHeight / 2, maxWidth, boxHeight, 12 * scale);
+      context.fillStyle = caption.preset === 'high-contrast'
+        ? `rgba(0,0,0,${Math.max(caption.background_opacity, .92)})`
+        : `rgba(0,0,0,${caption.background_opacity})`;
+      context.fill();
+    }
+    context.textAlign = 'center';
+    context.font = font;
+    let top = y - (lines.length - 1) * fontSize * .63 + fontSize * .34;
+    if (caption.show_speaker && scene.captionSide) {
+      const speaker = scene.captionSide === 'p2' ? scene.p2 : scene.p1;
+      context.fillStyle = speaker.accent;
+      context.font = this.font(resolved, 'mono', 15 * scale, 900);
+      context.fillText(speaker.displayName.toUpperCase(), width / 2, y - boxHeight / 2 - 10 * scale);
+      context.font = font;
+    }
+    lines.forEach((line, index) => {
+      const lineY = top + index * fontSize * 1.26;
+      if (caption.outline) {
+        context.lineWidth = Math.max(2, 5 * scale);
+        context.strokeStyle = 'rgba(0,0,0,.95)';
+        context.strokeText(line, width / 2, lineY);
+      }
+      context.fillStyle = '#fff';
+      context.fillText(line, width / 2, lineY);
+    });
+    void top;
+    context.restore();
+  }
+
+  private drawDirector(scene: ProductionScene, resolved: Resolved, width: number, height: number, scale: number) {
+    const card = directorCard(scene);
+    if (!card) return;
+    const context = this.context;
+    const result = card.kind === 'result';
+    const p1 = scene.p1.accent;
+    const p2 = scene.p2.accent;
+    context.save();
+    context.globalAlpha = card.opacity;
+    // Opaque, not 94%: the HUD underneath was ghosting through the intro card, so a match
+    // that has not started yet showed "AWAITING POKÉMON" and empty 0% bars behind the
+    // matchup. The card's own fade is carried by globalAlpha, so the transition is intact.
+    context.fillStyle = '#020408'; context.fillRect(0, 0, width, height);
+    context.fillStyle = withAlpha(result ? '#ffd96a' : p1, .2);
+    context.beginPath(); context.moveTo(0, 0); context.lineTo(width * .62, 0); context.lineTo(width * .38, height); context.lineTo(0, height); context.closePath(); context.fill();
+    context.fillStyle = withAlpha(result ? '#ff984c' : p2, .18);
+    context.beginPath(); context.moveTo(width * .62, 0); context.lineTo(width, 0); context.lineTo(width, height); context.lineTo(width * .38, height); context.closePath(); context.fill();
+    for (let index = -2; index <= 2; index += 1) {
+      context.strokeStyle = 'rgba(255,255,255,.08)'; context.lineWidth = 12 * scale;
+      context.beginPath(); context.moveTo(width * .5 + index * 52 * scale, 0); context.lineTo(width * .32 + index * 52 * scale, height); context.stroke();
+    }
+    context.textAlign = 'center';
+    if (card.showLogos) {
+      const logoSize = (scene.vertical ? 190 : 220) * scale;
+      this.drawLogo(scene.p1, width * (scene.vertical ? .27 : .22) - logoSize / 2, height * .17, logoSize, resolved);
+      this.drawLogo(scene.p2, width * (scene.vertical ? .73 : .78) - logoSize / 2, height * .17, logoSize, resolved);
+    }
+    if (card.eyebrow) {
+      context.fillStyle = result ? '#ffd96a' : resolved.accent;
+      context.font = this.font(resolved, 'mono', 22 * scale, 950);
+      context.fillText(card.eyebrow, width / 2, height * .34);
+    }
+    context.fillStyle = '#fff';
+    context.font = this.font(resolved, 'display', (scene.vertical ? 62 : 86) * scale, resolved.weight);
+    this.paintText(context, resolved, this.text(resolved, card.headline), width / 2, height * .49, width * .9);
+    if (card.subtitle) {
+      context.fillStyle = 'rgba(240,246,242,.86)';
+      context.font = this.font(resolved, 'mono', 26 * scale, 800);
+      context.fillText(card.subtitle.toUpperCase(), width / 2, height * .57, width * .86);
+    }
+    if (card.badge) {
+      context.fillStyle = result ? '#ffd96a' : '#fff';
+      context.font = this.font(resolved, 'display', (scene.vertical ? 110 : 140) * scale, resolved.weight);
+      context.fillText(card.badge, width / 2, height * .72);
+    }
+    if (scene.title) {
+      context.fillStyle = 'rgba(255,255,255,.7)';
+      context.font = this.font(resolved, 'mono', 22 * scale, 800);
+      context.fillText(scene.title.toUpperCase(), width / 2, height * .88, width * .8);
+    }
+    context.restore();
+  }
+
+  private drawWatermark(scene: ProductionScene, resolved: Resolved, width: number, height: number, scale: number) {
+    const watermark = scene.style.watermark;
+    if (!watermark.enabled) return;
+    const size = 110 * watermark.size * scale;
+    const margin = 34 * scale;
+    const x = watermark.position.endsWith('right') ? width - margin - size : margin;
+    const y = watermark.position.startsWith('top') ? margin : height - margin - size;
+    const bitmap = this.bitmap(assetUrl(this.assetApiBase, watermark.asset_id));
+    const context = this.context;
+    context.save();
+    context.globalAlpha = watermark.opacity;
+    if (bitmap) {
+      const ratio = bitmap.width / bitmap.height;
+      const drawWidth = ratio >= 1 ? size : size * ratio;
+      const drawHeight = ratio >= 1 ? size / ratio : size;
+      context.drawImage(bitmap, x + (size - drawWidth) / 2, y + (size - drawHeight) / 2, drawWidth, drawHeight);
+    } else if (watermark.text) {
+      context.textAlign = watermark.position.endsWith('right') ? 'right' : 'left';
+      context.fillStyle = '#fff';
+      context.font = this.font(resolved, 'display', 30 * watermark.size * scale, 900);
+      context.fillText(this.text(resolved, watermark.text), watermark.position.endsWith('right') ? width - margin : margin, y + size * .6);
+    }
+    context.restore();
+  }
+
+  private drawFrame(resolved: Resolved, width: number, height: number, scale: number) {
+    if (!resolved.style.show_koala_branding) return;
+    this.context.save();
+    this.context.strokeStyle = withAlpha(resolved.accent, .58); this.context.lineWidth = 3 * scale;
+    this.context.strokeRect(14 * scale, 14 * scale, width - 28 * scale, height - 28 * scale);
+    this.context.fillStyle = resolved.accent;
+    this.context.fillRect(14 * scale, 14 * scale, 150 * scale, 6 * scale);
+    this.context.fillRect(width - 164 * scale, height - 20 * scale, 150 * scale, 6 * scale);
+    this.context.restore();
+  }
+
+  // ------------------------------------------------------------------ text
+
+  private font(resolved: Resolved, role: 'display' | 'body' | 'mono', size: number, weight: number): string {
+    return `${weight} ${Math.round(size * resolved.scale)}px ${resolved[role]}`;
+  }
+
+  private text(resolved: Resolved, value: string): string {
+    return resolved.upper ? value.toUpperCase() : value;
+  }
+
+  private paintText(
+    context: CanvasRenderingContext2D,
+    resolved: Resolved,
+    value: string,
+    x: number,
+    y: number,
+    maxWidth?: number
+  ) {
+    const spacing = resolved.tracking;
+    if (spacing) context.letterSpacing = `${spacing}px`;
+    if (resolved.shadow) { context.shadowColor = 'rgba(0,0,0,.6)'; context.shadowBlur = 8; }
+    if (resolved.outline) {
+      context.lineWidth = 4;
+      context.strokeStyle = 'rgba(4,6,10,.92)';
+      context.strokeText(value, x, y, maxWidth);
+    }
+    context.fillText(value, x, y, maxWidth);
+    context.shadowBlur = 0;
+    if (spacing) context.letterSpacing = '0px';
+  }
+
+  /** Panel silhouette. `slash` is the house shape; other HUD presets use rectangles. */
+  private shape(
+    context: CanvasRenderingContext2D,
+    scene: ProductionScene,
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    cut: number,
+    reverse = false
+  ) {
+    const preset = scene.style.hud.preset;
+    if (preset === 'retro') { roundedRect(context, x, y, width, height, 4); return; }
+    if (preset === 'minimal' || preset === 'esports') { roundedRect(context, x, y, width, height, cut * .35); return; }
+    if (preset === 'fighting') { roundedRect(context, x, y, width, height, cut * .2); return; }
+    slashRect(context, x, y, width, height, cut, reverse);
+  }
+
+  // --------------------------------------------------------------- effects
+
+  private drawEffect(scene: ProductionScene, resolved: Resolved, width: number, height: number, scale: number) {
+    const effect = scene.effect;
+    if (resolved.effect <= 0 || effect.progress <= 0 || effect.progress >= 1) return;
+    const positions = combatantPositions(scene, width, height);
+    const targetSide = effect.target || (effect.actor === 'p1' ? 'p2' : 'p1');
+    const end = positions[targetSide];
+    const color = TYPE_COLORS[effect.type];
+    const context = this.context;
     context.save(); context.globalCompositeOperation = 'lighter';
     if (effect.archetype === 'heal') this.drawHeal(end, effect, color, scale);
     else if (['status', 'pulse', 'field', 'buff', 'debuff'].includes(effect.archetype)) this.drawPulse(effect.archetype === 'field' ? { x: width / 2, y: height * .7 } : end, effect, effect.archetype === 'debuff' ? '#ff5f72' : color, scale);
     else if (effect.archetype === 'barrier') this.drawBarrier(end, effect, color, scale);
     else if (effect.archetype === 'hazard') this.drawHazard(end, effect, color, scale);
-    else if (effect.actor) this.drawAttack(positions[effect.actor], end, effect, color, width, scale);
-    if (effect.impactProgress > 0 && effect.kind !== 'move_missed' && effect.archetype !== 'heal') {
-      const burst = impactEnvelope(effect.impactProgress); context.globalAlpha = burst; context.strokeStyle = '#fff9d6'; context.lineWidth = 10 * scale; context.lineCap = 'round';
-      for (let index = 0; index < 18; index += 1) { const angle = index / 18 * Math.PI * 2 + hash(effect.seed + index) * .22; const inner = 30 * scale; const outer = (90 + hash(index * 7) * 175) * scale * burst; context.beginPath(); context.moveTo(end.x + Math.cos(angle) * inner, end.y - 120 * scale + Math.sin(angle) * inner); context.lineTo(end.x + Math.cos(angle) * outer, end.y - 120 * scale + Math.sin(angle) * outer); context.stroke(); }
-      context.fillStyle = '#fff'; context.globalAlpha = burst * .7; context.beginPath(); context.arc(end.x, end.y - 120 * scale, 75 * scale * burst, 0, Math.PI * 2); context.fill();
+    else if (effect.actor) this.drawAttack(positions[effect.actor], end, effect, color, width, scale, resolved);
+    if (scene.style.effect.impact_flash && effect.impactProgress > 0 && effect.kind !== 'move_missed' && effect.archetype !== 'heal') {
+      const burst = impactEnvelope(effect.impactProgress) * resolved.effect;
+      const rays = Math.max(6, Math.round(18 * resolved.effect));
+      context.globalAlpha = Math.min(1, burst); context.strokeStyle = '#fff9d6'; context.lineWidth = 10 * scale; context.lineCap = 'round';
+      for (let index = 0; index < rays; index += 1) { const angle = index / rays * Math.PI * 2 + hash(effect.seed + index) * .22; const inner = 30 * scale; const outer = (90 + hash(index * 7) * 175) * scale * burst; context.beginPath(); context.moveTo(end.x + Math.cos(angle) * inner, end.y - 120 * scale + Math.sin(angle) * inner); context.lineTo(end.x + Math.cos(angle) * outer, end.y - 120 * scale + Math.sin(angle) * outer); context.stroke(); }
+      context.fillStyle = '#fff'; context.globalAlpha = Math.min(1, burst * .7); context.beginPath(); context.arc(end.x, end.y - 120 * scale, 75 * scale * burst, 0, Math.PI * 2); context.fill();
     }
     context.restore();
   }
 
-  private drawAttack(start: Point, end: Point, effect: ProductionScene['effect'], color: string, width: number, scale: number) {
+  private drawAttack(start: Point, end: Point, effect: ProductionScene['effect'], color: string, width: number, scale: number, resolved: Resolved) {
     const context = this.context; const travel = clamp((effect.progress - .18) / .56); const miss = effect.kind === 'move_missed' ? (effect.actor === 'p1' ? 1 : -1) * 200 * scale : 0;
     const target = { x: end.x + miss, y: end.y - 130 * scale }; const origin = { x: start.x, y: start.y - 165 * scale }; const x = origin.x + (target.x - origin.x) * easeInOut(travel); const y = origin.y + (target.y - origin.y) * easeInOut(travel) - Math.sin(travel * Math.PI) * 105 * scale;
     if (effect.archetype === 'contact') {
       context.strokeStyle = color; context.lineWidth = 16 * scale; context.lineCap = 'round';
-      for (let index = -2; index <= 2; index += 1) { const spread = index * 34 * scale; context.globalAlpha = .18 + (2 - Math.abs(index)) * .2; context.beginPath(); context.moveTo(origin.x - 40 * scale, origin.y + spread); context.lineTo(target.x + 40 * scale, target.y + spread * .3); context.stroke(); }
+      for (let index = -2; index <= 2; index += 1) { const spread = index * 34 * scale; context.globalAlpha = (.18 + (2 - Math.abs(index)) * .2) * resolved.effect; context.beginPath(); context.moveTo(origin.x - 40 * scale, origin.y + spread); context.lineTo(target.x + 40 * scale, target.y + spread * .3); context.stroke(); }
     } else if (effect.archetype === 'beam') {
       const beam = clamp((effect.progress - .18) / .45); const angle = Math.atan2(target.y - origin.y, target.x - origin.x); const length = Math.hypot(target.x - origin.x, target.y - origin.y) * easeOut(beam);
       context.strokeStyle = withAlpha(color, .3); context.lineWidth = 62 * scale * Math.sin(beam * Math.PI); context.lineCap = 'round'; context.beginPath(); context.moveTo(origin.x, origin.y); context.lineTo(origin.x + Math.cos(angle) * length, origin.y + Math.sin(angle) * length); context.stroke();
       context.strokeStyle = '#fff'; context.lineWidth = 12 * scale * Math.sin(beam * Math.PI); context.beginPath(); context.moveTo(origin.x, origin.y); context.lineTo(origin.x + Math.cos(angle) * length, origin.y + Math.sin(angle) * length); context.stroke();
     } else {
-      for (let trail = 4; trail >= 0; trail -= 1) { const tx = x - (x - origin.x) * trail * .05; const ty = y - (y - origin.y) * trail * .05; const radius = (34 + (4 - trail) * 8) * scale; const glow = context.createRadialGradient(tx, ty, 0, tx, ty, radius * 2.4); glow.addColorStop(0, trail === 0 ? '#fff' : withAlpha(color, .75)); glow.addColorStop(.28, withAlpha(color, .8)); glow.addColorStop(1, 'rgba(0,0,0,0)'); context.globalAlpha = 1 - trail * .16; context.fillStyle = glow; context.beginPath(); context.arc(tx, ty, radius * 2.4, 0, Math.PI * 2); context.fill(); }
+      const trails = resolved.style.effect.trails ? 4 : 0;
+      for (let trail = trails; trail >= 0; trail -= 1) { const tx = x - (x - origin.x) * trail * .05; const ty = y - (y - origin.y) * trail * .05; const radius = (34 + (4 - trail) * 8) * scale; const glow = context.createRadialGradient(tx, ty, 0, tx, ty, radius * 2.4); glow.addColorStop(0, trail === 0 ? '#fff' : withAlpha(color, .75)); glow.addColorStop(.28, withAlpha(color, .8)); glow.addColorStop(1, 'rgba(0,0,0,0)'); context.globalAlpha = 1 - trail * .16; context.fillStyle = glow; context.beginPath(); context.arc(tx, ty, radius * 2.4, 0, Math.PI * 2); context.fill(); }
       context.strokeStyle = color; context.lineWidth = 4 * scale; context.globalAlpha = .65; context.beginPath(); context.moveTo(origin.x, origin.y); context.quadraticCurveTo(width / 2, Math.min(origin.y, target.y) - 150 * scale, x, y); context.stroke();
     }
   }
 
   private drawHeal(end: Point, effect: ProductionScene['effect'], color: string, scale: number) {
-    for (let index = 0; index < 18; index += 1) { const lift = easeOut(effect.progress); const x = end.x + (hash(effect.seed + index) - .5) * 250 * scale; const y = end.y - (40 + hash(index * 17) * 240) * scale * lift; this.context.fillStyle = withAlpha(color === TYPE_COLORS.normal ? P1 : color, Math.sin(effect.progress * Math.PI)); this.context.fillRect(x - 4 * scale, y - 20 * scale, 8 * scale, 40 * scale); this.context.fillRect(x - 20 * scale, y - 4 * scale, 40 * scale, 8 * scale); }
+    for (let index = 0; index < 18; index += 1) { const lift = easeOut(effect.progress); const x = end.x + (hash(effect.seed + index) - .5) * 250 * scale; const y = end.y - (40 + hash(index * 17) * 240) * scale * lift; this.context.fillStyle = withAlpha(color === TYPE_COLORS.normal ? '#7bf0a2' : color, Math.sin(effect.progress * Math.PI)); this.context.fillRect(x - 4 * scale, y - 20 * scale, 8 * scale, 40 * scale); this.context.fillRect(x - 20 * scale, y - 4 * scale, 40 * scale, 8 * scale); }
   }
 
   private drawPulse(center: Point, effect: ProductionScene['effect'], color: string, scale: number) {
@@ -294,53 +1023,35 @@ export class ProductionCompositor {
     this.context.fillStyle = color; this.context.globalAlpha = Math.sin(effect.progress * Math.PI);
     for (let index = -3; index <= 3; index += 1) { const x = end.x + index * 53 * scale; this.context.beginPath(); this.context.moveTo(x, end.y); this.context.lineTo(x + 18 * scale, end.y - (65 + Math.abs(index) * 10) * scale); this.context.lineTo(x + 38 * scale, end.y); this.context.fill(); }
   }
+}
 
-  private drawCommentary(scene: ProductionScene, width: number, height: number, scale: number) {
-    if (!scene.commentary) return;
-    const context = this.context; const color = scene.commentarySide === 'p2' ? P2 : P1; const boxWidth = Math.min(width * (scene.vertical ? .88 : .42), (scene.vertical ? 900 : 760) * scale);
-    const x = scene.vertical ? (width - boxWidth) / 2 : scene.commentarySide === 'p2' ? width - boxWidth - 52 * scale : 52 * scale; const y = scene.vertical ? height * .705 : height * .655;
-    context.save(); slashRect(context, x, y, boxWidth, 118 * scale, 22 * scale, scene.commentarySide === 'p2'); context.fillStyle = 'rgba(4,7,11,.91)'; context.fill(); context.strokeStyle = withAlpha(color, .62); context.lineWidth = 3 * scale; context.stroke();
-    context.fillStyle = color; context.font = `900 ${14 * scale}px ui-monospace, monospace`; context.textAlign = 'left'; const side = scene.commentarySide === 'p2' ? scene.p2 : scene.p1; context.fillText(`${side.displayName.toUpperCase()} // FIGHTER INTENT`, x + 28 * scale, y + 27 * scale);
-    // The caption already carries the spoken words; repeating them here is noise.
-    const spoken = scene.caption && scene.commentary.startsWith(scene.caption.slice(0, 18));
-    context.fillStyle = spoken ? withAlpha('#f5f7f5', .55) : '#f5f7f5';
-    context.font = `750 ${22 * scale}px system-ui`;
-    const lines = wrap(context, scene.commentary, boxWidth - 56 * scale, 22 * scale).slice(0, spoken ? 1 : 3);
-    lines.forEach((line, index) => context.fillText(line, x + 28 * scale, y + (58 + index * 25) * scale));
-    context.restore();
-  }
-
-  private drawCaption(scene: ProductionScene, width: number, height: number, scale: number) {
-    if (!scene.caption) return;
-    const context = this.context; const maxWidth = Math.min(width * .82, (scene.vertical ? 920 : 1180) * scale); const y = scene.vertical ? height * .947 : height * .875; const fontSize = scene.vertical ? 34 : 30;
-    const lines = wrap(context, scene.caption, maxWidth - 86 * scale, fontSize * scale).slice(0, 2); const boxHeight = (lines.length * 38 + 28) * scale;
-    context.save(); roundedRect(context, (width - maxWidth) / 2, y - boxHeight / 2, maxWidth, boxHeight, 12 * scale); context.fillStyle = 'rgba(0,0,0,.88)'; context.fill(); context.fillStyle = '#fff'; context.textAlign = 'center'; context.font = `850 ${fontSize * scale}px system-ui`; lines.forEach((line, index) => context.fillText(line, width / 2, y - (lines.length - 1) * 19 * scale + index * 38 * scale + 10 * scale)); context.restore();
-  }
-
-  private drawDirector(scene: ProductionScene, width: number, height: number, scale: number) {
-    if (!scene.director || !['match-intro', 'team-reveal', 'result', 'outro', 'champion'].includes(scene.director.kind)) return;
-    const elapsed = scene.timeMs - scene.director.start_ms; const progress = clamp(elapsed / Math.max(1, scene.director.duration_ms)); const opacity = Math.min(1, progress * 7, (1 - progress) * 7); const context = this.context; const result = ['result', 'outro', 'champion'].includes(scene.director.kind);
-    context.save(); context.globalAlpha = opacity; context.fillStyle = 'rgba(2,4,8,.94)'; context.fillRect(0, 0, width, height);
-    context.fillStyle = withAlpha(result ? '#ffd96a' : P1, .2); context.beginPath(); context.moveTo(0, 0); context.lineTo(width * .62, 0); context.lineTo(width * .38, height); context.lineTo(0, height); context.closePath(); context.fill();
-    context.fillStyle = withAlpha(result ? '#ff984c' : P2, .18); context.beginPath(); context.moveTo(width * .62, 0); context.lineTo(width, 0); context.lineTo(width, height); context.lineTo(width * .38, height); context.closePath(); context.fill();
-    for (let index = -2; index <= 2; index += 1) { context.strokeStyle = 'rgba(255,255,255,.08)'; context.lineWidth = 12 * scale; context.beginPath(); context.moveTo(width * .5 + index * 52 * scale, 0); context.lineTo(width * .32 + index * 52 * scale, height); context.stroke(); }
-    context.textAlign = 'center'; context.fillStyle = result ? '#ffd96a' : '#82ffae'; context.font = `950 ${22 * scale}px ui-monospace, monospace`; context.fillText(result ? 'VERDANT CIRCUIT // FINAL' : 'KOALABATTLE // MAIN EVENT', width / 2, height * .34);
-    context.fillStyle = '#fff'; context.font = `950 ${(scene.vertical ? 62 : 86) * scale}px system-ui`; const players = scene.director.payload.players; const title = !result && Array.isArray(players) ? players.join('  VS  ') : scene.winnerName ? `${scene.winnerName} WINS` : 'DRAW'; context.fillText(title.toUpperCase(), width / 2, height * .49, width * .9);
-    context.fillStyle = result ? '#ffd96a' : '#fff'; context.font = `950 ${(scene.vertical ? 118 : 150) * scale}px system-ui`; context.fillText(result ? 'K.O.' : 'VS', width / 2, height * .66); context.restore();
-  }
-
-  private drawFrame(width: number, height: number, scale: number) {
-    this.context.save(); this.context.strokeStyle = 'rgba(126,255,174,.58)'; this.context.lineWidth = 3 * scale; this.context.strokeRect(14 * scale, 14 * scale, width - 28 * scale, height - 28 * scale);
-    this.context.fillStyle = '#7dffae'; this.context.fillRect(14 * scale, 14 * scale, 150 * scale, 6 * scale); this.context.fillRect(width - 164 * scale, height - 20 * scale, 150 * scale, 6 * scale); this.context.restore();
-  }
+function resolve(scene: ProductionScene): Resolved {
+  const style = scene.style;
+  return {
+    style,
+    display: fontFamily(style, 'display'),
+    body: fontFamily(style, 'body'),
+    mono: fontFamily(style, 'mono'),
+    scale: style.typography.scale,
+    upper: style.typography.uppercase,
+    outline: style.typography.outline,
+    shadow: style.typography.shadow,
+    tracking: style.typography.letter_spacing,
+    weight: style.typography.display_weight,
+    effect: intensityScale(style.effect.intensity),
+    camera: cameraScale(style.effect.camera),
+    idle: idleScale(style.effect.idle_motion),
+    accent: style.stage.accent
+  };
 }
 
 function combatantPositions(scene: ProductionScene, width: number, height: number): Record<'p1' | 'p2', Point> {
   return scene.vertical ? { p1: { x: width * .36, y: height * .69 }, p2: { x: width * .67, y: height * .43 } } : { p1: { x: width * .29, y: height * .76 }, p2: { x: width * .71, y: height * .63 } };
 }
 
-function cameraOffset(scene: ProductionScene, scale: number) {
-  const impact = impactEnvelope(scene.effect.impactProgress); if (impact <= 0) return { x: 0, y: 0 };
+function cameraOffset(scene: ProductionScene, scale: number, strength: number) {
+  const impact = impactEnvelope(scene.effect.impactProgress) * strength;
+  if (impact <= 0) return { x: 0, y: 0 };
   return { x: Math.sin(scene.effect.seed + scene.effect.impactProgress * 97) * 20 * scale * impact, y: Math.cos(scene.effect.seed + scene.effect.impactProgress * 79) * 13 * scale * impact };
 }
 function anticipationLunge(progress: number): number {
@@ -363,37 +1074,15 @@ function slashRect(context: CanvasRenderingContext2D, x: number, y: number, widt
 function roundedRect(context: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, radius: number) {
   const r = Math.min(radius, width / 2, height / 2); context.beginPath(); context.moveTo(x + r, y); context.arcTo(x + width, y, x + width, y + height, r); context.arcTo(x + width, y + height, x, y + height, r); context.arcTo(x, y + height, x, y, r); context.arcTo(x, y, x + width, y, r); context.closePath();
 }
-function wrap(context: CanvasRenderingContext2D, text: string, maxWidth: number, fontSize: number): string[] {
-  context.font = `750 ${fontSize}px system-ui`; const lines: string[] = []; let line = '';
+function wrap(context: CanvasRenderingContext2D, text: string, maxWidth: number, font: string): string[] {
+  context.font = font; const lines: string[] = []; let line = '';
   for (const word of text.split(/\s+/)) { const candidate = `${line} ${word}`.trim(); if (line && context.measureText(candidate).width > maxWidth) { lines.push(line); line = word; } else line = candidate; }
   if (line) lines.push(line); return lines;
 }
-function formatLabel(value: string): string {
-  const normalized = value.toLowerCase().replaceAll('_', '').replaceAll('-', '');
-  const generation = normalized.match(/^gen(\d+)(.+)$/);
-  if (!generation) return value.replaceAll('_', ' ').replaceAll('-', ' ').toUpperCase();
-  const formats: Record<string, string> = {
-    randombattle: 'RANDOM BATTLE', ou: 'OU', uu: 'UU', ru: 'RU', nu: 'NU', pu: 'PU',
-    ubers: 'UBERS', doublesou: 'DOUBLES OU'
-  };
-  return `GEN ${generation[1]} · ${formats[generation[2]] || generation[2].toUpperCase()}`;
-}
-function readableCondition(value: string): string { return value.replaceAll('_', ' ').replace(/^move: /i, '').toUpperCase(); }
-function readableStatus(value: string): string { return ({ brn: 'BURN', par: 'PARALYSIS', psn: 'POISON', tox: 'TOXIC', slp: 'SLEEP', frz: 'FREEZE' } as Record<string, string>)[value.toLowerCase()] || value.toUpperCase(); }
+function readableStatus(value: string): string { return ({ BRN: 'BURN', PAR: 'PAR', PSN: 'PSN', TOX: 'TOXIC', SLP: 'SLEEP', FRZ: 'FRZ' } as Record<string, string>)[value.toUpperCase()] || value.toUpperCase(); }
 function pokemonTypeColor(types: string[] | undefined): string { return TYPE_COLORS[(types?.[0]?.toLowerCase() || 'normal') as PokemonType] || TYPE_COLORS.normal; }
 function statusColor(status: string): string { return ({ BRN: '#ff8055', PAR: '#f6d34c', PSN: '#c979e8', TOX: '#9d59c8', SLP: '#9ba8b6', FRZ: '#7ee8f0' } as Record<string, string>)[status] || '#d9d7ca'; }
-function hpReadout(side: ProductionSceneSide): string {
-  const active = side.active;
-  const hpFraction = active?.hp_fraction || 0;
-  const currentHp = active?.current_hp;
-  const maxHp = active?.max_hp;
-  if (currentHp != null && maxHp && Math.abs(currentHp / maxHp - hpFraction) <= 0.01) return `${currentHp}/${maxHp}`;
-  return `${Math.round(hpFraction * 100)}%`;
-}
-function withAlpha(hex: string, alpha: number): string {
-  const value = hex.replace('#', ''); const full = value.length === 3 ? value.split('').map((item) => item + item).join('') : value;
-  return `rgba(${Number.parseInt(full.slice(0, 2), 16)},${Number.parseInt(full.slice(2, 4), 16)},${Number.parseInt(full.slice(4, 6), 16)},${alpha})`;
-}
+
 function clamp(value: number): number { return Math.max(0, Math.min(1, value)); }
 function easeOut(value: number): number { return 1 - Math.pow(1 - value, 3); }
 function easeInOut(value: number): number { return value * value * (3 - 2 * value); }

@@ -1,6 +1,7 @@
-import type { PokemonState, ProductionCue, Side } from '../types.ts';
+import type { PokemonState, ProductionCue, ProductionStyle, Side } from '../types.ts';
 import type { BattlePresentationState, PokemonType } from '../presentation/types.ts';
 import type { ProductionFrameState } from './frame-state.ts';
+import { MARK_LABELS, accentFor, assetUrl, brandingFor, formatDisplayName } from './style.ts';
 
 export const AUTHORITATIVE_IMPACT_PROGRESS = 0.72;
 
@@ -27,6 +28,11 @@ export interface ProductionSceneSide {
   sideConditions: string[];
   spriteUrl: string | null;
   near: boolean;
+  /** Resolved presentation identity. Never affects which agent actually played. */
+  accent: string;
+  logoUrl: string | null;
+  markLabel: string;
+  slot: string;
 }
 
 export type ProductionEffectArchetype =
@@ -60,6 +66,10 @@ export interface ProductionScene {
   timeMs: number;
   turn: number;
   format: string;
+  /** Human-readable format label, e.g. `Gen 1 · OU`. Machine ids stay internal. */
+  formatLabel: string;
+  style: ProductionStyle;
+  title: string | null;
   vertical: boolean;
   p1: ProductionSceneSide;
   p2: ProductionSceneSide;
@@ -68,6 +78,8 @@ export interface ProductionScene {
   effect: ProductionSceneEffect;
   commentary: string | null;
   commentarySide: Side | null;
+  /** Time since the commentary cue began, so entrance motion stays deterministic. */
+  commentaryElapsedMs: number;
   caption: string | null;
   captionSide: Side | null;
   director: ProductionCue | null;
@@ -78,7 +90,9 @@ export interface ProductionScene {
 export function createProductionScene(
   frame: ProductionFrameState,
   vertical: boolean,
-  assetApiBase: string
+  assetApiBase: string,
+  style: ProductionStyle,
+  title: string | null = null
 ): ProductionScene {
   const presentation = authoritativePresentation(frame);
   const battle = presentation.battle;
@@ -98,10 +112,18 @@ export function createProductionScene(
           : null
       : null;
     const previousActive = previousState?.active || null;
+    const branding = brandingFor(style, side);
     return {
       side,
-      displayName: presentation.players[side].displayName,
+      displayName: branding.display_name || presentation.players[side].displayName,
       providerLabel: presentation.players[side].providerLabel,
+      accent: accentFor(style, side),
+      logoUrl: assetUrl(assetApiBase, branding.logo_asset_id),
+      markLabel:
+        branding.short_name ||
+        MARK_LABELS[branding.logo_mark || ''] ||
+        (branding.display_name || presentation.players[side].displayName).slice(0, 8).toUpperCase(),
+      slot: side.toUpperCase(),
       active,
       previousHpFraction:
         active && previousActive && active.id === previousActive.id
@@ -125,6 +147,9 @@ export function createProductionScene(
     timeMs: frame.timeMs,
     turn: battle?.turn || frame.visual?.turn || 0,
     format: presentation.format,
+    formatLabel: formatDisplayName(presentation.format, style.show_generation),
+    style,
+    title: title || style.title,
     vertical,
     p1: makeSide('p1', true),
     p2: makeSide('p2', false),
@@ -148,11 +173,131 @@ export function createProductionScene(
     },
     commentary: cueText(frame.commentary),
     commentarySide: frame.commentary?.side || null,
+    commentaryElapsedMs: frame.commentary ? Math.max(0, frame.timeMs - frame.commentary.start_ms) : 0,
     caption: activeCaptionText(frame.caption, frame.timeMs),
     captionSide: frame.caption?.side || null,
     director: frame.director,
     winnerName: presentation.winnerName,
     finished: presentation.finished
+  };
+}
+
+export interface DirectorCard {
+  kind: 'intro' | 'result';
+  progress: number;
+  opacity: number;
+  eyebrow: string | null;
+  headline: string;
+  subtitle: string | null;
+  badge: string | null;
+  showLogos: boolean;
+}
+
+export type DamageTone = 'damage' | 'heal' | 'crit' | 'effective' | 'resist' | 'immune' | 'miss';
+
+export interface DamageCallout {
+  text: string;
+  tone: DamageTone;
+  progress: number;
+}
+
+/**
+ * The short numeric/verbal callout for the current hit, honouring the style's toggles.
+ *
+ * Damage feedback is the one overlay a viewer reads on every exchange, so which callouts
+ * appear is a style decision — but the number itself always comes from the recorded HP
+ * change, never from an estimate.
+ */
+export function damageCallout(scene: ProductionScene): DamageCallout | null {
+  const damage = scene.style.damage;
+  const effect = scene.effect;
+  if (effect.impactProgress <= 0 || effect.impactProgress >= 1) return null;
+  const value = effect.value;
+  const progress = effect.impactProgress;
+  switch (effect.kind) {
+    case 'damage':
+      return damage.show_damage && value ? { text: `${Math.abs(value)}%`, tone: 'damage', progress } : null;
+    case 'healing':
+      return damage.show_healing && value ? { text: `+${Math.abs(value)}%`, tone: 'heal', progress } : null;
+    case 'critical_hit':
+      return damage.show_critical ? { text: 'CRITICAL', tone: 'crit', progress } : null;
+    case 'super_effective':
+      return damage.show_effectiveness ? { text: 'SUPER EFFECTIVE', tone: 'effective', progress } : null;
+    case 'resisted':
+      return damage.show_effectiveness ? { text: 'RESISTED', tone: 'resist', progress } : null;
+    case 'immune':
+      return damage.show_immune ? { text: 'IMMUNE', tone: 'immune', progress } : null;
+    case 'move_missed':
+      return damage.show_miss ? { text: 'MISS', tone: 'miss', progress } : null;
+    default:
+      return null;
+  }
+}
+
+const INTRO_KINDS = new Set(['match-intro', 'team-reveal']);
+const RESULT_KINDS = new Set(['result', 'outro', 'champion']);
+
+/**
+ * What the full-screen intro/result card should say, or null when none is showing.
+ *
+ * Kept out of the compositor so the decision is unit-testable: the result banner failing
+ * to appear is a content bug, not a drawing bug, and asserting it needs no canvas.
+ */
+export function directorCard(scene: ProductionScene): DirectorCard | null {
+  const cue = scene.director;
+  if (!cue) return null;
+  const intro = INTRO_KINDS.has(cue.kind);
+  const result = RESULT_KINDS.has(cue.kind);
+  if (!intro && !result) return null;
+  const style = scene.style;
+  if (intro && !style.intro.enabled) return null;
+  if (result && !style.result.enabled) return null;
+  const progress = clamp((scene.timeMs - cue.start_ms) / Math.max(1, cue.duration_ms));
+  const opacity = Math.min(1, progress * 7, (1 - progress) * 7);
+  if (opacity <= 0) return null;
+  const series = style.series;
+  const names = [scene.p1.displayName, scene.p2.displayName];
+  if (intro) {
+    const meta: string[] = [];
+    if (style.intro.show_format && style.show_format) meta.push(scene.formatLabel);
+    if (style.intro.show_game_number && series.game_number) meta.push(`GAME ${series.game_number}`);
+    if (style.intro.show_game_number && series.best_of) meta.push(`BEST OF ${series.best_of}`);
+    if (style.intro.show_series_score && series.score_p1 !== null && series.score_p2 !== null) {
+      meta.push(`SERIES ${series.score_p1}–${series.score_p2}`);
+    }
+    const round = [series.tournament_name, series.round_name].filter(Boolean).join(' · ');
+    return {
+      kind: 'intro',
+      progress,
+      opacity,
+      eyebrow:
+        (style.intro.show_tournament_round && round) ||
+        (style.show_koala_branding ? 'KOALABATTLE // MAIN EVENT' : null),
+      headline: style.intro.show_player_names ? names.join('  VS  ') : 'VS',
+      subtitle: meta.join('   ·   ') || null,
+      badge: style.intro.show_player_names ? 'VS' : null,
+      showLogos: style.intro.show_player_logos
+    };
+  }
+  const meta: string[] = [];
+  if (style.result.show_format && style.show_format) meta.push(scene.formatLabel);
+  if (style.result.show_series && series.score_p1 !== null && series.score_p2 !== null) {
+    meta.push(`SERIES ${series.score_p1}–${series.score_p2}`);
+  }
+  if (style.result.show_final_score) meta.push(`TURN ${scene.turn}`);
+  return {
+    kind: 'result',
+    progress,
+    opacity,
+    eyebrow: style.show_koala_branding ? 'KOALABATTLE // FINAL' : null,
+    headline: style.result.show_winner
+      ? scene.winnerName
+        ? `${scene.winnerName} WINS`
+        : 'DRAW'
+      : 'MATCH COMPLETE',
+    subtitle: meta.join('   ·   ') || null,
+    badge: scene.winnerName ? 'K.O.' : null,
+    showLogos: style.result.show_logos
   };
 }
 

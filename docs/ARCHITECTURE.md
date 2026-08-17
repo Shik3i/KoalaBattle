@@ -111,6 +111,26 @@ MatchArchive -> ProductionProfile -> ProductionTimeline
 events and public commentary only; it never updates the archive and never recalls an LLM.
 Multiple production IDs can therefore provide different output timing and voices for one match.
 
+## Production styles and branding
+
+`ProductionStyle` (schema 1.0) is the declarative description of a production's
+presentation. It is stored on the production, snapshotted into every export manifest, and
+consumed by one compositor:
+
+```text
+MatchArchive -> ProductionTimeline (+ ProductionStyle)
+             -> ProductionFrameState -> ProductionScene -> native compositor -> frames
+```
+
+The Studio preview, the offline export and the single-frame render route all run that same
+path, so a preview cannot disagree with an export about layout. The live DOM renderer
+consumes the same style object through a documented mapping (see [OBS.md](OBS.md)).
+
+Brand assets (logos, backgrounds, watermarks, fonts) are stored outside Git under
+`KOALABATTLE_BRANDING_ROOT` with server-generated names; SQLite holds only metadata.
+Styles reference assets by id, never by path, and a missing asset degrades to a documented
+fallback rather than crashing or silently substituting another file.
+
 ## Video exports
 
 ```text

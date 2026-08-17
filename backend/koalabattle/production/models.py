@@ -7,6 +7,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from .style import ProductionStyle
+
 PRODUCTION_SCHEMA_VERSION = "2.0"
 TIMELINE_VERSION = "2.0"
 
@@ -152,6 +154,11 @@ class ProductionTimeline(FrozenModel):
     director_state: DirectorState = DirectorState.PRE_SHOW
     cues: tuple[ProductionCue, ...] = ()
     voice_assignments: dict[str, str] = Field(default_factory=dict)
+    #: Presentation only. Productions saved before styles existed validate with the
+    #: built-in Koala Broadcast defaults, so old archives keep rendering unchanged.
+    style: ProductionStyle = Field(default_factory=ProductionStyle)
+    #: Optional display title for the video. Never renames the historical match.
+    title: str | None = Field(default=None, min_length=1, max_length=90)
     overrides: dict[str, Any] = Field(default_factory=dict)
     authoritative_client_id: str | None = None
     duration_ms: int = Field(default=0, ge=0)
@@ -164,6 +171,24 @@ class ProductionTimeline(FrozenModel):
 class CreateProduction(FrozenModel):
     profile_id: str = "live-stream"
     voice_assignments: dict[str, str] = Field(default_factory=dict)
+    #: A built-in or saved style preset id. Player branding is filled in from the match's
+    #: agents afterwards, so a new production already looks right before any editing.
+    style_id: str | None = Field(default=None, max_length=60)
+    style: ProductionStyle | None = None
+    title: str | None = Field(default=None, min_length=1, max_length=90)
+
+
+class UpdateProduction(FrozenModel):
+    """A non-destructive presentation edit. Cannot reach battle events or decisions."""
+
+    style: ProductionStyle | None = None
+    title: str | None = Field(default=None, min_length=1, max_length=90)
+    clear_title: bool = False
+
+
+class DuplicateProduction(FrozenModel):
+    title: str | None = Field(default=None, min_length=1, max_length=90)
+    style_id: str | None = Field(default=None, max_length=60)
 
 
 class PrepareSpeechRequest(FrozenModel):

@@ -316,6 +316,11 @@ class ExportManifest(FrozenModel):
     source_start_ms: int
     source_end_ms: int
     assets: dict[str, Any] = Field(default_factory=dict)
+    #: A snapshot of the presentation settings this export was rendered with. Editing the
+    #: saved preset afterwards must not make it impossible to tell how an old video looked,
+    #: so the values are copied here rather than referenced by id alone. Contains no binary
+    #: media and no secrets — asset ids only.
+    style: dict[str, Any] = Field(default_factory=dict)
     renderer_metrics: dict[str, int | float | str] = Field(default_factory=dict)
     created_at: datetime
 

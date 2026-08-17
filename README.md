@@ -30,8 +30,32 @@ Pokémon Showdown. No Pokémon artwork, sprites, audio, or other third-party med
 - Direct live productions with commentary, free Edge neural speech, captions, music/SFX slots,
   and read-only browser sources.
 - Export deterministic landscape or vertical H.264/AAC video from recorded events.
+- Re-render any recorded match in a different presentation as often as you like.
 - Import or explicitly generate validated custom teams, for any custom-team Showdown format,
   as immutable local snapshots.
+
+## Replay any recorded match, then render it again
+
+A recorded battle is a reusable source, not a one-shot video. Open a replay, press **Create
+Video**, and the Video Studio gives you a live preview of the real compositor plus the
+settings that shape it:
+
+```text
+Recorded match → Video Studio → choose a style → customize → preview → render → MP4
+```
+
+One match can carry several independent productions — a YouTube cut, a vertical cut, a
+retro cut — and editing one never changes the battle or the others. Customization covers
+optional match intros, player logos and accents, custom backgrounds, HUD and commentary
+presentation, captions, effects and landscape or vertical output. Good defaults mean
+**Create Video → Render** already produces a decent result without touching anything.
+
+KoalaBattle bundles no third-party provider logos; each provider gets an original generated
+mark, and any logo you have the rights to can be uploaded locally. Nothing is uploaded or
+published anywhere — the MP4 is yours.
+
+Details: [docs/VIDEO_STUDIO.md](docs/VIDEO_STUDIO.md), [docs/THEMES.md](docs/THEMES.md),
+[docs/ASSETS.md](docs/ASSETS.md).
 
 ## Docker quick start
 

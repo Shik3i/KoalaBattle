@@ -16,6 +16,14 @@ from koalabattle.agents.context import (
     PROMPT_PROFILES,
     render_prompt_messages,
 )
+from koalabattle.branding import (
+    BrandAsset,
+    BrandAssetInUse,
+    BrandAssetLibrary,
+    BrandingService,
+    UnsupportedMedia,
+    UploadBrandAsset,
+)
 from koalabattle.config import Settings, get_settings
 from koalabattle.core.assets import (
     AssetResolution,
@@ -30,9 +38,13 @@ from koalabattle.formats import FormatCatalog, FormatDescriptor, FormatGroup
 from koalabattle.production import (
     CreateProduction,
     DirectorCommand,
+    DuplicateProduction,
     PrepareSpeechRequest,
     ProductionService,
     ProductionTimeline,
+    SaveStylePreset,
+    StylePreset,
+    UpdateProduction,
     VoicePreset,
 )
 from koalabattle.production.models import VoicePreviewRequest
@@ -89,6 +101,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.tournaments = tournaments
         app.state.teams = service.teams
         app.state.assets = LocalAssetProvider(resolved.asset_root)
+        app.state.branding = BrandingService(database, resolved.branding_root)
         production = ProductionService(database, repository, resolved)
         repository.set_production_hooks(
             event=production.on_event, completion=production.on_match_completed
@@ -305,6 +318,97 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return await _production(request).require(production_id)
         except KeyError as error:
             raise HTTPException(status_code=404, detail="production not found") from error
+
+    @app.post("/api/productions/{production_id}/update", response_model=ProductionTimeline)
+    async def update_production(
+        production_id: UUID, payload: UpdateProduction, request: Request
+    ) -> ProductionTimeline:
+        """Save presentation settings. Battle events and results are never modified here."""
+        try:
+            return await _production(request).update(production_id, payload)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="production not found") from error
+
+    @app.post(
+        "/api/productions/{production_id}/duplicate",
+        response_model=ProductionTimeline,
+        status_code=status.HTTP_201_CREATED,
+    )
+    async def duplicate_production(
+        production_id: UUID, payload: DuplicateProduction, request: Request
+    ) -> ProductionTimeline:
+        try:
+            return await _production(request).duplicate(production_id, payload)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="production not found") from error
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.post("/api/productions/{production_id}/delete")
+    async def delete_production(production_id: UUID, request: Request) -> dict[str, bool]:
+        """Delete one production. The match and its history are untouched."""
+        return {"deleted": await _production(request).delete(production_id)}
+
+    @app.get("/api/production/styles", response_model=tuple[StylePreset, ...])
+    async def production_styles(request: Request) -> tuple[StylePreset, ...]:
+        return await _production(request).styles()
+
+    @app.post(
+        "/api/production/styles",
+        response_model=StylePreset,
+        status_code=status.HTTP_201_CREATED,
+    )
+    async def save_production_style(payload: SaveStylePreset, request: Request) -> StylePreset:
+        try:
+            return await _production(request).save_style_preset(payload)
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.post("/api/production/styles/{preset_id}/delete")
+    async def delete_production_style(preset_id: str, request: Request) -> dict[str, bool]:
+        try:
+            return {"deleted": await _production(request).delete_style_preset(preset_id)}
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.get("/api/branding/assets", response_model=BrandAssetLibrary)
+    async def branding_library(request: Request) -> BrandAssetLibrary:
+        return await _branding(request).library()
+
+    @app.post(
+        "/api/branding/assets",
+        response_model=BrandAsset,
+        status_code=status.HTTP_201_CREATED,
+    )
+    async def upload_branding_asset(payload: UploadBrandAsset, request: Request) -> BrandAsset:
+        try:
+            return await _branding(request).upload(payload)
+        except UnsupportedMedia as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.get("/api/branding/assets/{asset_id}/media")
+    async def branding_media(asset_id: str, request: Request) -> FileResponse:
+        service = _branding(request)
+        asset = await service.get(asset_id)
+        path = await service.media_path(asset_id)
+        if asset is None or path is None:
+            raise HTTPException(status_code=404, detail="brand asset not found")
+        return FileResponse(path, media_type=asset.media_type)
+
+    @app.post("/api/branding/assets/{asset_id}/delete")
+    async def delete_branding_asset(
+        asset_id: str, request: Request, force: bool = False
+    ) -> dict[str, bool]:
+        try:
+            return {"deleted": await _branding(request).delete(asset_id, force=force)}
+        except BrandAssetInUse as error:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"{error} — delete or re-point those productions first, "
+                    "or repeat with force=true"
+                ),
+            ) from error
 
     @app.post("/api/productions/{production_id}/rebuild", response_model=ProductionTimeline)
     async def rebuild_production(production_id: UUID, request: Request) -> ProductionTimeline:
@@ -831,6 +935,10 @@ def _repository(request: Request) -> BattleRepository:
 
 def _assets(request: Request) -> LocalAssetProvider:
     return cast(LocalAssetProvider, request.app.state.assets)
+
+
+def _branding(request: Request) -> BrandingService:
+    return cast(BrandingService, request.app.state.branding)
 
 
 def _tournaments(request: Request) -> TournamentRepository:

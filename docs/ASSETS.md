@@ -63,6 +63,73 @@ outside `KOALABATTLE_ASSET_ROOT`. APIs: `GET /api/assets/status`,
 `POST /api/assets/rescan`, `GET /api/assets/resolve/pokemon/:species`, and the content route
 `GET /api/assets/pokemon/:species`. Missing media returns 404.
 
+## Branding media (logos, backgrounds, watermarks, fonts)
+
+The Video Studio can use images and fonts you supply. They live under
+`KOALABATTLE_BRANDING_ROOT` (`data/branding` by default), which is ignored by Git:
+
+```text
+data/branding/logo/<generated-id>.png
+data/branding/background/<generated-id>.webp
+data/branding/watermark/<generated-id>.png
+data/branding/font/<generated-id>.woff2
+```
+
+Four categories of media exist in a KoalaBattle install, and they are backed up differently:
+
+| Category | Location | In Git? | Recoverable? |
+| --- | --- | --- | --- |
+| Bundled safe assets | repository (`frontend/static`) | Yes | From the repo |
+| Generated/runtime | `data/audio`, `data/videos` | No | Regenerated on demand |
+| User-uploaded branding | `data/branding` | No | **Only from your own backup** |
+| Third-party optional | `data/assets`, `data/vendor` | No | Re-run `setup_assets.py` |
+
+Uploaded branding is the one category nothing can rebuild. Back up `data/branding` together
+with `data/koalabattle.db`, which holds the metadata that points at those files.
+
+### Upload rules
+
+- **Images**: PNG, WebP, JPEG. Max 8 MB, max 8192px per edge.
+- **Fonts**: WOFF2, TrueType, OpenType. Max 4 MB.
+- **SVG is not supported.** A safe SVG subset needs a real sanitizer (scripts,
+  `foreignObject`, external references, entity expansion); a half-sanitized SVG rendered
+  inside the app is worse than none.
+- Content is identified from file headers, not the filename or the declared type. Nothing
+  is decoded to check it, and dimensions are read from the header so an oversized image is
+  refused before any decoder sees it.
+- The stored path is generated from a server-side id. The uploaded filename is used only as
+  a display label, with path-shaped characters stripped.
+
+### Provider logos and trademarks
+
+**KoalaBattle bundles no third-party logos.** The OpenAI, Google, Anthropic and DeepSeek
+names, word marks and logos are trademarks of their respective owners and are governed by
+their own brand guidelines; this project cannot grant redistribution rights it does not
+have, so it ships none of those files.
+
+Instead each provider family gets an original generated badge drawn by the compositor —
+`GPT`, `GEMINI`, `CLAUDE`, `DEEPSEEK`, `LOCAL`, `MANUAL`, `RANDOM`, `KOALA` — in
+KoalaBattle's own shapes and colours. The branding system is fully functional with no logo
+file present. If you have the rights to a specific logo, upload it locally; it stays on your
+machine and is never committed.
+
+### Fonts
+
+You are responsible for the licence of any font you add. KoalaBattle never redistributes
+fonts and its built-in choices are local system stacks, not bundled files. See
+[THEMES.md](THEMES.md) for the stacks and the fallback behaviour.
+
+### Missing media
+
+If a production references an asset that is no longer on disk, it does not crash and it
+never silently substitutes a different file. Export preflight reports the asset as
+`missing — falls back`, the logo degrades to the generated mark, the background degrades to
+the style's solid colour, and the font degrades to its stack. Replace the asset in the Video
+Studio to restore the intended look.
+
+Deleting an asset that a production still references is refused with a 409 listing the
+affected productions; deleting anyway requires an explicit `force=true`.
+
 ## Rights
 
 The setup tool and KoalaBattle source are MIT-licensed. The sprites are not. The upstream

@@ -52,3 +52,22 @@ simultaneous browser sources cannot share an active audio element or scheduler. 
 bracket overlay state remains separate from match audio; use the active match overlay as a
 nested OBS source for commentary and captions. Recommended QA sizes remain 1920×1080 and
 1080×1920.
+
+## Production styles on live surfaces
+
+There is one style system, not one per surface. `/watch/<id>` and `/overlay/<id>` accept a
+`style=<preset-id>` query parameter that applies a built-in or saved `ProductionStyle`:
+
+```text
+http://localhost:3000/overlay/<match-id>?layout=overlay-landscape&transparent=1&style=minimal
+```
+
+The live surfaces are a DOM renderer with a smaller vocabulary than the offline compositor,
+so the style is *mapped* onto it rather than reimplemented: effect intensity becomes effect
+quality, `idle_motion: off` or `camera: static` becomes reduced motion, damage callouts and
+the turn header follow their toggles, and `commentary: off` hides the commentary panel.
+Settings the DOM renderer cannot express — stage backgrounds, HUD presets, typography — are
+left alone rather than approximated with a second theme system.
+
+Complex styles are persisted server-side and referenced by id. Do not attempt to encode a
+whole style into the Browser Source URL.

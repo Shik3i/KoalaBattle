@@ -400,6 +400,217 @@ export interface ProductionCue {
   payload: Record<string, unknown>;
 }
 
+export type Intensity = 'off' | 'minimal' | 'standard' | 'dramatic';
+export type FontFamilyId = 'system' | 'geometric' | 'grotesk' | 'serif' | 'mono' | 'pixel' | 'custom';
+
+export interface BackgroundStyle {
+  kind: 'arena' | 'solid' | 'gradient' | 'image';
+  color: string;
+  secondary_color: string;
+  asset_id: string | null;
+  fit: 'cover' | 'contain';
+  position: 'center' | 'top' | 'bottom' | 'left' | 'right';
+  brightness: number;
+  contrast: number;
+  blur: number;
+  overlay_opacity: number;
+  vignette: number;
+}
+
+export interface StageStyle {
+  background: BackgroundStyle;
+  arena: 'none' | 'stadium' | 'platform' | 'minimal-floor' | 'grid';
+  floor_visible: boolean;
+  ground_shadow: boolean;
+  stage_lighting: number;
+  ambient_intensity: number;
+  background_motion: boolean;
+  accent: string;
+}
+
+export interface HudStyle {
+  preset: 'broadcast' | 'fighting' | 'minimal' | 'esports' | 'retro';
+  hp_shape: 'slash' | 'rounded' | 'square' | 'pill';
+  hp_thickness: number;
+  damage_ghost: boolean;
+  show_hp_percent: boolean;
+  show_hp_exact: boolean;
+  show_level: boolean;
+  show_types: boolean;
+  show_status: boolean;
+  show_player_name: boolean;
+  show_provider: boolean;
+  show_logo: boolean;
+  show_player_slot: boolean;
+  team_indicators: 'full' | 'revealed' | 'fainted-only' | 'hidden';
+  show_turn: boolean;
+  show_weather: boolean;
+}
+
+export interface TypographyStyle {
+  display: FontFamilyId;
+  body: FontFamilyId;
+  mono: FontFamilyId;
+  display_asset_id: string | null;
+  body_asset_id: string | null;
+  scale: number;
+  display_weight: number;
+  letter_spacing: number;
+  uppercase: boolean;
+  outline: boolean;
+  shadow: boolean;
+}
+
+export interface MoveCalloutStyle {
+  layout: 'banner' | 'impact' | 'minimal' | 'lower-third' | 'centered' | 'off';
+  show_type: boolean;
+  show_archetype: boolean;
+  duration_scale: number;
+}
+
+export interface DamageStyle {
+  show_damage: boolean;
+  show_healing: boolean;
+  show_effectiveness: boolean;
+  show_critical: boolean;
+  show_miss: boolean;
+  show_immune: boolean;
+  intensity: Intensity;
+}
+
+export interface CommentaryStyle {
+  layout: 'fighter-card' | 'side-panel' | 'lower-third' | 'bubble' | 'caption' | 'off';
+  show_agent_name: boolean;
+  show_logo: boolean;
+  show_label: boolean;
+  animation: 'fade' | 'slide' | 'punch' | 'minimal' | 'none';
+}
+
+export interface CaptionStyle {
+  preset: 'broadcast' | 'minimal' | 'high-contrast' | 'vertical' | 'off';
+  show_speaker: boolean;
+  background_opacity: number;
+  outline: boolean;
+  size_scale: number;
+  position: 'bottom' | 'center' | 'top';
+}
+
+export interface EffectStyle {
+  intensity: Intensity;
+  camera: 'static' | 'subtle' | 'dynamic';
+  idle_motion: 'full' | 'subtle' | 'off';
+  pacing: 'cinematic' | 'standard' | 'fast';
+  impact_flash: boolean;
+  trails: boolean;
+}
+
+export interface IntroStyle {
+  enabled: boolean;
+  length: 'quick' | 'standard' | 'dramatic';
+  show_player_logos: boolean;
+  show_player_names: boolean;
+  show_format: boolean;
+  show_generation: boolean;
+  show_game_number: boolean;
+  show_series_score: boolean;
+  show_tournament_round: boolean;
+}
+
+export interface ResultStyle {
+  enabled: boolean;
+  show_winner: boolean;
+  show_logos: boolean;
+  show_final_score: boolean;
+  show_format: boolean;
+  show_series: boolean;
+  duration_ms: number;
+}
+
+export interface WatermarkStyle {
+  enabled: boolean;
+  asset_id: string | null;
+  text: string | null;
+  position: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
+  opacity: number;
+  size: number;
+}
+
+export interface ParticipantBranding {
+  display_name: string | null;
+  short_name: string | null;
+  logo_asset_id: string | null;
+  logo_mark: string | null;
+  accent: string | null;
+  secondary_accent: string | null;
+}
+
+export interface SeriesDisplay {
+  tournament_name: string | null;
+  round_name: string | null;
+  game_number: number | null;
+  best_of: number | null;
+  score_p1: number | null;
+  score_p2: number | null;
+}
+
+export interface ProductionStyle {
+  schema_version: string;
+  id: string;
+  display_name: string;
+  version: string;
+  builtin: boolean;
+  title: string | null;
+  show_format: boolean;
+  show_generation: boolean;
+  show_koala_branding: boolean;
+  stage: StageStyle;
+  hud: HudStyle;
+  typography: TypographyStyle;
+  move: MoveCalloutStyle;
+  damage: DamageStyle;
+  commentary: CommentaryStyle;
+  caption: CaptionStyle;
+  effect: EffectStyle;
+  intro: IntroStyle;
+  result: ResultStyle;
+  watermark: WatermarkStyle;
+  players: Record<string, ParticipantBranding>;
+  series: SeriesDisplay;
+}
+
+export interface StylePreset {
+  id: string;
+  display_name: string;
+  description: string;
+  builtin: boolean;
+  style: ProductionStyle;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export type BrandAssetKind = 'logo' | 'background' | 'watermark' | 'font';
+
+export interface BrandAsset {
+  schema_version: string;
+  id: string;
+  kind: BrandAssetKind;
+  display_name: string;
+  media_type: string;
+  relative_path: string;
+  byte_size: number;
+  width: number | null;
+  height: number | null;
+  content_sha256: string;
+  created_at: string;
+}
+
+export interface BrandAssetLibrary {
+  schema_version: string;
+  root: string;
+  assets: BrandAsset[];
+  marks: string[];
+}
+
 export interface ProductionTimeline {
   id: string;
   match_id: string;
@@ -410,6 +621,8 @@ export interface ProductionTimeline {
   director_state: DirectorState;
   cues: ProductionCue[];
   voice_assignments: Record<string, string>;
+  style: ProductionStyle;
+  title: string | null;
   overrides: Record<string, unknown>;
   authoritative_client_id: string | null;
   duration_ms: number;

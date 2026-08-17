@@ -191,6 +191,41 @@ class ProductionRow(Base):
     voice_assignments_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     overrides_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     authoritative_client_id: Mapped[str | None] = mapped_column(String(120))
+    # Presentation only. Editing these never touches the battle events the timeline was
+    # built from, which is what lets one match carry several independent productions.
+    style_id: Mapped[str] = mapped_column(String(60), nullable=False, default="koala-broadcast")
+    style_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    title: Mapped[str | None] = mapped_column(String(90))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class BrandAssetRow(Base):
+    __tablename__ = "brand_assets"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    schema_version: Mapped[str] = mapped_column(String(20), nullable=False)
+    kind: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    display_name: Mapped[str] = mapped_column(String(80), nullable=False)
+    media_type: Mapped[str] = mapped_column(String(60), nullable=False)
+    # Relative to the branding media root and generated from the asset id, never from the
+    # uploaded filename.
+    relative_path: Mapped[str] = mapped_column(String(160), nullable=False, unique=True)
+    byte_size: Mapped[int] = mapped_column(Integer, nullable=False)
+    width: Mapped[int | None] = mapped_column(Integer)
+    height: Mapped[int | None] = mapped_column(Integer)
+    content_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class StylePresetRow(Base):
+    __tablename__ = "style_presets"
+
+    id: Mapped[str] = mapped_column(String(60), primary_key=True)
+    schema_version: Mapped[str] = mapped_column(String(20), nullable=False)
+    display_name: Mapped[str] = mapped_column(String(60), nullable=False)
+    description: Mapped[str] = mapped_column(String(200), nullable=False, default="")
+    style_json: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 

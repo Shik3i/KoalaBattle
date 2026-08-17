@@ -85,3 +85,40 @@ intentionally preserves operator input.
   disclose host/port/scene, never the password.
 - Renderer access is a trusted self-hosted operator surface like existing admin/control APIs.
   Put authentication and request-size limits at the reverse proxy before network exposure.
+
+## Branding upload boundary
+
+User-supplied production media (logos, backgrounds, watermarks, fonts) is the only path by
+which a file enters KoalaBattle from outside. It is bounded as follows.
+
+- **Content is identified from file headers**, not from the filename or a declared MIME
+  type. PNG, WebP and JPEG images and WOFF2/TrueType/OpenType fonts are accepted; anything
+  else is refused.
+- **No decoder runs during validation.** Only a few integers are parsed out of the header,
+  so an image parser cannot be attacked through this path.
+- **Decompression bombs are refused before decoding.** Dimensions come from the header and
+  are checked against an 8192px edge and a pixel budget, so a small file that expands to
+  gigabytes never reaches a decoder.
+- **Size limits**: 8 MB per image, 4 MB per font, enforced on the encoded payload.
+- **SVG is not supported.** A safe subset needs a real sanitizer (scripts, `foreignObject`,
+  external references, XML entity expansion); a half-sanitized SVG is worse than none.
+- **Paths are generated, never taken from input.** The stored name is
+  `<kind>/<server-generated-id>.<ext>`; the uploaded filename is used only as a display
+  label with path-shaped characters stripped. Reads resolve the path and refuse anything
+  outside the branding root.
+- **Styles reference assets by id**, matched against a 32-hex-character pattern, so a style
+  document cannot express a filesystem path.
+- **Colours are restricted to `#rgb`/`#rrggbb`.** A style can therefore never smuggle
+  `url(...)` or any other CSS into a rendering surface, and there is no free-text CSS field
+  anywhere in the model.
+- **No remote URLs.** Deterministic rendering never fetches from the internet; fonts are
+  local stacks or uploaded files, and backgrounds are local assets.
+- **Imported style JSON is data.** It is validated by the same frozen, `extra="forbid"`
+  pydantic models as any other input; unknown keys are rejected and no value is executed.
+- Deleting an asset that a production still references is refused (409) unless forced, and
+  a referenced asset that has gone missing degrades to a documented fallback rather than
+  being silently replaced.
+
+Production styles are presentation only. They cannot reach battle events, agent decisions,
+private strategy memory, raw provider output or prompts, and the team-indicator setting can
+only narrow what the public presentation archive already exposes.

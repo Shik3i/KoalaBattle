@@ -64,8 +64,48 @@ then exports each as a time range of a real production. Nothing is stitched from
 nothing bypasses the exporter, so a clip that looks wrong is evidence of a real production
 problem. Stills pulled from those clips are the same pixels the reviewer sees in motion.
 
+A third script renders the same recorded match through several Video Studio presentations,
+including uploaded logos, an uploaded background and a watermark:
+
+```bash
+python3 scripts/capture_studio_pack.py --match <uuid> --output data/review-pack/<name>
+```
+
 Speech must be prepared *before* export and never rebuilt afterwards: `rebuild` regenerates
-the timeline from the archive and drops synthesized voice cues.
+the timeline from the archive and drops synthesized voice cues. Preparation also re-times
+the clock against the real audio, so **re-read the production after preparing** — a copy
+held from before that call describes estimated timing, and a clip window computed from it
+lands in the wrong place.
+
+## Preflight
+
+Preflight reports presentation readiness alongside the renderer:
+
+```text
+production        finalized
+production_style  fighting v1.0
+player_branding   p1 + p2 resolved
+background        ready
+fonts             curated local stacks
+watermark         ready
+sprites           local asset provider
+speech            73/73 cached
+renderer          native / webcodecs h264
+disk              41231183872 bytes free
+```
+
+Custom media is optional presentation. A missing logo, background or font is reported as
+`missing — falls back` with a warning, and the export still runs using the documented
+fallback: the generated participant mark, the style's solid colour, and the built-in font
+stack respectively. Nothing is silently substituted with an unrelated asset.
+
+## Style snapshot
+
+The export manifest records the presentation the video was rendered with — preset id and
+version, stage, HUD, typography, callouts, commentary, captions, effects, intro, result,
+watermark, per-player branding and the brand asset **ids** it referenced. Editing the saved
+preset later therefore cannot make it impossible to determine how an older export looked.
+The snapshot contains no binary media, no filesystem paths and no credentials.
 
 
 ## API

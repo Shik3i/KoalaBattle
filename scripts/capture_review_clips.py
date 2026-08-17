@@ -85,6 +85,20 @@ def prepare_speech(api: str, production_id: str) -> tuple[dict[str, object], flo
     return production, time.monotonic() - started
 
 
+def fetch_production(api: str, production_id: str) -> dict[str, object]:
+    """Always read the stored production before computing a clip window.
+
+    Preparation retimes the whole clock against real speech durations, so any object held
+    from before that call describes the wrong moments. Computing a window from a stale copy
+    is what put the result card outside the "victory" range.
+    """
+    return json.loads(
+        urllib.request.urlopen(
+            f"{api}/api/productions/{production_id}", timeout=120
+        ).read()  # noqa: S310
+    )
+
+
 def cues(production: dict[str, object]) -> list[dict[str, object]]:
     value = production.get("cues", [])
     return list(value) if isinstance(value, list) else []
@@ -174,8 +188,17 @@ def victory_window(
     "victory" clip showed two ordinary turns and then stopped.
     """
     duration = int(production.get("duration_ms") or 0)
+    # Match on the track as well as the kind. The sfx track also uses kind "result", so
+    # matching on kind alone picked a half-second sound cue several seconds before the
+    # banner and ended the clip there — which is why the "victory" clip kept showing two
+    # ordinary turns and stopping.
     result = next(
-        (cue for cue in cues(production) if cue.get("kind") == "result"), None
+        (
+            cue
+            for cue in cues(production)
+            if cue.get("track") == "director" and cue.get("kind") == "result"
+        ),
+        None,
     )
     if result is not None:
         end = int(result["start_ms"]) + int(result["duration_ms"])
@@ -280,7 +303,8 @@ def main() -> int:
 
     voices = {"p1": args.voice_p1, "p2": args.voice_p2}
     landscape = ensure_production(args.api, args.match, "youtube", voices)
-    landscape, speech_seconds = prepare_speech(args.api, str(landscape["id"]))
+    _, speech_seconds = prepare_speech(args.api, str(landscape["id"]))
+    landscape = fetch_production(args.api, str(landscape["id"]))
     voice_cues = sum(1 for cue in cues(landscape) if cue.get("track") == "voice")
     print(f"landscape production {landscape['id']} ({landscape['duration_ms']} ms)")
     print(f"speech preparation: {speech_seconds:.1f}s for {voice_cues} voice cues")
@@ -333,7 +357,8 @@ def main() -> int:
         # Vertical uses its own production so pacing and commentary limits match the layout
         # rather than being a crop of the landscape timeline.
         vertical = ensure_production(args.api, args.match, "shorts", voices)
-        vertical, vertical_speech = prepare_speech(args.api, str(vertical["id"]))
+        _, vertical_speech = prepare_speech(args.api, str(vertical["id"]))
+        vertical = fetch_production(args.api, str(vertical["id"]))
         print(
             f"vertical production {vertical['id']} ({vertical['duration_ms']} ms, "
             f"speech {vertical_speech:.1f}s)"
