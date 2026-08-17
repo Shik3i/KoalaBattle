@@ -53,6 +53,12 @@ Tournament participant snapshots can reference immutable team snapshot IDs. Matc
 carry the format and team policy. Custom-team formats accept fixed teams; per-series rotation or
 dynamic counter-teaming is intentionally not implemented.
 
+The `/tournaments/new` match-template step selects any runnable Showdown format, not just Random
+Battle. Choosing a custom-team format switches the template to `fixed-per-tournament` and gives
+each participant the same prompt/paste/validate controls as `/new`. Because one team carries the
+whole run, the copied prompt states the tournament's structure, its round count, the games per
+series, and that the team cannot be rebuilt between opponents.
+
 The authoritative real-server gate validates, packs, submits, completes, persists, and replays
 a fixed-team match:
 

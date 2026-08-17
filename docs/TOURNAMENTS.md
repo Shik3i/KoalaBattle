@@ -20,6 +20,13 @@ policy. Participant snapshots may reference immutable team snapshot IDs. Random 
 use `showdown-random`; custom-team formats use `fixed` teams. Both players should use equivalent
 prompt/context/memory policies for fair comparison.
 
+The wizard's match-template step selects any KoalaBattle-runnable format, not just Random Battle.
+Choosing a custom-team format switches the template to `fixed-per-tournament` and gives each
+participant the prompt/paste/validate controls from `/new`; creation is refused until every
+participant has a validated snapshot for that exact format. Because one team carries the whole
+run, the copied prompt states the structure, round count and games per series. See
+[Team building](TEAM_BUILDING.md).
+
 ## Lifecycle
 
 `draft -> ready -> running -> completed`; operators may also pause, resume, cancel, or mark a
