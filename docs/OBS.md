@@ -33,7 +33,16 @@ parameters:
 - `commentary=latest|last-3|full|hidden`;
 - `log=1|0`;
 - `near=p1|p2`;
-- `preset=live|video|fast|instant`.
+- `preset=live|video|fast|instant`;
+- `effects=off|low|standard|high`;
+- `damageNumbers=1|0`;
+- `reducedMotion=1|0`;
+- `roster=1|0` — the six-slot squad row under each player;
+- `hudScale=0.8…1.6` — multiplies every HUD text and bar size.
+
+**Copy OBS URL** on the control page writes the settings you tuned in the live preview into
+these parameters, so the captured source matches what you saw rather than falling back to the
+capture browser's own stored defaults.
 
 No API keys or secrets belong in overlay URLs. Match and tournament overlays use sanitized,
 read-only APIs and cannot pause/cancel work or submit manual decisions. Transparent mode

@@ -5,7 +5,7 @@
   import { loadRendererConfig, saveRendererConfig } from '$lib/presentation/config';
   import { PresentationTimeline } from '$lib/presentation/timeline';
   import { connectLiveSocket } from '$lib/presentation/live-socket';
-  import { defaultRendererConfig, type AgentPresentationStatus, type RendererConfig, type RendererLayout, type RendererTheme, type TimelineSnapshot } from '$lib/presentation/types';
+  import { defaultRendererConfig, HUD_SCALE_RANGE, type AgentPresentationStatus, type CommentaryMode, type EffectQuality, type RendererConfig, type RendererLayout, type RendererTheme, type TimelineSnapshot } from '$lib/presentation/types';
   import type { AgentLifecycleState, AgentRequest, BattleAction, BattleEvent, MatchArchive, Side } from '$lib/types';
 
   export let data: { id: string };
@@ -32,9 +32,24 @@
   // The player who can actually act is preselected, so nobody has to hunt for the right tab.
   $: activeTab = activeTab && pendingSides.includes(activeTab) ? activeTab : pendingSides[0] || null;
   $: battleViewUrl = typeof location === 'undefined' ? '' : `${location.origin}/watch/${data.id}`;
-  $: obsUrl = typeof location === 'undefined'
-    ? ''
-    : `${location.origin}/overlay/${data.id}?layout=overlay-landscape&theme=${config.theme}`;
+  // Carry the tuned settings into the OBS source, so the capture matches the preview instead
+  // of falling back to whatever defaults that browser happens to hold.
+  $: obsUrl = typeof location === 'undefined' ? '' : `${location.origin}/overlay/${data.id}?${overlayQuery(config)}`;
+
+  function overlayQuery(current: RendererConfig) {
+    return new URLSearchParams({
+      layout: 'overlay-landscape',
+      theme: current.theme,
+      near: current.nearSide,
+      effects: current.effects,
+      commentary: current.commentaryMode,
+      hudScale: String(current.hudScale),
+      roster: current.showTeamRoster ? '1' : '0',
+      log: current.showBattleLog ? '1' : '0',
+      damageNumbers: current.showDamageNumbers ? '1' : '0',
+      reducedMotion: current.reducedMotion ? '1' : '0'
+    }).toString();
+  }
 
   function playerFor(side: Side) {
     return match?.config.players.find((player) => player.side === side);
@@ -239,16 +254,54 @@
     <a class="button" href={`/watch/${data.id}`} target="_blank" rel="noopener"><i class="ph ph-monitor-play" aria-hidden="true"></i>Open battle view</a>
     <button class="button secondary" on:click={() => copyText('watch', battleViewUrl)}>{copied === 'watch' ? 'Copied' : 'Copy battle view URL'}</button>
     <button class="button secondary" on:click={() => copyText('obs', obsUrl)}>{copied === 'obs' ? 'Copied' : 'Copy OBS URL'}</button>
-    <a class="button ghost" href={`/overlay/${data.id}?layout=overlay-landscape&theme=${config.theme}`} target="_blank" rel="noopener">Open OBS overlay</a>
+    <a class="button ghost" href={obsUrl} target="_blank" rel="noopener">Open OBS overlay</a>
   </div>
 </section>
 
 <section class="preview">
   <BattleRenderer presentation={snapshot?.state || null} {config} {agentStatus} />
+  <!-- Every control here edits the renderer above as you touch it, and the same settings
+       drive the battle-view tab and the OBS source, so what you tune is what gets captured. -->
   <div class="preview-tools">
-    <label>Layout<select value={config.layout} on:change={(event) => updateConfig({ layout: event.currentTarget.value as RendererLayout })}><option value="standard-landscape">Landscape</option><option value="standard-vertical">Vertical</option><option value="overlay-landscape">Overlay</option></select></label>
-    <label>Theme<select value={config.theme} on:change={(event) => updateConfig({ theme: event.currentTarget.value as RendererTheme })}><option value="koala-dark">Koala Dark</option><option value="koala-light">Koala Light</option></select></label>
-    <span class="preview-note">Preview only. The battle view tab renders the same frame full-screen.</span>
+    <div class="tool-group">
+      <span class="tool-label">Frame</span>
+      <label>Layout<select value={config.layout} on:change={(event) => updateConfig({ layout: event.currentTarget.value as RendererLayout })}><option value="standard-landscape">Landscape</option><option value="standard-vertical">Vertical</option><option value="overlay-landscape">Overlay</option></select></label>
+      <label>Theme<select value={config.theme} on:change={(event) => updateConfig({ theme: event.currentTarget.value as RendererTheme })}><option value="koala-dark">Koala Dark</option><option value="koala-light">Koala Light</option></select></label>
+      <label>Your side<select value={config.nearSide} on:change={(event) => updateConfig({ nearSide: event.currentTarget.value as Side })}><option value="p1">P1 in front</option><option value="p2">P2 in front</option></select></label>
+    </div>
+
+    <div class="tool-group">
+      <span class="tool-label">Readability</span>
+      <label class="range">HUD size <b>{Math.round(config.hudScale * 100)}%</b>
+        <input
+          type="range"
+          min={HUD_SCALE_RANGE.min}
+          max={HUD_SCALE_RANGE.max}
+          step={HUD_SCALE_RANGE.step}
+          value={config.hudScale}
+          on:input={(event) => updateConfig({ hudScale: Number(event.currentTarget.value) })}
+        />
+      </label>
+      <label class="check"><input type="checkbox" checked={config.showTeamRoster} on:change={(event) => updateConfig({ showTeamRoster: event.currentTarget.checked })} />Team roster</label>
+      <label class="check"><input type="checkbox" checked={config.showTurn} on:change={(event) => updateConfig({ showTurn: event.currentTarget.checked })} />Turn counter</label>
+      <label class="check"><input type="checkbox" checked={config.showBattleLog} on:change={(event) => updateConfig({ showBattleLog: event.currentTarget.checked })} />Battle feed</label>
+      <label class="check"><input type="checkbox" checked={config.showAgentState} on:change={(event) => updateConfig({ showAgentState: event.currentTarget.checked })} />Agent state</label>
+      <label class="check"><input type="checkbox" checked={config.showDamageNumbers} on:change={(event) => updateConfig({ showDamageNumbers: event.currentTarget.checked })} />Damage numbers</label>
+    </div>
+
+    <div class="tool-group">
+      <span class="tool-label">Motion</span>
+      <label>Effects<select value={config.effects} on:change={(event) => updateConfig({ effects: event.currentTarget.value as EffectQuality })}><option value="off">Off</option><option value="low">Low</option><option value="standard">Standard</option><option value="high">High</option></select></label>
+      <label>Commentary<select value={config.commentaryMode} on:change={(event) => updateConfig({ commentaryMode: event.currentTarget.value as CommentaryMode })}><option value="latest">Latest only</option><option value="last-3">Last three</option><option value="full">Full detail</option><option value="hidden">Hidden</option></select></label>
+      <label class="check"><input type="checkbox" checked={config.animatedSprites} on:change={(event) => updateConfig({ animatedSprites: event.currentTarget.checked })} />Animated sprites</label>
+      <label class="check"><input type="checkbox" checked={config.reducedMotion} on:change={(event) => updateConfig({ reducedMotion: event.currentTarget.checked })} />Reduced motion</label>
+      <label class="check"><input type="checkbox" checked={config.transparentBackground} on:change={(event) => updateConfig({ transparentBackground: event.currentTarget.checked })} />Transparent (OBS)</label>
+    </div>
+
+    <div class="tool-foot">
+      <button type="button" class="link-button" on:click={() => updateConfig(defaultRendererConfig())}>Reset to defaults</button>
+      <span class="preview-note">Live preview. The battle-view tab and the OBS source use these same settings.</span>
+    </div>
   </div>
 </section>
 
@@ -383,10 +436,18 @@
   .view-copy span{max-width:56ch;color:var(--muted);font-size:.78rem;line-height:1.5}
   .view-actions{display:flex;flex-wrap:wrap;gap:.5rem}
   .preview{margin-top:1rem}
-  .preview-tools{display:flex;align-items:flex-end;gap:.75rem;margin-top:.6rem}
-  .preview-tools label{min-width:130px}
+  .preview-tools{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:1rem;margin-top:.8rem;padding:1rem 1.1rem;border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--panel)}
+  .tool-group{display:grid;align-content:start;gap:.5rem;min-width:0}
+  .tool-label{color:var(--accent);font:700 .62rem var(--mono);letter-spacing:.14em;text-transform:uppercase}
+  .preview-tools label{min-width:0}
   .preview-tools select{min-height:36px;padding:.4rem}
-  .preview-note{margin-left:auto;color:var(--muted);font-size:.72rem}
+  .preview-tools .check{display:flex;align-items:center;gap:.55rem;font-size:.8rem}
+  .preview-tools .check input{width:18px;min-height:18px;margin:0}
+  .range{display:grid;gap:.3rem;font-size:.8rem}
+  .range b{color:var(--accent);font:700 .78rem var(--mono)}
+  .range input{width:100%;accent-color:var(--accent)}
+  .tool-foot{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.6rem;grid-column:1/-1;padding-top:.7rem;border-top:1px solid var(--border)}
+  .preview-note{color:var(--muted);font-size:.72rem}
 
   /* ── Manual workspace ───────────────────────────────────────────────────── */
   .workspace{display:grid;gap:.75rem;margin-top:1.5rem}

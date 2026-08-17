@@ -81,6 +81,10 @@ export interface RendererConfig {
   reducedMotion: boolean;
   showDamageNumbers: boolean;
   nearSide: Side;
+  /** The six-slot squad row under each player's name. */
+  showTeamRoster: boolean;
+  /** Multiplies every HUD text and bar size, for capture at other distances. */
+  hudScale: number;
 }
 
 export interface CommentaryPresentationState {
@@ -173,7 +177,12 @@ export const defaultRendererConfig = (
   reducedMotion: false,
   showDamageNumbers: true,
   nearSide: 'p1',
+  showTeamRoster: true,
+  hudScale: 1,
   ...overrides
 });
+
+/** The renderer clamps this; the UI and the query parser share the same bounds. */
+export const HUD_SCALE_RANGE = { min: 0.8, max: 1.6, step: 0.05 } as const;
 
 export type PresentationMatch = Pick<MatchArchive, 'id' | 'config' | 'winner'>;

@@ -1,6 +1,7 @@
 import type { Side } from '../types.ts';
 import {
   defaultRendererConfig,
+  HUD_SCALE_RANGE,
   type CommentaryMode,
   type EffectQuality,
   type PresentationPreset,
@@ -56,8 +57,16 @@ export function sanitizeRendererConfig(value: unknown): RendererConfig {
     reducedMotion: booleanOrDefault(candidate.reducedMotion, defaults.reducedMotion),
     showDamageNumbers: booleanOrDefault(candidate.showDamageNumbers, defaults.showDamageNumbers),
     nearSide:
-      candidate.nearSide === 'p2' ? 'p2' : candidate.nearSide === 'p1' ? 'p1' : defaults.nearSide
+      candidate.nearSide === 'p2' ? 'p2' : candidate.nearSide === 'p1' ? 'p1' : defaults.nearSide,
+    showTeamRoster: booleanOrDefault(candidate.showTeamRoster, defaults.showTeamRoster),
+    hudScale: clampScale(candidate.hudScale, defaults.hudScale)
   });
+}
+
+function clampScale(value: unknown, fallback: number): number {
+  const scale = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(scale)) return fallback;
+  return Math.min(HUD_SCALE_RANGE.max, Math.max(HUD_SCALE_RANGE.min, Math.round(scale * 100) / 100));
 }
 
 export function configFromQuery(search: URLSearchParams): RendererConfig {
@@ -79,7 +88,9 @@ export function configFromQuery(search: URLSearchParams): RendererConfig {
     reducedMotion:
       reducedMotion === null ? base.reducedMotion : reducedMotion === '1' || reducedMotion === 'true',
     showDamageNumbers:
-      damageNumbers === null ? base.showDamageNumbers : damageNumbers !== '0' && damageNumbers !== 'false'
+      damageNumbers === null ? base.showDamageNumbers : damageNumbers !== '0' && damageNumbers !== 'false',
+    showTeamRoster: search.get('roster') === null ? base.showTeamRoster : search.get('roster') !== '0',
+    hudScale: search.get('hudScale') === null ? base.hudScale : Number(search.get('hudScale'))
   });
 }
 

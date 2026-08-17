@@ -34,3 +34,17 @@ test('overlay query accepts only supported renderer choices', () => {
   assert.equal(config.reducedMotion, true);
   assert.equal(config.showDamageNumbers, false);
 });
+
+test('the roster and HUD scale survive the overlay query', () => {
+  const config = configFromQuery(new URLSearchParams('roster=0&hudScale=1.25'));
+  assert.equal(config.showTeamRoster, false);
+  assert.equal(config.hudScale, 1.25);
+});
+
+test('HUD scale is clamped to a range the renderer can actually lay out', () => {
+  assert.equal(sanitizeRendererConfig({ hudScale: 12 }).hudScale, 1.6);
+  assert.equal(sanitizeRendererConfig({ hudScale: 0.1 }).hudScale, 0.8);
+  assert.equal(sanitizeRendererConfig({ hudScale: 'huge' }).hudScale, 1);
+  assert.equal(sanitizeRendererConfig({ hudScale: Number.NaN }).hudScale, 1);
+  assert.equal(sanitizeRendererConfig({}).showTeamRoster, true);
+});
