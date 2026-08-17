@@ -56,6 +56,7 @@ from koalabattle.teams import (
     TeamRepository,
     TeamSnapshot,
     TeamValidationResult,
+    unwrap_team_text,
 )
 from koalabattle.tournaments.models import CreateTournament, TournamentArchive, TournamentStatus
 from koalabattle.tournaments.repository import TournamentRepository
@@ -150,6 +151,7 @@ class BattleService:
         source: TeamSource,
         save: bool,
     ) -> tuple[TeamValidationResult, TeamSnapshot | None]:
+        team_text = unwrap_team_text(team_text)
         validation = await self.team_validator.validate(team_text, format_id)
         snapshot = None
         if validation.valid and save:

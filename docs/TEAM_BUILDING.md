@@ -26,8 +26,14 @@ nature line and are told to give every stat 252 EVs; later generations get those
 508/252 EV cap. Every generation is told the EV line is mandatory, since an unevved set fails
 validation with "did you forget to EV it?".
 
-The automated builder and the copy-and-paste flow render the same text, so a manually built team
-answers exactly the question an API team answers.
+The two flows describe the same team but ask for the answer differently, because they consume it
+differently. The automated builder parses a structured `team` field, so its prompt carries a JSON
+`response_schema`. The copy-and-paste prompt asks for the export text and nothing else, since the
+reply goes straight into a paste box: a JSON wrapper pasted there reaches Showdown as one escaped
+line and fails with `The Pokemon "" does not exist.`, which explains nothing.
+
+Models wrap output anyway, so the import is forgiving as well: a `{"team": "..."}` object or a
+fenced block is unwrapped before validation, and only the team inside is judged.
 
 ## Import flow
 

@@ -8,7 +8,7 @@ from .models import (
     TeamValidationResult,
 )
 from .repository import TeamRepository
-from .service import TeamBuilder, render_team_prompt
+from .service import TeamBuilder, render_team_prompt, unwrap_team_text
 from .validator import ShowdownTeamValidator
 
 __all__ = [
@@ -23,4 +23,5 @@ __all__ = [
     "TeamSnapshot",
     "TeamValidationResult",
     "render_team_prompt",
+    "unwrap_team_text",
 ]

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -79,6 +79,9 @@ class TeamPromptRequest(FrozenTeamModel):
     format: FormatId = DEFAULT_CUSTOM_FORMAT
     participant: str = Field(default="", max_length=80)
     context: TeamPromptContext = Field(default_factory=TeamPromptContext)
+    #: "text" for the copy-and-paste flow, whose paste box takes a Showdown export directly.
+    #: "json" for the automated builder, which parses a structured `team` field.
+    response: Literal["text", "json"] = "text"
 
 
 class TeamBuildRequest(FrozenTeamModel):

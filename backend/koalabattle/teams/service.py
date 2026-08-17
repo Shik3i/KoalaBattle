@@ -4,7 +4,7 @@ import asyncio
 import json
 from datetime import UTC, datetime
 from time import perf_counter
-from typing import Protocol
+from typing import Literal, Protocol
 from uuid import uuid4
 
 from koalabattle.agents.providers import LLMProvider, ProviderError, ProviderRequest
@@ -126,24 +126,29 @@ class TeamBuilder:
 
 
 def _build_prompt(request: TeamBuildRequest) -> str:
-    return render_team_prompt(request.format, request.participant, request.context)
+    return render_team_prompt(
+        request.format, request.participant, request.context, response="json"
+    )
 
 
 def render_team_prompt(
     format_id: str,
     participant: str,
     context: TeamPromptContext,
+    *,
+    response: Literal["text", "json"] = "text",
 ) -> str:
     """Render the team-building prompt for one participant.
 
-    The same text serves the automated builder and the copy-and-paste workflow, so a
-    manually built team is answering exactly the question an API team answers.
+    Both flows describe the same team; they differ only in how the answer comes back. The
+    automated builder parses a structured `team` field, while the copy-and-paste flow feeds
+    the reply straight into a paste box that expects a Showdown export — asking it for JSON
+    there just makes the user paste a JSON blob the validator cannot read.
     """
     label = context.format_name or format_id
     rules = [
         f"Use current standard {label} legality.",
         "Return a complete Pokemon Showdown import/export team.",
-        "Do not include markdown fences or explanations inside the team field.",
     ]
     payload: dict[str, object] = {
         "task": "team_build",
@@ -152,8 +157,20 @@ def render_team_prompt(
         "format_id": format_id,
         "objective": f"Build the strongest legal balanced team you can for {label}.",
         "team_size": context.team_size,
-        "response_schema": {"team": "Pokemon Showdown import/export text"},
     }
+    if response == "json":
+        payload["response_schema"] = {"team": "Pokemon Showdown import/export text"}
+        rules.append("Do not include markdown fences or explanations inside the team field.")
+    else:
+        payload["response"] = (
+            "Reply with the Showdown export text itself and nothing else. No JSON, no"
+            " wrapper object, no code fences, no commentary before or after it. The reply is"
+            " pasted straight into a team box, so the first line must be the first Pokemon."
+        )
+        rules.append(
+            "Do not wrap the team in JSON or markdown. Literal \\n escapes are not accepted;"
+            " use real line breaks."
+        )
     if participant:
         payload["participant"] = participant
     if context.generation is not None:
@@ -258,6 +275,34 @@ def _repair_prompt(original_prompt: str, errors: tuple[str, ...]) -> str:
         "instruction": "Return the complete corrected team, not a patch.",
     }
     return json.dumps(payload, indent=2, sort_keys=True)
+
+
+def unwrap_team_text(submitted: str) -> str:
+    """Recover the Showdown export from a reply that came back wrapped.
+
+    Chat models routinely answer with `{"team": "Tauros\\nEVs: ..."}` even when asked for bare
+    text, and a code fence is just as common. Pasting that verbatim used to reach Showdown as
+    one escaped line and fail with `The Pokemon "" does not exist.`, which says nothing about
+    the real problem. Unwrap what is obviously a wrapper and let the validator judge the team.
+    """
+    text = submitted.strip()
+    if text.startswith("```"):
+        fenced = text.split("```")
+        if len(fenced) >= 3:
+            body = fenced[1]
+            text = body.split("\n", 1)[1] if "\n" in body else body
+            text = text.strip()
+    if not text.startswith("{"):
+        return text
+    try:
+        payload: object = json.loads(text)
+    except json.JSONDecodeError:
+        return text
+    if isinstance(payload, dict):
+        team = payload.get("team")
+        if isinstance(team, str) and team.strip():
+            return team.strip()
+    return text
 
 
 def _parse_team_response(raw: str) -> str:

@@ -638,7 +638,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return {
             "format": descriptor.id,
             "profile_version": TEAM_BUILD_PROFILE_VERSION,
-            "prompt": render_team_prompt(descriptor.id, payload.participant, context),
+            "prompt": render_team_prompt(
+                descriptor.id, payload.participant, context, response=payload.response
+            ),
         }
 
     @app.post("/api/teams/validate")
