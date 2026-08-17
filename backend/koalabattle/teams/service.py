@@ -178,8 +178,57 @@ def render_team_prompt(
     competition = _competition_payload(context)
     if competition:
         payload["competition"] = competition
+    payload["export_format"] = _export_format(context)
+    rules.append(
+        "Follow `export_format` exactly. Every set needs its EV line, or Showdown rejects the"
+        " team with \"did you forget to EV it?\"."
+    )
     payload["rules"] = rules
     return json.dumps(payload, indent=2, sort_keys=True)
+
+
+def _export_format(context: TeamPromptContext) -> dict[str, object]:
+    """Spell out the Showdown export syntax this format actually accepts.
+
+    Without this the model returns a bare species-and-moves sketch, and Showdown refuses it:
+    an unevved set fails validation outright, and older generations have no ability, item or
+    nature line to give at all.
+    """
+    lines = ["<Species>" + (" @ <Item>" if context.has_items else "")]
+    example = ["Snorlax @ Leftovers" if context.has_items else "Snorlax"]
+    if context.has_abilities:
+        lines.append("Ability: <Ability>")
+        example.append("Ability: Thick Fat")
+    lines.append("EVs: <n> HP / <n> Atk / <n> Def / <n> SpA / <n> SpD / <n> Spe")
+    if context.has_natures:
+        lines.append("<Nature> Nature")
+        example.append("EVs: 252 HP / 252 Atk / 4 SpD")
+        example.append("Adamant Nature")
+    else:
+        # Generations 1-2 have no natures and no EV cap; Showdown expects the maximum.
+        example.append("EVs: 252 HP / 252 Atk / 252 Def / 252 SpA / 252 SpD / 252 Spe")
+    lines.append("- <Move>  (one line per move, up to four)")
+    example.extend(["- Body Slam", "- Earthquake", "- Hyper Beam", "- Self-Destruct"])
+    notes = [
+        "One blank line between sets.",
+        "Plain text only: no numbering, no commentary, no markdown fences.",
+    ]
+    if context.has_natures:
+        notes.append("EVs total at most 508, with at most 252 on any one stat.")
+    else:
+        notes.append(
+            "This generation has no EV limit and no natures: give every stat 252 EVs and omit"
+            " the nature line."
+        )
+    if not context.has_abilities:
+        notes.append("This generation has no abilities: omit the Ability line.")
+    if not context.has_items:
+        notes.append("This generation has no held items: omit the ` @ Item` suffix.")
+    return {
+        "syntax": lines,
+        "example_set": "\n".join(example),
+        "notes": notes,
+    }
 
 
 def _competition_payload(context: TeamPromptContext) -> dict[str, object]:

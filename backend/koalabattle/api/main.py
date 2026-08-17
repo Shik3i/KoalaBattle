@@ -630,6 +630,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "game_type": descriptor.game_type,
                 "mechanics": descriptor.mechanics.actionable(),
                 "absent_mechanics": descriptor.mechanics.unavailable(),
+                "has_items": descriptor.mechanics.items,
+                "has_abilities": descriptor.mechanics.abilities,
+                "has_natures": descriptor.mechanics.natures,
             }
         )
         return {

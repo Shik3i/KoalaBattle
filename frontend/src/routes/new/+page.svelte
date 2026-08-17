@@ -2,7 +2,7 @@
   import { goto } from '$app/navigation';
   import { onMount } from 'svelte';
   import FormatSelector from '$lib/FormatSelector.svelte';
-  import { api, getFormatGroups } from '$lib/api';
+  import { api, copyText, getFormatGroups } from '$lib/api';
   import type {
     AgentType,
     FormatDescriptor,
@@ -62,6 +62,7 @@
   let teamValidation: Record<number, TeamValidationResult | null> = {};
   let importing: number | null = null;
   let promptCopied: number | null = null;
+  let promptFallback: Record<number, string> = {};
   let teamPanelOpen = false;
 
   $: allFormats = formatGroups.flatMap((group) => group.formats);
@@ -117,9 +118,13 @@
           }
         })
       });
-      await navigator.clipboard.writeText(result.prompt);
-      promptCopied = index;
-      setTimeout(() => { if (promptCopied === index) promptCopied = null; }, 2000);
+      if (await copyText(result.prompt)) {
+        promptCopied = index;
+        setTimeout(() => { if (promptCopied === index) promptCopied = null; }, 2000);
+      } else {
+        // Clipboard refused: show the prompt so it can still be copied by hand.
+        promptFallback = { ...promptFallback, [index]: result.prompt };
+      }
     } catch (caught) {
       error = caught instanceof Error ? caught.message : String(caught);
     }
@@ -305,6 +310,11 @@
                   {importing === index ? 'Validating…' : 'Validate and use'}
                 </button>
               </div>
+              {#if promptFallback[index]}
+                <label class="prompt-fallback">Clipboard blocked — select and copy this
+                  <textarea rows="5" readonly value={promptFallback[index]}></textarea>
+                </label>
+              {/if}
               <textarea
                 rows="6"
                 bind:value={teamDrafts[index]}
@@ -436,6 +446,7 @@
   .team-import textarea{width:100%;min-width:0;padding:.55rem .65rem;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg);color:var(--text);font:.72rem/1.5 var(--mono);resize:vertical}
   .team-actions{display:flex;flex-wrap:wrap;gap:.5rem}
   .team-steps{margin:0;color:var(--muted);font-size:.75rem;line-height:1.5}
+  .prompt-fallback{display:grid;gap:.3rem;color:var(--warning);font-size:.72rem}
   .team-result{padding:.5rem .65rem;border:1px solid var(--danger);border-radius:var(--radius);color:var(--danger);font-size:.75rem}
   .team-result.valid{border-color:var(--accent);color:var(--accent)}
   .team-result p{margin:.25rem 0 0;line-height:1.45}

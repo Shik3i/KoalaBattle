@@ -21,6 +21,36 @@ export async function api<T>(path: string, options?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+/**
+ * Copy text, falling back when the async Clipboard API is unavailable.
+ *
+ * `navigator.clipboard` needs a permission the browser can refuse — an unfocused document, a
+ * denied prompt, an embedded view. Losing a generated prompt to that is not acceptable, so fall
+ * back to the legacy selection copy. Returns false only when both paths fail, and the caller is
+ * then responsible for showing the text so it can be copied by hand.
+ */
+export async function copyText(value: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(value);
+    return true;
+  } catch {
+    if (typeof document === 'undefined') return false;
+    const scratch = document.createElement('textarea');
+    scratch.value = value;
+    scratch.setAttribute('readonly', '');
+    scratch.style.cssText = 'position:fixed;top:0;left:0;opacity:0';
+    document.body.appendChild(scratch);
+    try {
+      scratch.select();
+      return document.execCommand('copy');
+    } catch {
+      return false;
+    } finally {
+      scratch.remove();
+    }
+  }
+}
+
 export const getMatch = (id: string) => api<MatchArchive>(`/api/matches/${id}`);
 /** The Showdown format registry, served by the pinned local Showdown build. */
 export const getFormatCatalog = (signal?: AbortSignal) =>

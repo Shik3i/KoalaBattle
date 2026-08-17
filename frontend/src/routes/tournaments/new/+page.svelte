@@ -2,7 +2,7 @@
   import { goto } from '$app/navigation';
   import { onMount } from 'svelte';
   import FormatSelector from '$lib/FormatSelector.svelte';
-  import { api, getFormatGroups } from '$lib/api';
+  import { api, copyText, getFormatGroups } from '$lib/api';
   import type {
     AgentType,
     FormatDescriptor,
@@ -36,6 +36,7 @@
   let teamValidation: Record<number, TeamValidationResult | null> = {};
   let importing: number | null = null;
   let promptCopied: number | null = null;
+  let promptFallback: Record<number, string> = {};
   // Shared across participants: the import panels open and close together, so a long roster
   // never becomes a mix of expanded and collapsed cards.
   let teamPanelOpen = false;
@@ -102,9 +103,12 @@
           context: promptContext()
         })
       });
-      await navigator.clipboard.writeText(result.prompt);
-      promptCopied = index;
-      setTimeout(() => { if (promptCopied === index) promptCopied = null; }, 2000);
+      if (await copyText(result.prompt)) {
+        promptCopied = index;
+        setTimeout(() => { if (promptCopied === index) promptCopied = null; }, 2000);
+      } else {
+        promptFallback = { ...promptFallback, [index]: result.prompt };
+      }
     } catch (caught) {
       error = caught instanceof Error ? caught.message : String(caught);
     }
@@ -218,7 +222,10 @@
               <button type="button" class="button secondary compact" on:click={() => copyTeamPrompt(index)}><i class={`ph ${promptCopied === index ? 'ph-check' : 'ph-copy'}`} aria-hidden="true"></i>{promptCopied === index ? 'Prompt copied' : 'Copy team prompt'}</button>
               <button type="button" class="button secondary compact" disabled={importing === index || !(teamDrafts[index] || '').trim()} on:click={() => importTeam(index)}><i class="ph ph-shield-check" aria-hidden="true"></i>{importing === index ? 'Validating…' : 'Validate and use'}</button>
             </div>
-            <textarea rows="5" bind:value={teamDrafts[index]} placeholder={`Paste the Showdown export for ${descriptor?.display_name || battleFormat} here…`}></textarea>
+            {#if promptFallback[index]}
+              <label class="prompt-fallback">Clipboard blocked — select and copy this<textarea rows="5" readonly value={promptFallback[index]}></textarea></label>
+            {/if}
+            <textarea rows="5" bind:value={teamDrafts[index]} placeholder={`Paste the Showdown export for ${descriptor?.name || battleFormat} here…`}></textarea>
             {#if teamValidation[index]}
               <div class="team-result" class:valid={teamValidation[index]?.valid}><strong>{teamValidation[index]?.valid ? '✓ Legal team — selected' : 'Invalid team'}</strong>{#each teamValidation[index]?.errors || [] as item}<p>{item}</p>{/each}</div>
             {/if}
@@ -238,6 +245,6 @@
   .stepper{display:grid;grid-template-columns:repeat(10,1fr);gap:.35rem;margin:0 0 1rem;padding:0;list-style:none}.stepper li{display:grid;gap:.25rem;color:var(--muted)}.stepper li span{display:grid;place-items:center;width:28px;aspect-ratio:1;border:1px solid var(--border);border-radius:50%;font:.65rem var(--mono)}.stepper li small{overflow:hidden;font:.55rem var(--mono);text-overflow:ellipsis;white-space:nowrap}.stepper li.active,.stepper li.complete{color:var(--accent)}.stepper li.complete span{background:var(--accent);color:var(--accent-ink)}.wizard{padding:clamp(1.2rem,4vw,3rem);box-shadow:none}.wizard section{display:grid;gap:1.2rem;min-height:380px;align-content:start}.wizard h2{margin:0;font-size:clamp(1.6rem,4vw,2.6rem)}.wizard>footer{display:flex;justify-content:space-between;margin-top:2rem;padding-top:1rem;border-top:1px solid var(--border)}.choice-grid{display:grid;grid-template-columns:1fr 1fr;gap:.7rem}.choice-grid.three{grid-template-columns:repeat(3,1fr)}.choice-grid button{display:grid;gap:.5rem;min-height:130px;padding:1.2rem;border:1px solid var(--border);border-radius:.8rem;background:var(--panel-strong);color:var(--text);text-align:left;cursor:pointer}.choice-grid button.chosen{border-color:var(--accent);box-shadow:inset 0 0 0 2px var(--accent)}.choice-grid span,.note{color:var(--muted);font-size:.76rem;line-height:1.6}.template,.review{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;overflow:hidden;border:1px solid var(--border);border-radius:.8rem;background:var(--border)}.template span,.review span{display:grid;padding:1rem;background:var(--panel-strong);color:var(--muted);font:.62rem var(--mono)}.template strong,.review strong{color:var(--text);font:700 .86rem var(--display);text-transform:capitalize}.participant-list,.agent-list{display:grid;gap:.6rem}.participant-list>div{display:grid;grid-template-columns:32px 1fr 44px;align-items:center;gap:.5rem}.participant-list>div>span{color:var(--accent);font:.7rem var(--mono)}.participant-list button{height:44px;border:1px solid var(--border);border-radius:.55rem;background:var(--panel-strong);color:var(--danger);cursor:pointer}.agent-list article{display:grid;grid-template-columns:1fr repeat(3,minmax(130px,1fr));align-items:end;gap:.6rem;padding:.8rem;border:1px solid var(--border);border-radius:.7rem;background:var(--panel-strong)}.agent-list article{min-width:0}.agent-list article:has(.team-import){grid-template-columns:1fr}.team-slot{display:grid;gap:.3rem;min-width:0}
   /* Grid on an explicit wrapper: Chrome collapses every non-summary child of <details> into one
      ::details-content box, so a grid on <details> itself never reaches them. */
-  .team-import{padding:.7rem .8rem;border:1px solid var(--border);border-radius:.7rem;background:var(--panel)}.team-import summary{color:var(--accent);font-size:.75rem;font-weight:650;cursor:pointer}.team-import summary:hover{color:var(--accent-strong)}.team-body{display:grid;gap:.55rem;margin-top:.55rem;min-width:0}.team-import textarea{width:100%;min-width:0;padding:.55rem .65rem;border:1px solid var(--border);border-radius:.6rem;background:var(--bg);color:var(--text);font:.72rem/1.5 var(--mono);resize:vertical}.team-actions{display:flex;flex-wrap:wrap;gap:.5rem}.team-result{padding:.5rem .65rem;border:1px solid var(--danger);border-radius:.6rem;color:var(--danger);font-size:.75rem}.team-result.valid{border-color:var(--accent);color:var(--accent)}.team-result p{margin:.25rem 0 0;line-height:1.45}
+  .team-import{padding:.7rem .8rem;border:1px solid var(--border);border-radius:.7rem;background:var(--panel)}.team-import summary{color:var(--accent);font-size:.75rem;font-weight:650;cursor:pointer}.team-import summary:hover{color:var(--accent-strong)}.team-body{display:grid;gap:.55rem;margin-top:.55rem;min-width:0}.team-import textarea{width:100%;min-width:0;padding:.55rem .65rem;border:1px solid var(--border);border-radius:.6rem;background:var(--bg);color:var(--text);font:.72rem/1.5 var(--mono);resize:vertical}.team-actions{display:flex;flex-wrap:wrap;gap:.5rem}.prompt-fallback{display:grid;gap:.3rem;color:var(--warning);font-size:.72rem}.team-result{padding:.5rem .65rem;border:1px solid var(--danger);border-radius:.6rem;color:var(--danger);font-size:.75rem}.team-result.valid{border-color:var(--accent);color:var(--accent)}.team-result p{margin:.25rem 0 0;line-height:1.45}
   .seed-list,.field-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:.7rem}.check{display:flex;align-items:center;gap:.6rem}.check input{width:20px;min-height:20px}@media(max-width:760px){.page-head{align-items:stretch;flex-direction:column}.stepper li small{display:none}.choice-grid,.choice-grid.three,.template,.review,.field-grid,.seed-list{grid-template-columns:1fr}.agent-list article{grid-template-columns:1fr}.wizard section{min-height:0}}
 </style>

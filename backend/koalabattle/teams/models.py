@@ -63,6 +63,9 @@ class TeamPromptContext(FrozenTeamModel):
     team_size: int = Field(default=6, ge=1, le=6)
     mechanics: tuple[str, ...] = ()
     absent_mechanics: tuple[str, ...] = ()
+    has_items: bool = True
+    has_abilities: bool = True
+    has_natures: bool = True
     opponent: str = Field(default="", max_length=120)
     maximum_turns: int | None = Field(default=None, ge=1)
     tournament_name: str = Field(default="", max_length=120)

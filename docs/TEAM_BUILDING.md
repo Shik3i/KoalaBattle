@@ -19,6 +19,13 @@ the battle will not run. The caller adds only situational context: opponent name
 and, for a tournament, its name, structure, round count, games per series, and whether one team
 is reused across series.
 
+The prompt also carries an `export_format` block — the exact Showdown import/export syntax, a
+worked example set, and the per-generation rules — because a model asked only for "a team"
+returns a species-and-moves sketch that Showdown rejects. Gen 1 and Gen 2 get no ability, item or
+nature line and are told to give every stat 252 EVs; later generations get those lines and the
+508/252 EV cap. Every generation is told the EV line is mandatory, since an unevved set fails
+validation with "did you forget to EV it?".
+
 The automated builder and the copy-and-paste flow render the same text, so a manually built team
 answers exactly the question an API team answers.
 
