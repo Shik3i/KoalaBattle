@@ -324,6 +324,9 @@ class AgentContextSnapshot(FrozenModel):
     mechanics: FormatMechanics = Field(default_factory=FormatMechanics)
     generation: int
     turn: int = Field(ge=0)
+    #: The match ends when this turn is reached, so it changes how a position should be played.
+    #: Absent on archives recorded before the limit was part of the prompt.
+    maximum_turns: int | None = Field(default=None, ge=1)
     side: Side
     knowledge: PlayerKnowledgeState
     recent_events: tuple[str, ...] = ()

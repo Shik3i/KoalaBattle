@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from typing import Protocol
 
@@ -39,6 +39,7 @@ class AgentContextProvider(Protocol):
         context_profile: ContextProfileId,
         memory_policy: MemoryPolicyId,
         strategy_memory: str | None,
+        maximum_turns: int | None = None,
     ) -> tuple[PlayerKnowledgeState, AgentContextSnapshot, RenderedPrompt, ContextMetrics]: ...
 
 
@@ -91,6 +92,7 @@ class PokemonShowdownContextProvider:
         context_profile: ContextProfileId,
         memory_policy: MemoryPolicyId,
         strategy_memory: str | None,
+        maximum_turns: int | None = None,
     ) -> tuple[PlayerKnowledgeState, AgentContextSnapshot, RenderedPrompt, ContextMetrics]:
         knowledge = self.reducer.reduce(self._knowledge, state)
         self._knowledge = knowledge
@@ -106,6 +108,7 @@ class PokemonShowdownContextProvider:
             mechanics=descriptor.mechanics if descriptor else FormatMechanics(),
             generation=state.generation,
             turn=state.turn,
+            maximum_turns=maximum_turns,
             side=state.perspective,
             knowledge=knowledge,
             recent_events=recent_events,

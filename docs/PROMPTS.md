@@ -33,6 +33,12 @@ System part:
 User part, in order: `FORMAT`, `TURN`, `YOUR ACTIVE POKEMON`, `YOUR BENCH`, `OPPONENT ACTIVE`,
 `KNOWN OPPONENT TEAM`, `FIELD`, `RECENT EVENTS`, `YOUR STRATEGY NOTE`, `LEGAL ACTIONS`.
 
+`TURN` states the turn against the match's turn limit and how many turns remain, because the
+match is stopped at that limit and a stall line that runs out of turns is not a winning one.
+The active Pokémon's moves are labelled with the action ID that selects them, not with a
+position number: list order and Showdown's request slots do not agree, and a number that looks
+authoritative but points at a different move is worse than none.
+
 Your own team is complete: every bench Pokémon carries its typing, HP, status, level and full
 move list with metadata, because an agent that cannot see what its bench does cannot switch
 well. Legal actions are self-describing — each move action states type, damage class, base

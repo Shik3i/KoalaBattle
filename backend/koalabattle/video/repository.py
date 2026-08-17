@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Any, cast
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import CursorResult, select, update
 from sqlalchemy.exc import IntegrityError
 
 from koalabattle.models.orm import VideoExportJobRow
@@ -88,6 +89,33 @@ class VideoExportRepository:
                 .limit(1)
             )
             return VideoExportJob.model_validate_json(row.job_json) if row else None
+
+    async def claim(self, job: VideoExportJob) -> bool:
+        """Move one job out of the queue, and report whether this caller won it.
+
+        Reading a queued job and writing it back are two transactions, so a second worker can
+        read the same row in between and render it twice into the same output path. The status
+        guard makes the transition itself the claim: only the writer that still sees `queued`
+        proceeds.
+        """
+        async with self.database.sessions() as session:
+            fresh = self._row(job)
+            result = await session.execute(
+                update(VideoExportJobRow)
+                .where(
+                    VideoExportJobRow.id == str(job.id),
+                    VideoExportJobRow.status == ExportStatus.QUEUED.value,
+                )
+                .values(
+                    status=fresh.status,
+                    progress=fresh.progress,
+                    job_json=fresh.job_json,
+                    started_at=fresh.started_at,
+                    updated_at=fresh.updated_at,
+                )
+            )
+            await session.commit()
+            return bool(cast("CursorResult[Any]", result).rowcount)
 
     async def reconcile_interrupted(self) -> int:
         now = datetime.now(UTC)

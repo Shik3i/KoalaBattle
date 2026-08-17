@@ -99,6 +99,7 @@ class _KoalaPlayer(Player):
             context_profile=self.context.config.context_profile,
             memory_policy=self.context.config.memory_policy,
             strategy_memory=self.strategy_memory,
+            maximum_turns=self.context.config.limits.maximum_turns,
         )
         request = AgentRequest(
             request_id=uuid4(),

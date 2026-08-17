@@ -536,7 +536,9 @@ class VideoExportService:
                         "updated_at": datetime.now(UTC),
                     }
                 )
-                await self.repository.save(claimed)
+                if not await self.repository.claim(claimed):
+                    # Another worker took it between the read and the write.
+                    continue
                 task = asyncio.create_task(self._run(claimed), name=f"video-export-{job.id}")
                 self._active[job.id] = task
             self._wake.clear()

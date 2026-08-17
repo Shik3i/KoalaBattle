@@ -8,6 +8,7 @@ have (no items in Gen 1, no abilities before Gen 3, no Terastallization before G
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from koalabattle.core.models import (
@@ -131,8 +132,43 @@ def boost_line(boosts: dict[str, int]) -> str | None:
     return " · ".join(f"{_BOOST_LABELS.get(key, key)} {active[key]:+d}" for key in ordered)
 
 
+def _turn_lines(snapshot: AgentContextSnapshot) -> list[str]:
+    """The turn, plus the cap that ends the match.
+
+    Without the cap a model cannot tell a winning stall from one that runs out of time: the
+    match simply stops at the limit, and how many turns remain is a real strategic input.
+    """
+    if snapshot.maximum_turns is None:
+        return [str(snapshot.turn)]
+    remaining = max(snapshot.maximum_turns - snapshot.turn, 0)
+    return [
+        f"{snapshot.turn} of {snapshot.maximum_turns}",
+        f"{remaining} turn(s) remain before the match is stopped at the limit.",
+    ]
+
+
+def _move_action_ids(actions: Sequence[BattleAction]) -> dict[str, str]:
+    """Map a move name to the action ID that selects it.
+
+    The prompt used to number a Pokemon's moves M1..M4 by list position, but legal action IDs
+    come from Showdown's own request slots and the two orders do not agree — `M1 Blizzard`
+    against `move:1 Body Slam`. Label the active Pokemon's moves with the ID that really
+    selects them instead of a number that only looks authoritative.
+    """
+    ids: dict[str, str] = {}
+    for action in actions:
+        if action.type.value != "move" or action.terastallize:
+            continue
+        ids.setdefault(action.name.removesuffix(" + Terastallize").casefold(), action.id)
+    return ids
+
+
 def _own_pokemon_block(
-    pokemon: PokemonState, mechanics: FormatMechanics, *, active: bool
+    pokemon: PokemonState,
+    mechanics: FormatMechanics,
+    *,
+    active: bool,
+    move_ids: dict[str, str] | None = None,
 ) -> list[str]:
     header = pokemon.name
     if pokemon.level is not None:
@@ -160,8 +196,10 @@ def _own_pokemon_block(
             lines.append(f"Effects: {', '.join(title_case(item) for item in pokemon.effects)}")
     if pokemon.moves:
         lines.append("Moves:")
-        for index, move in enumerate(pokemon.moves, start=1):
-            lines.append(f"  M{index} {move.name}")
+        for move in pokemon.moves:
+            action_id = (move_ids or {}).get(move.name.casefold())
+            label = f"{action_id} {move.name}" if action_id else f"- {move.name}"
+            lines.append(f"  {label}")
             lines.append(f"     {move_line(move, mechanics)}")
     else:
         lines.append("Moves: not yet known")
@@ -336,12 +374,16 @@ def _user_prompt(snapshot: AgentContextSnapshot, history: tuple[str, ...]) -> st
     mechanics = snapshot.mechanics
     blocks: list[list[str]] = [
         _format_section(snapshot),
-        ["TURN", str(snapshot.turn)],
+        ["TURN", *_turn_lines(snapshot)],
     ]
 
     active = knowledge.own_side.active
+    move_ids = _move_action_ids(snapshot.legal_actions)
     blocks.append(
-        ["YOUR ACTIVE POKEMON", *_own_pokemon_block(active, mechanics, active=True)]
+        [
+            "YOUR ACTIVE POKEMON",
+            *_own_pokemon_block(active, mechanics, active=True, move_ids=move_ids),
+        ]
         if active
         else ["YOUR ACTIVE POKEMON", "None — you must send out a replacement."]
     )
