@@ -34,9 +34,9 @@ To look at a page rather than assert about it, screenshot it from inside the ren
 container, which already holds Chromium and Playwright:
 
 ```bash
-docker compose cp scripts/shoot.py renderer:/tmp/shoot.py
-docker compose exec renderer python /tmp/shoot.py MATCH_ID          # all pages
-docker compose exec renderer python /tmp/shoot.py MATCH_ID watch    # one page
+docker compose cp scripts/shoot.py renderer:/tmp/shot.py
+docker compose exec renderer python /tmp/shot.py MATCH_ID          # every page
+docker compose exec renderer python /tmp/shot.py MATCH_ID watch    # one page
 ```
 
 Images land in ignored `data/videos/shots/`. The script also prints console errors, page

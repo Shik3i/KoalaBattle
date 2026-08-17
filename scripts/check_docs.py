@@ -31,6 +31,10 @@ def check(root: Path) -> list[str]:
                     f"{document.relative_to(root)}: broken link {raw_target}"
                 )
         for script in SCRIPT.findall(text):
+            # Absolute paths name a location inside a container, not a file in this tree —
+            # the same reason links starting with "/" are skipped above.
+            if script.startswith("/"):
+                continue
             if not (root / script).is_file():
                 problems.append(
                     f"{document.relative_to(root)}: missing script {script}"
