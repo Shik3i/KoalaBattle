@@ -10,7 +10,8 @@
     MatchArchive,
     ProviderKind,
     ProviderStatus,
-    TeamSnapshot
+    TeamSnapshot,
+    TeamValidationResult
   } from '$lib/types';
 
   interface PlayerDraft {
@@ -56,6 +57,10 @@
   let resourceProfile: ResourceProfile = 'balanced';
   let loading = false; let error = ''; let discovering: number | null = null;
   let discoveredModels: Record<number, string[]> = {};
+  // Inline team import, so a custom-team match never has to leave this page.
+  let teamDrafts: Record<number, string> = {};
+  let teamValidation: Record<number, TeamValidationResult | null> = {};
+  let importing: number | null = null;
 
   $: allFormats = formatGroups.flatMap((group) => group.formats);
   $: descriptor = allFormats.find((item) => item.id === format) || descriptor;
@@ -91,6 +96,38 @@
         ? player.teamSnapshotId
         : ''
     }));
+  }
+  async function importTeam(index: number) {
+    const text = (teamDrafts[index] || '').trim();
+    if (!text) return;
+    importing = index; error = ''; teamValidation = { ...teamValidation, [index]: null };
+    try {
+      const result = await api<{ validation: TeamValidationResult; snapshot: TeamSnapshot | null }>(
+        '/api/teams/validate',
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            name: `${players[index].name || `Player ${index + 1}`} · ${descriptor?.display_name || format}`,
+            format,
+            team_text: text,
+            source: 'imported',
+            save: true
+          })
+        }
+      );
+      teamValidation = { ...teamValidation, [index]: result.validation };
+      if (result.snapshot) {
+        const snapshot = result.snapshot;
+        teams = [snapshot, ...teams.filter((item) => item.id !== snapshot.id)];
+        players[index].teamSnapshotId = snapshot.id;
+        players = [...players];
+        teamDrafts = { ...teamDrafts, [index]: '' };
+      }
+    } catch (caught) {
+      error = caught instanceof Error ? caught.message : String(caught);
+    } finally {
+      importing = null;
+    }
   }
   function selectProvider(index: number, value: ProviderKind) {
     players[index].provider = value; players[index].model = defaultModels[value]; players = [...players];
@@ -218,8 +255,32 @@
               <option value="">Select a validated team…</option>
               {#each eligibleTeams as team}<option value={team.id}>{team.name} · {team.source}</option>{/each}
             </select>
-            <small class="field-hint">{eligibleTeams.length ? `${eligibleTeams.length} validated ${descriptor?.display_name} team(s)` : 'No validated team for this format yet.'}</small>
+            <small class="field-hint">{eligibleTeams.length ? `${eligibleTeams.length} validated ${descriptor?.display_name} team(s)` : 'No validated team for this format yet — paste one below.'}</small>
           </label>
+          <details class="team-import" open={!eligibleTeams.length}>
+            <summary>Paste a Showdown export instead</summary>
+            <textarea
+              rows="6"
+              bind:value={teamDrafts[index]}
+              placeholder={`Paste the Showdown export for ${descriptor?.display_name || format} here…`}
+            ></textarea>
+            <button
+              type="button"
+              class="button secondary compact"
+              disabled={importing === index || !(teamDrafts[index] || '').trim()}
+              on:click={() => importTeam(index)}
+            >
+              <i class="ph ph-shield-check" aria-hidden="true"></i>
+              {importing === index ? 'Validating…' : 'Validate and use'}
+            </button>
+            {#if teamValidation[index]}
+              <div class="team-result" class:valid={teamValidation[index]?.valid}>
+                <strong>{teamValidation[index]?.valid ? `✓ Legal ${descriptor?.display_name || format} team — selected` : 'Invalid team'}</strong>
+                {#each teamValidation[index]?.errors || [] as item}<p>{item}</p>{/each}
+              </div>
+            {/if}
+            <small class="field-hint">Validated against {descriptor?.display_name || format} by the local Showdown validator and saved as an immutable snapshot.</small>
+          </details>
         {/if}
       </section>
     {/each}
@@ -326,6 +387,13 @@
   .name{min-height:40px;padding:.4rem .6rem;border-color:transparent;background:transparent;font-size:var(--step-1);font-weight:750;letter-spacing:-.02em}
   .name:hover{border-color:var(--border)}
   .mode-note{margin:0;color:var(--muted);font-size:.78rem;line-height:1.5}
+  .team-import{display:grid;gap:.55rem;padding:.7rem .8rem;border:1px solid var(--border);border-radius:var(--radius);background:var(--panel-strong)}
+  .team-import summary{color:var(--accent);font-size:.75rem;font-weight:650;cursor:pointer}
+  .team-import textarea{width:100%;padding:.55rem .65rem;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg);color:var(--text);font:.72rem/1.5 var(--mono);resize:vertical}
+  .team-import .button{justify-self:start}
+  .team-result{padding:.5rem .65rem;border:1px solid var(--danger);border-radius:var(--radius);color:var(--danger);font-size:.75rem}
+  .team-result.valid{border-color:var(--accent);color:var(--accent)}
+  .team-result p{margin:.25rem 0 0;line-height:1.45}
   .link-button{justify-self:start;padding:.2rem 0;border:0;background:none;color:var(--accent);font-size:.75rem;font-weight:650;cursor:pointer}
   .link-button:disabled{color:var(--muted);cursor:default}
   .optional{margin-left:.35rem;padding:.05rem .35rem;border-radius:999px;background:var(--surface);color:var(--muted);font-size:.62rem;font-weight:600}

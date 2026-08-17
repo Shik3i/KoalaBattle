@@ -28,8 +28,14 @@ async def run() -> None:
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
     for name in ("SIGINT", "SIGTERM"):
-        if hasattr(signal, name):
-            loop.add_signal_handler(getattr(signal, name), stop.set)
+        if not hasattr(signal, name):
+            continue
+        number = getattr(signal, name)
+        try:
+            loop.add_signal_handler(number, stop.set)
+        except NotImplementedError:
+            # Windows event loops define the signals but cannot register loop handlers.
+            signal.signal(number, lambda *_: loop.call_soon_threadsafe(stop.set))
     await productions.start()
     await video.start()
     heartbeat = asyncio.create_task(
