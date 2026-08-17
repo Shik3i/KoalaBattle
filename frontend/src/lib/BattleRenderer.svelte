@@ -461,10 +461,33 @@
     {/if}
 
     {#if presentation.finished}
-      <div class="winner-banner" role="status">
+      {@const champion = presentation.winner ? battleSide(presentation, presentation.winner) : null}
+      <div class="winner-banner" role="status" data-side={presentation.winner || ''}>
         <small>BATTLE COMPLETE</small>
         <strong>{presentation.winnerName || presentation.battle?.result?.winner_name || 'DRAW'}</strong>
-        <span>{presentation.winner || 'no winner'}</span>
+        {#if presentation.winner}
+          <span class="winner-meta">
+            <b class="winner-side">{presentation.winner.toUpperCase()}</b>
+            <em>{presentation.players[presentation.winner].providerLabel}</em>
+            {#if champion}<i class="winner-score">{champion.team.filter((member) => !member.fainted).length}/{champion.team.length} standing</i>{/if}
+          </span>
+          <!-- The winning squad, so the result screen shows who actually did the work. -->
+          {#if champion?.team.length}
+            <span class="winner-team">
+              {#each champion.team as member (member.id || member.species)}
+                <i class:fainted={member.fainted} title={member.name}>
+                  {#if !failedAssets.has(`roster:${member.species}`)}
+                    <img src={spriteUrl(member.species, 'front')} alt={member.name} on:error={() => onAssetError(`roster:${member.species}`)} />
+                  {:else}
+                    <b>{member.name.slice(0, 1)}</b>
+                  {/if}
+                </i>
+              {/each}
+            </span>
+          {/if}
+        {:else}
+          <span class="winner-meta"><em>No winner recorded</em></span>
+        {/if}
       </div>
     {/if}
   </section>
@@ -663,10 +686,33 @@
   .battle-feed p[data-emphasis='negative']{color:#ff9d98}
 
   /* ── Winner ─────────────────────────────────────────────────────────────── */
-  .winner-banner{position:absolute;z-index:40;inset:0;display:grid;place-content:center;background:rgba(4,10,7,.86);text-align:center;backdrop-filter:blur(8px);animation:winner-in .7s both}
-  .winner-banner small{color:var(--r-accent);font:900 .62rem var(--mono);letter-spacing:.24em}
-  .winner-banner strong{margin:.35rem 0;font-size:calc(var(--hud-scale,1) * clamp(2rem,6vw,5.5rem));font-weight:900;line-height:.92;letter-spacing:-.05em;text-transform:uppercase}
-  .winner-banner span{color:var(--r-dim);font:.7rem var(--mono);text-transform:uppercase}
+  /* A result screen is the one frame people screenshot, so it gets real presence: the
+     champion's colour, their name at poster scale, and the squad that survived. */
+  .winner-banner{position:absolute;z-index:40;inset:0;display:grid;place-content:center;justify-items:center;gap:.5rem;padding:2rem;background:radial-gradient(ellipse at 50% 45%,color-mix(in srgb,var(--champion) 22%,transparent),rgba(4,10,7,.93) 62%),rgba(4,10,7,.9);text-align:center;backdrop-filter:blur(9px);animation:winner-in .7s both}
+  .winner-banner{--champion:var(--r-accent)}
+  .winner-banner[data-side='p1']{--champion:var(--r-p1)}
+  .winner-banner[data-side='p2']{--champion:var(--r-p2)}
+  .winner-banner small{display:flex;align-items:center;gap:.7rem;color:var(--champion);font:900 calc(var(--hud-scale,1) * clamp(.7rem,.95vw,.98rem)) var(--mono);letter-spacing:.34em}
+  .winner-banner small::before,.winner-banner small::after{content:'';width:clamp(24px,4vw,72px);height:1px;background:linear-gradient(90deg,transparent,var(--champion))}
+  .winner-banner small::after{background:linear-gradient(90deg,var(--champion),transparent)}
+  .winner-banner strong{
+    margin:.1rem 0 .2rem;
+    background:linear-gradient(180deg,#fff 26%,color-mix(in srgb,var(--champion) 82%,#fff));
+    -webkit-background-clip:text;background-clip:text;color:transparent;
+    font-size:calc(var(--hud-scale,1) * clamp(2.6rem,8.4vw,7.5rem));font-weight:900;line-height:.9;
+    letter-spacing:-.055em;text-transform:uppercase;
+    filter:drop-shadow(0 6px 26px color-mix(in srgb,var(--champion) 55%,transparent))
+  }
+  .winner-meta{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:.55rem}
+  .winner-side{padding:.22rem .7rem;border-radius:999px;background:var(--champion);color:#04100a;font:900 calc(var(--hud-scale,1) * clamp(.82rem,1.05vw,1.1rem)) var(--mono);letter-spacing:.1em}
+  .winner-meta em{color:#e6f2ea;font:700 calc(var(--hud-scale,1) * clamp(.82rem,1.05vw,1.1rem)) var(--display);font-style:normal;letter-spacing:.02em;text-transform:uppercase}
+  .winner-score{color:var(--r-dim);font:600 calc(var(--hud-scale,1) * clamp(.72rem,.9vw,.95rem)) var(--mono);font-style:normal}
+  .winner-team{display:flex;flex-wrap:wrap;justify-content:center;gap:.45rem;margin-top:.9rem}
+  .winner-team i{display:grid;place-items:center;width:calc(var(--hud-scale,1) * clamp(38px,4.2vw,66px));aspect-ratio:1;overflow:hidden;border:1px solid color-mix(in srgb,var(--champion) 55%,transparent);border-radius:9px;background:rgba(255,255,255,.06)}
+  .winner-team img{width:145%;height:145%;object-fit:contain}
+  [data-retro='true'] .winner-team img{image-rendering:pixelated}
+  .winner-team i b{color:var(--r-dim);font:800 1rem var(--display)}
+  .winner-team i.fainted{border-color:rgba(255,255,255,.12);opacity:.32;filter:grayscale(1) brightness(.6)}
 
   /* ── Motion ─────────────────────────────────────────────────────────────── */
   .sprite.attacking{animation:attack-far .5s cubic-bezier(.2,.8,.2,1)}

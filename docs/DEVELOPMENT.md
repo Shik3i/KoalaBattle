@@ -30,6 +30,20 @@ surfaces must not escape `engines/showdown`.
 Enable the real battle test only with `KOALABATTLE_RUN_SHOWDOWN_TEST=1`; this prevents an
 accidental connection during ordinary unit checks.
 
+To look at a page rather than assert about it, screenshot it from inside the renderer
+container, which already holds Chromium and Playwright:
+
+```bash
+docker compose cp scripts/shoot.py renderer:/tmp/shoot.py
+docker compose exec renderer python /tmp/shoot.py MATCH_ID          # all pages
+docker compose exec renderer python /tmp/shoot.py MATCH_ID watch    # one page
+```
+
+Images land in ignored `data/videos/shots/`. The script also prints console errors, page
+errors and failed requests per page. It reaches the app over Docker-internal origins, which is
+not a secure context, so it catches browser APIs that silently only work on localhost. No
+browser is started on the host.
+
 Run documentation/setup checks from the repository root:
 
 ```bash

@@ -9,6 +9,7 @@
     previewVoice
   } from '../api';
   import { apiBase } from '../api';
+  import { createClientId } from '../client-id';
   import type { ProductionProfile, ProductionTimeline, VoicePreset } from '../types';
   import CaptionOverlay from './CaptionOverlay.svelte';
   import ExportDashboard from './ExportDashboard.svelte';
@@ -30,7 +31,7 @@
   let error = '';
   let busy = false;
   $: mixer = playback?.settings || { master: 1, voice: 1, sfx: 0.65, music: 0.35 };
-  const clientId = typeof crypto !== 'undefined' ? crypto.randomUUID() : 'production-client';
+  const clientId = createClientId();
 
   onMount(() => {
     engine = new ProductionAudioEngine(apiBase());
