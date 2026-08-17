@@ -161,7 +161,12 @@ export function reducePresentation(
       if (battle) battle = { ...battle, turn: numberValue(payload.turn) ?? event.turn };
       // The previous turn has resolved: retire its commentary, headline action and HP
       // flashes so none of them can be mistaken for the reasoning behind the next move.
+      // The headline is cleared outright rather than only marked resolved — left standing it
+      // sat over the arena for the rest of the match announcing a move from a turn ago.
       players = resolveCommentary(players);
+      currentMove = null;
+      currentMoveProfile = null;
+      currentMoveSide = null;
       currentMovePhase = 'resolved';
       impacts = { p1: null, p2: null };
       break;

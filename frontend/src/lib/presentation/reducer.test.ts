@@ -210,6 +210,11 @@ test('public commentary belongs to one action and clears when the turn resolves'
   assert.equal(resolved.players.p1.commentaryPhase, 'resolved');
   assert.equal(resolved.players.p1.currentCommentary, null);
   assert.equal(resolved.currentMovePhase, 'resolved');
+  // The headline action is cleared, not just marked resolved: left standing it kept announcing
+  // a move from a previous turn over the middle of the arena for the rest of the match.
+  assert.equal(resolved.currentMove, null);
+  assert.equal(resolved.currentMoveSide, null);
+  assert.equal(resolved.currentMoveProfile, null);
   // History is preserved for the decision log.
   assert.equal(resolved.players.p1.commentary.length, 1);
 
