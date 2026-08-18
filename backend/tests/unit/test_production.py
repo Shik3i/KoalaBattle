@@ -401,6 +401,30 @@ def test_narrator_plan_is_deterministic_and_prioritizes_highlights(
     assert 7 not in first
 
 
+def test_narrator_profile_applies_recommendations_without_overwriting_custom_values(
+    match_config: MatchConfig,
+) -> None:
+    events = (
+        BattleEvent(
+            match_id=uuid4(),
+            sequence=1,
+            turn=1,
+            event_type="battle_started",
+        ),
+        BattleEvent(
+            match_id=uuid4(),
+            sequence=4,
+            turn=2,
+            event_type="critical_hit",
+        ),
+    )
+    profile_defaults = NarratorSettings(enabled=True, profile_id="minimal-highlights-v1")
+    custom = profile_defaults.model_copy(update={"cooldown_ms": 2_000})
+
+    assert len(build_narrator_plan(events, profile_defaults)) == 1
+    assert len(build_narrator_plan(events, custom)) == 2
+
+
 @pytest.mark.asyncio
 async def test_fake_speech_cache_is_deterministic_atomic_and_rejects_corruption(
     tmp_path: Path,

@@ -54,10 +54,28 @@ NARRATOR_PROFILES: Final = (
         recommended_max_lines_per_match=12,
     ),
 )
+_NARRATOR_PROFILE_BY_ID: Final = {profile.id: profile for profile in NARRATOR_PROFILES}
 
 
 def narrator_profiles() -> tuple[NarratorProfile, ...]:
     return NARRATOR_PROFILES
+
+
+def _effective_settings(settings: NarratorSettings) -> NarratorSettings:
+    """Apply profile recommendations without overwriting explicit custom values."""
+
+    profile = _NARRATOR_PROFILE_BY_ID.get(settings.profile_id)
+    if profile is None:
+        return settings
+    defaults = NarratorSettings()
+    updates: dict[str, object] = {}
+    if settings.mode is defaults.mode:
+        updates["mode"] = profile.recommended_mode
+    if settings.cooldown_ms == defaults.cooldown_ms:
+        updates["cooldown_ms"] = profile.recommended_cooldown_ms
+    if settings.max_lines_per_match == defaults.max_lines_per_match:
+        updates["max_lines_per_match"] = profile.recommended_max_lines_per_match
+    return settings.model_copy(update=updates)
 
 
 def _event_time(event: BattleEvent) -> int:
@@ -172,6 +190,7 @@ def build_narrator_plan(
 ) -> dict[int, NarratorCandidate]:
     """Create a stable, rate-limited narrator plan from public replay events."""
 
+    settings = _effective_settings(settings)
     if not settings.enabled or settings.mode is NarratorMode.OFF:
         return {}
     plan: dict[int, NarratorCandidate] = {}
