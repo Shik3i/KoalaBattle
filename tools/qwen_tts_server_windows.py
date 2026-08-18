@@ -175,39 +175,68 @@ def _language_code(language: str | None) -> str:
 
 
 async def _generate(payload: SpeechRequest) -> bytes:
-    if not payload.reference_audio:
-        raise HTTPException(
-            status_code=422,
-            detail="Qwen3-TTS-12Hz-1.7B-Base only clones from reference audio; no built-in "
-            "preset voices are available.",
-        )
-    try:
-        reference = base64.b64decode(payload.reference_audio, validate=True)
-    except (binascii.Error, ValueError) as error:
-        raise HTTPException(status_code=422, detail="invalid reference_audio base64") from error
-    descriptor, temporary = tempfile.mkstemp(prefix="koalabattle-qwen-reference-", suffix=".wav")
-    os.close(descriptor)
-    reference_path = Path(temporary)
-    reference_path.write_bytes(reference)
     try:
         async with _model_lock:
             model = await asyncio.to_thread(_load_model)
-        async with _generation_lock:
-            wavs, sample_rate = await asyncio.to_thread(
-                lambda: model.generate_voice_clone(
-                    text=payload.input,
-                    language=_language_code(payload.language),
-                    ref_audio=str(reference_path),
-                    ref_text=payload.reference_text or "",
+
+        # 1. Voice Clone with Reference Audio
+        if payload.reference_audio:
+            try:
+                reference = base64.b64decode(payload.reference_audio, validate=True)
+            except (binascii.Error, ValueError) as error:
+                raise HTTPException(status_code=422, detail="invalid reference_audio base64") from error
+            descriptor, temporary = tempfile.mkstemp(prefix="koalabattle-qwen-reference-", suffix=".wav")
+            os.close(descriptor)
+            reference_path = Path(temporary)
+            reference_path.write_bytes(reference)
+            try:
+                async with _generation_lock:
+                    wavs, sample_rate = await asyncio.to_thread(
+                        lambda: model.generate_voice_clone(
+                            text=payload.input,
+                            language=_language_code(payload.language),
+                            ref_audio=str(reference_path),
+                            ref_text=payload.reference_text or "",
+                        )
+                    )
+            finally:
+                reference_path.unlink(missing_ok=True)
+        # 2. Voice Design with Tone / Instruction Prompt (e.g. emotional trainer voice)
+        elif hasattr(model, "generate_voice_design") and payload.instructions:
+            async with _generation_lock:
+                wavs, sample_rate = await asyncio.to_thread(
+                    lambda: model.generate_voice_design(
+                        text=payload.input,
+                        instruct=payload.instructions,
+                        language=_language_code(payload.language),
+                    )
                 )
+        # 3. Custom Voice with Speaker Preset
+        elif hasattr(model, "generate_custom_voice"):
+            async with _generation_lock:
+                wavs, sample_rate = await asyncio.to_thread(
+                    lambda: model.generate_custom_voice(
+                        text=payload.input,
+                        speaker=payload.voice,
+                        language=_language_code(payload.language),
+                        instruct=payload.instructions,
+                    )
+                )
+        else:
+            raise HTTPException(
+                status_code=422,
+                detail="Qwen3-TTS requires reference_audio, instructions, or speaker selection.",
             )
+
         global _last_used
         _last_used = time.monotonic()
         if not wavs:
             raise HTTPException(status_code=502, detail="Qwen3-TTS produced no audio")
         return _audio_bytes(wavs[0], sample_rate)
-    finally:
-        reference_path.unlink(missing_ok=True)
+    except HTTPException:
+        raise
+    except Exception as error:
+        raise HTTPException(status_code=500, detail=str(error)) from error
 
 
 @app.get("/healthz")

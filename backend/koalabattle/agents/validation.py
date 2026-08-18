@@ -64,10 +64,23 @@ def parse_structured_decision(raw_response: str, legal_ids: set[str]) -> Structu
         if isinstance(payload, dict) and "action" not in payload:
             raise ValueError("Missing `action`.") from error
         raise ValueError(f"Response schema is invalid: {error}") from error
-    if response.action not in legal_ids:
-        raise ValueError("Selected action is no longer legal.")
+    
+    action = response.action.strip()
+    if action not in legal_ids:
+        # Check if action contains a legal id (e.g., 'move:1' in 'move:1 - Thunderbolt')
+        matched = None
+        for legal_id in sorted(legal_ids, key=len, reverse=True):
+            if legal_id in action:
+                matched = legal_id
+                break
+        if matched:
+            action = matched
+        else:
+            raise ValueError("Selected action is no longer legal.")
+
     return response.model_copy(
         update={
+            "action": action,
             "commentary": trim_commentary(response.commentary),
             "banter": trim_banter(response.banter),
         }

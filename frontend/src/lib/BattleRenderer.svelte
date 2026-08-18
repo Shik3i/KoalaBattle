@@ -274,6 +274,8 @@
 </script>
 
 {#if presentation}
+  {@const p1Side = battleSide(presentation, 'p1')}
+  {@const p2Side = battleSide(presentation, 'p2')}
   <section
     class:overlay
     class:transparent={config.transparentBackground}
@@ -287,43 +289,19 @@
     style={`--hp-duration:${hpDuration}ms;--sprite-native:${NATIVE_SPRITE_PX}px;--max-upscale:${MAX_UPSCALE};--hud-scale:${config.hudScale}`}
     aria-label="KoalaBattle production renderer"
   >
-    <!-- Broadcast bar: brand, turn, format. Deliberately slim so the arena dominates. -->
+    <!-- Broadcast bar: brand, turn, format, plus integrated player rosters for zero stage occlusion -->
     <header class="broadcast-bar">
-      <span class="brand"><img src="/koalabattle-mark.svg" alt="" /><b>KOALABATTLE</b></span>
-      {#if config.showTurn}<span class="turn">TURN <b>{presentation.battle?.turn ?? 0}</b></span>{/if}
-      <span class="format">{formatLabel}</span>
-    </header>
-
-    <div style={arenaStyle()} class:arena-shake={strongImpact && config.effects !== 'off' && !config.reducedMotion} class="stage">
-      <!-- Original KoalaBattle arena: stadium bowl, crowd, lit floor plane. -->
-      <div class="stage-sky" aria-hidden="true"></div>
-      <div class="stage-bowl" aria-hidden="true"><i class="crowd"></i><i class="rail"></i></div>
-      <div class="stage-lights" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
-      <div class="stage-floor" aria-hidden="true"><i class="floor-grid"></i><i class="floor-glow"></i></div>
-      {#if presentation.battle?.weather.length}
-        <div class="weather-layer" data-weather={presentation.battle.weather[0]} aria-hidden="true"></div>
-      {/if}
-      {#if presentation.battle?.fields.length}
-        <div class="terrain-layer" data-terrain={presentation.battle.fields[0]} aria-hidden="true"></div>
-      {/if}
-
-      <!-- Compact player identity, fighting-game style: name first, role as metadata. -->
-      {#each slots as slot (slot.side)}
-        <div class={`player-hud hud-${slot.place}`} data-side={slot.side}>
-          <span class="player-name">{presentation.players[slot.side].displayName}</span>
-          <span class="player-meta">
-            <b>{slot.side.toUpperCase()}</b>
-            <span>{presentation.players[slot.side].providerLabel}</span>
-            {#if config.showAgentState}
-              <em class={`agent-state ${agentStatus[slot.side] || presentation.players[slot.side].agentStatus}`}
-                >{agentStatus[slot.side] || presentation.players[slot.side].agentStatus}</em>
-            {/if}
-          </span>
-          <!-- The whole squad, the way a battle spectator expects it: fainted members stay
-               visible but greyed out, so the score of the match is readable at a glance. -->
-          {#if config.showTeamRoster}
-          <span class="team-strip" aria-label={rosterLabel(slot.data)}>
-            {#each rosterSlots(slot.data) as roster (roster.index)}
+      <!-- Player 1 Header Slot (Left) -->
+      <div class="header-player header-p1" data-side="p1">
+        <span class="player-name">{presentation.players.p1.displayName}</span>
+        {#if config.showAgentState}
+          <em class={`agent-state ${agentStatus.p1 || presentation.players.p1.agentStatus}`}>
+            {agentStatus.p1 || presentation.players.p1.agentStatus}
+          </em>
+        {/if}
+        {#if config.showTeamRoster && p1Side}
+          <span class="team-strip" aria-label={rosterLabel(p1Side)}>
+            {#each rosterSlots(p1Side) as roster (roster.index)}
               {@const member = roster.member}
               <i
                 class:active={Boolean(member?.active)}
@@ -348,11 +326,69 @@
               </i>
             {/each}
           </span>
-          {/if}
-        </div>
-      {/each}
+        {/if}
+      </div>
 
-      <!-- Authentic Pokémon Gen 5 HUD: HP Plates in the classic corners -->
+      <!-- Match Metadata (Center) -->
+      <div class="header-center">
+        <span class="brand"><img src="/koalabattle-mark.svg" alt="" /><b>KOALABATTLE</b></span>
+        {#if config.showTurn}<span class="turn">TURN <b>{presentation.battle?.turn ?? 0}</b></span>{/if}
+        <span class="format">{formatLabel}</span>
+      </div>
+
+      <!-- Player 2 Header Slot (Right) -->
+      <div class="header-player header-p2" data-side="p2">
+        {#if config.showTeamRoster && p2Side}
+          <span class="team-strip" aria-label={rosterLabel(p2Side)}>
+            {#each rosterSlots(p2Side) as roster (roster.index)}
+              {@const member = roster.member}
+              <i
+                class:active={Boolean(member?.active)}
+                class:fainted={Boolean(member?.fainted)}
+                class:unrevealed={!member}
+                title={member ? `${member.name}${member.fainted ? ' · fainted' : ` · ${hpPercent(member)}%`}` : 'Unrevealed Pokémon'}
+              >
+                {#if member && !failedAssets.has(`roster:${member.species}`)}
+                  <img
+                    src={spriteUrl(member.species, 'front')}
+                    alt={member.name}
+                    on:error={() => onAssetError(`roster:${member.species}`)}
+                  />
+                {:else if member}
+                  <b>{member.name.slice(0, 1)}</b>
+                {:else}
+                  <span class="pokeball" aria-hidden="true"><i></i></span>
+                {/if}
+                {#if member && !member.fainted}
+                  <u style={`width:${Math.max(member.hp_fraction, 0) * 100}%`} data-tone={hpTone(member.hp_fraction)}></u>
+                {/if}
+              </i>
+            {/each}
+          </span>
+        {/if}
+        {#if config.showAgentState}
+          <em class={`agent-state ${agentStatus.p2 || presentation.players.p2.agentStatus}`}>
+            {agentStatus.p2 || presentation.players.p2.agentStatus}
+          </em>
+        {/if}
+        <span class="player-name">{presentation.players.p2.displayName}</span>
+      </div>
+    </header>
+
+    <div style={arenaStyle()} class:arena-shake={strongImpact && config.effects !== 'off' && !config.reducedMotion} class="stage">
+      <!-- Original KoalaBattle arena: stadium bowl, crowd, lit floor plane. -->
+      <div class="stage-sky" aria-hidden="true"></div>
+      <div class="stage-bowl" aria-hidden="true"><i class="crowd"></i><i class="rail"></i></div>
+      <div class="stage-lights" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+      <div class="stage-floor" aria-hidden="true"><i class="floor-grid"></i><i class="floor-glow"></i></div>
+      {#if presentation.battle?.weather.length}
+        <div class="weather-layer" data-weather={presentation.battle.weather[0]} aria-hidden="true"></div>
+      {/if}
+      {#if presentation.battle?.fields.length}
+        <div class="terrain-layer" data-terrain={presentation.battle.fields[0]} aria-hidden="true"></div>
+      {/if}
+
+      <!-- Authentic Pokémon Gen 5 HUD: Symmetrical HP Plates in the classic corners -->
       {#each slots as slot (slot.side)}
         {#if slot.data?.active && renderablePokemon(slot.data.active)}
           {@const gender = pokemonGender(slot.data.active)}
@@ -360,97 +396,58 @@
             class={`hp-plate plate-${slot.place}`}
             data-side={slot.side}
             role="region"
-            aria-label={`${slot.data.active.name}, ${slot.place === 'near' ? `${formatExactHp(slot.data.active)} (${hpPercent(slot.data.active)}%)` : `${hpPercent(slot.data.active)}%`} health`}
+            aria-label={`${slot.data.active.name}, ${formatExactHp(slot.data.active)} (${hpPercent(slot.data.active)}%) health`}
           >
-            {#if slot.place === 'far'}
-              <!-- Far (Opponent) Plate: Lv | Name | Gender | HP Bar | Subtle % | Types -->
-              <div class="gen5-far-box">
-                <div class="gen5-top-row">
-                  <div class="gen5-lv-badge" aria-label={`Level ${slot.data.active.level ?? 50}`}>
-                    <span class="lv-text">Lv.</span>
-                    <b class="lv-val">{slot.data.active.level ?? 50}</b>
-                  </div>
-                  <div class="gen5-name-wrap">
-                    <b class="gen5-name">{slot.data.active.name}</b>
-                  </div>
-                  {#if gender}
-                    <div class={`gen5-gender-badge ${gender}`} aria-label={gender}>
-                      <span>{gender === 'male' ? '♂' : '♀'}</span>
-                    </div>
-                  {/if}
-                  <span class="gen5-far-pct" aria-label={`${hpPercent(slot.data.active)} percent health`}>{hpPercent(slot.data.active)}%</span>
-                  {#if slot.data.active.status}
-                    <span class="gen5-status-badge">{readableStatus(slot.data.active.status)}</span>
-                  {/if}
+            <div class={`gen5-box gen5-${slot.place}-box`}>
+              <!-- Top Row: Name | Level | Gender | Types | Status -->
+              <div class="gen5-top-row">
+                <div class="gen5-name-wrap">
+                  <b class="gen5-name">{slot.data.active.name}</b>
                 </div>
-                <div class="gen5-bar-row">
-                  <div
-                    class="gen5-hp-track"
-                    data-tone={hpTone(slot.data.active.hp_fraction)}
-                    role="progressbar"
-                    aria-valuenow={hpPercent(slot.data.active)}
-                    aria-valuemin="0"
-                    aria-valuemax="100"
-                    aria-label={`Opponent ${slot.data.active.name} health`}
-                  >
-                    <b style={`width:${previousHp(slot.side, slot.data.active.hp_fraction) * 100}%`}></b>
-                    <i style={`width:${slot.data.active.hp_fraction * 100}%`}></i>
-                  </div>
+                <div class="gen5-lv-badge" aria-label={`Level ${slot.data.active.level ?? 50}`}>
+                  <span class="lv-text">Lv.</span>
+                  <b class="lv-val">{slot.data.active.level ?? 50}</b>
                 </div>
+                {#if gender}
+                  <div class={`gen5-gender-badge ${gender}`} aria-label={gender}>
+                    <span>{gender === 'male' ? '♂' : '♀'}</span>
+                  </div>
+                {/if}
                 <div class="gen5-types-row">
                   {#each slot.data.active.types as type}
                     <span class="gen5-type-badge" style={`--type-bg:${typeColor(type)}`}>{type}</span>
                   {/each}
                 </div>
+                {#if slot.data.active.status}
+                  <span class={`gen5-status-badge status-${slot.data.active.status.toLowerCase()}`}>{readableStatus(slot.data.active.status)}</span>
+                {/if}
               </div>
-            {:else}
-              <!-- Near (Player) Plate: Gender | Name | Lv | HP Bar | "150 / 150 (100%)" | Types | EXP -->
-              <div class="gen5-near-box">
-                <div class="gen5-top-row">
-                  {#if gender}
-                    <div class={`gen5-gender-badge ${gender}`} aria-label={gender}>
-                      <span>{gender === 'male' ? '♂' : '♀'}</span>
-                    </div>
-                  {/if}
-                  <div class="gen5-name-wrap">
-                    <b class="gen5-name">{slot.data.active.name}</b>
-                  </div>
-                  <div class="gen5-lv-badge" aria-label={`Level ${slot.data.active.level ?? 50}`}>
-                    <span class="lv-text">Lv.</span>
-                    <b class="lv-val">{slot.data.active.level ?? 50}</b>
-                  </div>
-                  {#if slot.data.active.status}
-                    <span class="gen5-status-badge">{readableStatus(slot.data.active.status)}</span>
-                  {/if}
-                </div>
-                <div class="gen5-bar-row">
-                  <div
-                    class="gen5-hp-track"
-                    data-tone={hpTone(slot.data.active.hp_fraction)}
-                    role="progressbar"
-                    aria-valuenow={hpPercent(slot.data.active)}
-                    aria-valuemin="0"
-                    aria-valuemax="100"
-                    aria-label={`Player ${slot.data.active.name} health`}
-                  >
-                    <b style={`width:${previousHp(slot.side, slot.data.active.hp_fraction) * 100}%`}></b>
-                    <i style={`width:${slot.data.active.hp_fraction * 100}%`}></i>
-                  </div>
-                </div>
-                <div class="gen5-num-row">
-                  <span class="gen5-exact-hp">{formatExactHp(slot.data.active)}</span>
-                  <span class="gen5-hp-pct" aria-label={`${hpPercent(slot.data.active)} percent`}>({hpPercent(slot.data.active)}%)</span>
-                </div>
-                <div class="gen5-types-row">
-                  {#each slot.data.active.types as type}
-                    <span class="gen5-type-badge" style={`--type-bg:${typeColor(type)}`}>{type}</span>
-                  {/each}
-                </div>
-                <div class="gen5-exp-bar" aria-hidden="true">
-                  <i style="width: 78%"></i>
+
+              <!-- Bar Row: High-visibility HP Bar -->
+              <div class="gen5-bar-row">
+                <div
+                  class="gen5-hp-track"
+                  data-tone={hpTone(slot.data.active.hp_fraction)}
+                  role="progressbar"
+                  aria-valuenow={hpPercent(slot.data.active)}
+                  aria-valuemin="0"
+                  aria-valuemax="100"
+                  aria-label={`${slot.data.active.name} health`}
+                >
+                  <b style={`width:${previousHp(slot.side, slot.data.active.hp_fraction) * 100}%`}></b>
+                  <i style={`width:${slot.data.active.hp_fraction * 100}%`}></i>
                 </div>
               </div>
-            {/if}
+
+              <!-- Bottom Row: HP Readout (Exact numbers + % on BOTH plates) -->
+              <div class="gen5-bottom-row">
+                <div class="gen5-hp-label">HP</div>
+                <div class="gen5-exact-hp-wrap">
+                  <b class="gen5-exact-hp">{formatExactHp(slot.data.active)}</b>
+                  <span class="gen5-hp-pct">({hpPercent(slot.data.active)}%)</span>
+                </div>
+              </div>
+            </div>
           </div>
         {/if}
       {/each}
@@ -494,26 +491,34 @@
         {/if}
       {/each}
 
-      {#if moveProfile && config.effects !== 'off'}
+      <!-- Move visual animations: projectiles, beams, bursts -->
+      {#if presentation.currentMoveProfile && presentation.currentMovePhase === 'executing'}
+        {@const profile = presentation.currentMoveProfile}
         <div
           class="move-visual"
-          data-archetype={moveProfile.archetype}
-          data-move-type={moveProfile.type}
-          data-direction={attackerSide === nearSide ? 'near-to-far' : 'far-to-near'}
+          data-archetype={profile.archetype}
+          data-move-type={profile.type}
+          data-direction={presentation.currentMoveSide === (config.nearSide || 'p1') ? 'near-to-far' : 'far-to-near'}
           data-quality={config.effects}
           aria-hidden="true"
         >
           <div style={chargeStyle()} class="charge-ring"></div>
-          <div style={projectileStyle(attackerSide === nearSide ? 'near-to-far' : 'far-to-near')} class="move-projectile"></div>
-          <div style={beamStyle(attackerSide === nearSide ? 'near-to-far' : 'far-to-near')} class="move-beam"></div>
+          <div style={projectileStyle(presentation.currentMoveSide === (config.nearSide || 'p1') ? 'near-to-far' : 'far-to-near')} class="move-projectile"></div>
+          <div style={beamStyle(presentation.currentMoveSide === (config.nearSide || 'p1') ? 'near-to-far' : 'far-to-near')} class="move-beam"></div>
         </div>
       {/if}
 
-      {#key `${presentation.eventSequence}:${presentation.effect}`}
-        {#if presentation.effect !== 'none' && presentation.effect !== 'impact'}
-          <div class={`effect effect-${presentation.effect}`} data-side={presentation.effectSide || ''} data-move-type={presentation.currentMoveProfile?.type || 'normal'}>
+      <!-- Effect callout & particles -->
+      {#key `${presentation.effect}:${presentation.eventSequence}`}
+        {#if presentation.effect !== 'none'}
+          <div
+            class={`effect effect-${presentation.effect}`}
+            data-side={presentation.effectSide || ''}
+            data-move-type={presentation.currentMoveProfile?.type || 'normal'}
+            aria-hidden="true"
+          >
             {#if config.effects !== 'off'}
-              <div class="impact-burst" aria-hidden="true">
+              <div class="impact-burst">
                 {#each particleIndexes.slice(0, config.effects === 'low' ? 6 : config.effects === 'high' ? 12 : 9) as index}
                   <i style={particleStyle(index, presentation.currentMoveProfile?.seed || presentation.eventSequence)}></i>
                 {/each}
@@ -535,35 +540,39 @@
         </div>
       {/if}
 
-      <!-- Intent panels separated by side: P1 on bottom-left, P2 on top-right -->
-      {#each slots as slot (slot.side)}
-        {@const player = currentIntent(presentation, slot.side)}
-        {#if player}
-          <div class={`intent intent-${slot.place}`} data-side={slot.side} aria-live="polite">
-            <header class="intent-header">
-              <b class="intent-name">{presentation.players[slot.side].displayName}</b>
-              <small class="intent-phase">{player.commentaryPhase === 'thinking' ? 'THINKING' : player.currentCommentary?.banter ? 'BANTER' : 'COMMENTARY'}</small>
-            </header>
-            {#if player.commentaryPhase === 'thinking'}
-              {#if player.streamPreview}
-                <p class="thinking live-response">{player.streamPreview}<span aria-hidden="true">▌</span></p>
-              {:else}
-                <p class="thinking">Thinking…</p>
-              {/if}
-              {#if player.contextMetrics}
-                <small class="context-meter">Context · {player.contextMetrics.estimatedTokens.toLocaleString()} tokens</small>
-              {/if}
-            {:else}
-              <p class="intent-text">
-                {#if player.currentCommentary?.banter}
-                  <span class="banter-quote">"{player.currentCommentary.banter}"</span>
+      <!-- Central Dialogue Box: Classic Pokémon Message Window (Zero overlap with combatants) -->
+      {#if currentIntent(presentation, 'p1') || currentIntent(presentation, 'p2')}
+        <div class="dialogue-box" role="region" aria-label="Battle Dialogue & Thinking" aria-live="polite">
+          {#each slots as slot (slot.side)}
+            {@const player = currentIntent(presentation, slot.side)}
+            {#if player}
+              <div class="dialogue-item" data-side={slot.side}>
+                <header class="dialogue-header">
+                  <b class="dialogue-name">{presentation.players[slot.side].displayName}</b>
+                  <small class="dialogue-phase">{player.commentaryPhase === 'thinking' ? 'THINKING' : player.currentCommentary?.banter ? 'BANTER' : 'COMMENTARY'}</small>
+                </header>
+                {#if player.commentaryPhase === 'thinking'}
+                  {#if player.streamPreview}
+                    <p class="thinking live-response">{player.streamPreview}<span aria-hidden="true">▌</span></p>
+                  {:else}
+                    <p class="thinking">Thinking…</p>
+                  {/if}
+                  {#if player.contextMetrics}
+                    <small class="context-meter">Context · {player.contextMetrics.estimatedTokens.toLocaleString()} tokens</small>
+                  {/if}
+                {:else}
+                  <p class="dialogue-text">
+                    {#if player.currentCommentary?.banter}
+                      <span class="banter-quote">"{player.currentCommentary.banter}"</span>
+                    {/if}
+                    {player.currentCommentary?.commentary || `${player.currentCommentary?.actionName || player.currentCommentary?.action || 'Action'} selected.`}
+                  </p>
                 {/if}
-                {player.currentCommentary?.commentary || `${player.currentCommentary?.actionName || player.currentCommentary?.action || 'Action'} selected.`}
-              </p>
+              </div>
             {/if}
-          </div>
-        {/if}
-      {/each}
+          {/each}
+        </div>
+      {/if}
     </div>
 
     {#if config.showBattleLog}
@@ -629,13 +638,37 @@
   .battle-renderer.transparent{background:transparent;border-color:transparent;box-shadow:none}
   .battle-renderer.overlay{width:100vw;height:100vh;min-height:0;aspect-ratio:auto;border:0;border-radius:0;box-shadow:none}
 
-  /* ── Broadcast bar ──────────────────────────────────────────────────────── */
-  .broadcast-bar{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;height:clamp(44px,5.6%,62px);padding:0 clamp(14px,1.6cqw,28px);background:rgba(4,9,7,.92);border-bottom:1px solid var(--r-line)}
-  .brand{display:flex;align-items:center;gap:.55rem;color:var(--r-ink);font:800 calc(var(--hud-scale,1) * clamp(.72rem,.95cqw,.95rem)) var(--display);letter-spacing:.14em}
-  .brand img{width:clamp(22px,1.9cqw,30px);aspect-ratio:1}
-  .turn{color:var(--r-dim);font:600 calc(var(--hud-scale,1) * clamp(.68rem,.88cqw,.88rem)) var(--mono);letter-spacing:.14em}
-  .turn b{margin-left:.4rem;color:var(--r-ink);font-size:1.6em;letter-spacing:0}
-  .format{justify-self:end;color:var(--r-dim);font:600 calc(var(--hud-scale,1) * clamp(.64rem,.82cqw,.84rem)) var(--mono);letter-spacing:.1em}
+  /* ── Broadcast bar with integrated player identities ────────────────────── */
+  .broadcast-bar{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;height:clamp(46px,6cqh,64px);padding:0 clamp(10px,1.4cqw,24px);gap:.6rem;background:rgba(4,9,7,.95);border-bottom:1px solid var(--r-line);backdrop-filter:blur(10px)}
+  .header-player{display:flex;align-items:center;gap:clamp(6px,.8cqw,12px);overflow:hidden}
+  .header-p1{justify-content:flex-start;--side-color:var(--r-p1)}
+  .header-p2{justify-content:flex-end;--side-color:var(--r-p2)}
+  .header-center{display:flex;align-items:center;justify-content:center;gap:clamp(8px,1cqw,18px)}
+  .player-name{overflow:hidden;font:800 calc(var(--hud-scale,1) * clamp(.75rem,1.05cqw,1.1rem))/1.1 var(--display);letter-spacing:-.01em;text-overflow:ellipsis;text-transform:uppercase;white-space:nowrap;color:#fff}
+  .header-p1 .player-name{color:var(--r-p1)}
+  .header-p2 .player-name{color:var(--r-p2)}
+  .agent-state{padding:.05rem .25rem;border-radius:3px;background:rgba(255,255,255,.08);font:700 calc(var(--hud-scale,1) * clamp(.48rem,.65cqw,.65rem)) var(--mono);font-style:normal;letter-spacing:.08em;text-transform:uppercase}
+  .agent-state.thinking{background:rgba(242,193,95,.2);color:#ffd679}
+  .agent-state.decided,.agent-state.executing{background:rgba(120,255,169,.16);color:var(--r-accent)}
+  .agent-state.error{background:rgba(255,139,135,.18);color:#ff9d98}
+  .team-strip{display:flex;gap:clamp(2px,.2cqw,3px)}
+  .team-strip i{position:relative;display:grid;place-items:center;width:calc(var(--hud-scale,1) * clamp(15px,1.5cqw,24px));aspect-ratio:1;overflow:hidden;border:1px solid color-mix(in srgb,var(--side-color) 45%,transparent);border-radius:4px;background:rgba(255,255,255,.05)}
+  .team-strip img{width:145%;height:145%;object-fit:contain;image-rendering:pixelated}
+  .team-strip i b{color:var(--r-dim);font:800 .55rem var(--display)}
+  .team-strip i.unrevealed{border-color:rgba(255,255,255,.16);background:rgba(0,0,0,.24)}
+  .pokeball{position:relative;display:block;width:58%;aspect-ratio:1;border:1.5px solid rgba(255,255,255,.72);border-radius:50%;background:linear-gradient(180deg,#e85d5d 0 46%,#1c2522 46% 54%,#f1f4ed 54%);box-shadow:0 1px 4px rgba(0,0,0,.5)}
+  .pokeball i{position:absolute;top:50%;left:50%;width:30%;aspect-ratio:1;transform:translate(-50%,-50%);border:1px solid rgba(0,0,0,.8);border-radius:50%;background:#f5faf5}
+  .team-strip i.fainted{border-color:rgba(255,255,255,.12);background:rgba(0,0,0,.4);opacity:.38;filter:grayscale(1) brightness(.65)}
+  .team-strip i.fainted::after{content:'';position:absolute;width:132%;height:1px;background:rgba(255,255,255,.5);transform:rotate(-45deg)}
+  .team-strip i.active{border-color:#fff;background:color-mix(in srgb,var(--side-color) 26%,transparent);box-shadow:0 0 0 1px rgba(255,255,255,.5)}
+  .team-strip u{position:absolute;bottom:0;left:0;height:2px;border-radius:0 2px 0 0;background:var(--r-hp-high);text-decoration:none;transition:width var(--hp-duration,420ms) cubic-bezier(.2,.8,.2,1)}
+  .team-strip u[data-tone='mid']{background:var(--r-hp-mid)}
+  .team-strip u[data-tone='low']{background:var(--r-hp-low)}
+  .brand{display:flex;align-items:center;gap:.45rem;color:var(--r-ink);font:800 calc(var(--hud-scale,1) * clamp(.68rem,.88cqw,.9rem)) var(--display);letter-spacing:.12em}
+  .brand img{width:clamp(20px,1.7cqw,26px);aspect-ratio:1}
+  .turn{color:var(--r-dim);font:600 calc(var(--hud-scale,1) * clamp(.62rem,.8cqw,.82rem)) var(--mono);letter-spacing:.12em}
+  .turn b{margin-left:.3rem;color:var(--r-ink);font-size:1.4em;letter-spacing:0}
+  .format{color:var(--r-dim);font:600 calc(var(--hud-scale,1) * clamp(.58rem,.76cqw,.78rem)) var(--mono);letter-spacing:.08em}
 
   /* ── Arena ──────────────────────────────────────────────────────────────── */
   .stage{position:relative;overflow:hidden;background:#060d0b;container-type:size}
@@ -683,35 +716,6 @@
   [data-renderer-theme='pokemon-stadium'] .stage-floor{inset:48% 0 0;background:linear-gradient(180deg,#1d4036 0%,#112b24 50%,#091713 100%)}
   [data-renderer-theme='pokemon-stadium'] .stage-bowl .rail{background:linear-gradient(180deg,rgba(90,200,255,.4),rgba(5,15,20,.9));box-shadow:0 0 30px rgba(70,180,255,.25)}
 
-  /* ── Compact non-obtrusive player HUD ────────────────────────────────────── */
-  .player-hud{position:absolute;z-index:12;display:grid;gap:.1rem;max-width:26%;padding:.35rem .6rem;border-radius:6px;background:rgba(4,9,7,.82);border-left:3px solid var(--side-color);backdrop-filter:blur(6px)}
-  .player-hud[data-side='p1']{--side-color:var(--r-p1)}
-  .player-hud[data-side='p2']{--side-color:var(--r-p2)}
-  .hud-far{top:2%;right:2%;justify-items:end;text-align:right;border-right:3px solid var(--side-color);border-left:0}
-  .hud-near{bottom:2%;left:2%}
-  .player-name{overflow:hidden;font:800 calc(var(--hud-scale,1) * clamp(.78rem,1.1cqw,1.15rem))/1.1 var(--display);letter-spacing:-.01em;text-overflow:ellipsis;text-transform:uppercase;white-space:nowrap}
-  .player-meta{display:flex;align-items:center;gap:.35rem;color:var(--r-dim);font:600 calc(var(--hud-scale,1) * clamp(.5rem,.68cqw,.68rem)) var(--mono);letter-spacing:.08em;text-transform:uppercase}
-  .player-meta b{color:var(--side-color)}
-  .player-meta span{overflow:hidden;max-width:11ch;text-overflow:ellipsis;white-space:nowrap}
-  .agent-state{padding:.05rem .25rem;border-radius:3px;background:rgba(255,255,255,.08);font-style:normal}
-  .agent-state.thinking{background:rgba(242,193,95,.2);color:#ffd679}
-  .agent-state.decided,.agent-state.executing{background:rgba(120,255,169,.16);color:var(--r-accent)}
-  .agent-state.error{background:rgba(255,139,135,.18);color:#ff9d98}
-  .team-strip{display:flex;gap:clamp(2px,.2cqw,3px);margin-top:.15rem}
-  .team-strip i{position:relative;display:grid;place-items:center;width:calc(var(--hud-scale,1) * clamp(16px,1.6cqw,26px));aspect-ratio:1;overflow:hidden;border:1px solid color-mix(in srgb,var(--side-color) 45%,transparent);border-radius:4px;background:rgba(255,255,255,.05)}
-  .team-strip img{width:145%;height:145%;object-fit:contain;image-rendering:pixelated}
-  .team-strip i b{color:var(--r-dim);font:800 .55rem var(--display)}
-  .team-strip i.unrevealed{border-color:rgba(255,255,255,.16);background:rgba(0,0,0,.24)}
-  .pokeball{position:relative;display:block;width:58%;aspect-ratio:1;border:1.5px solid rgba(255,255,255,.72);border-radius:50%;background:linear-gradient(180deg,#e85d5d 0 46%,#1c2522 46% 54%,#f1f4ed 54%);box-shadow:0 1px 4px rgba(0,0,0,.5)}
-  .pokeball i{position:absolute;top:50%;left:50%;width:30%;aspect-ratio:1;transform:translate(-50%,-50%);border:1px solid rgba(0,0,0,.8);border-radius:50%;background:#f5faf5}
-  .team-strip i.fainted{border-color:rgba(255,255,255,.12);background:rgba(0,0,0,.4);opacity:.38;filter:grayscale(1) brightness(.65)}
-  .team-strip i.fainted::after{content:'';position:absolute;width:132%;height:1px;background:rgba(255,255,255,.5);transform:rotate(-45deg)}
-  .team-strip i.active{border-color:#fff;background:color-mix(in srgb,var(--side-color) 26%,transparent);box-shadow:0 0 0 1px rgba(255,255,255,.5)}
-  .team-strip u{position:absolute;bottom:0;left:0;height:2px;border-radius:0 2px 0 0;background:var(--r-hp-high);text-decoration:none;transition:width var(--hp-duration,420ms) cubic-bezier(.2,.8,.2,1)}
-  .team-strip u[data-tone='mid']{background:var(--r-hp-mid)}
-  .team-strip u[data-tone='low']{background:var(--r-hp-low)}
-  .hud-far .team-strip{justify-content:flex-end}
-
   /* ── Authentic Gen 5 Pokemon HP Plates (Exact Match to Reference Screenshot) */
   .hp-plate{position:absolute;z-index:25;pointer-events:none;font-family:var(--display);filter:drop-shadow(0 6px 14px rgba(0,0,0,.65))}
   .plate-far{top:5%;left:3%;width:clamp(260px,33cqw,390px)}
@@ -749,12 +753,81 @@
   .gen5-hp-track[data-tone='low'] i{background:linear-gradient(180deg,#ff7268 0%,#e62c20 60%,#9e140b 100%)}
 
   /* Near Box: Exact Numbers Row with Percentage */
-  .gen5-num-row{display:flex;justify-content:flex-end;align-items:baseline;gap:.35rem;margin-top:4px;padding-right:4px}
+  .gen5-num-row,.gen5-bottom-row{display:flex;justify-content:space-between;align-items:center;gap:.35rem;margin-top:4px}
+  .gen5-exact-hp-wrap{display:flex;align-items:baseline;gap:.25rem}
   .gen5-exact-hp{font-family:var(--display);font-size:calc(var(--hud-scale,1) * clamp(.92rem,1.25cqw,1.25rem));font-weight:800;color:#fff;letter-spacing:.04em;font-variant-numeric:tabular-nums;font-feature-settings:'tnum' 1;text-shadow:0 1px 3px rgba(0,0,0,.85)}
-  .gen5-hp-pct{font-family:var(--mono);font-size:calc(var(--hud-scale,1) * clamp(.78rem,1.05cqw,1.05rem));font-weight:700;color:#9fe6b8;font-variant-numeric:tabular-nums;font-feature-settings:'tnum' 1;text-shadow:0 1px 2px rgba(0,0,0,.9)}
-  .gen5-far-pct{font-family:var(--mono);font-size:calc(var(--hud-scale,1) * clamp(.68rem,.9cqw,.9rem));font-weight:800;color:#fff;background:rgba(0,0,0,.45);border:1px solid rgba(255,255,255,.16);padding:1px 5px;border-radius:3px;font-variant-numeric:tabular-nums;font-feature-settings:'tnum' 1;text-shadow:0 1px 2px rgba(0,0,0,.9)}
-  .gen5-exp-bar{position:relative;width:calc(100% - 6px);margin-left:auto;height:3px;background:#0d1a22;border-radius:2px;overflow:hidden;margin-top:2px}
-  .gen5-exp-bar i{display:block;height:100%;background:#52e698}
+  .gen5-near-pct{font-family:var(--mono);font-size:calc(var(--hud-scale,1) * clamp(.72rem,.95cqw,.95rem));font-weight:700;color:#9fe6b8;font-variant-numeric:tabular-nums;font-feature-settings:'tnum' 1;text-shadow:0 1px 2px rgba(0,0,0,.9)}
+  /* ── Authentic Gen 5 Pokemon HP Plates (Symmetrical & High Readability) ─── */
+  .hp-plate{position:absolute;z-index:25;pointer-events:none;font-family:var(--display);filter:drop-shadow(0 8px 18px rgba(0,0,0,.75))}
+  .plate-far{top:5%;left:3.5%;width:clamp(280px,34cqw,430px)}
+  .plate-near{bottom:6%;right:3.5%;width:clamp(280px,34cqw,430px)}
+
+  .gen5-box{position:relative;background:#202524;border:2px solid #36403e;border-radius:4px;padding:clamp(6px,.85cqw,9px) clamp(12px,1.4cqw,18px);box-shadow:inset 0 1px 1px rgba(255,255,255,.18),0 8px 20px rgba(0,0,0,.7)}
+  .gen5-far-box{clip-path:polygon(0 0,calc(100% - 24px) 0,100% 100%,0 100%)}
+  .gen5-near-box{clip-path:polygon(24px 0,100% 0,100% 100%,0 100%)}
+
+  .gen5-top-row{display:flex;align-items:center;gap:clamp(6px,.8cqw,10px);margin-bottom:3px}
+  .gen5-name-wrap{flex:1;overflow:hidden}
+  .gen5-name{font-size:calc(var(--hud-scale,1) * clamp(1.1rem,1.55cqw,1.6rem));font-weight:900;letter-spacing:-.01em;text-transform:capitalize;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.9);white-space:nowrap}
+
+  /* Level Badge: Lv. stacked above number in white */
+  .gen5-lv-badge{display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1;font-family:var(--display);color:#fff}
+  .gen5-lv-badge .lv-text{font-size:calc(var(--hud-scale,1) * clamp(.55rem,.72cqw,.72rem));font-weight:700;color:#cde0e0;letter-spacing:-.02em}
+  .gen5-lv-badge .lv-val{font-size:calc(var(--hud-scale,1) * clamp(.92rem,1.2cqw,1.25rem));font-weight:900}
+
+  /* Gender Rhombus */
+  .gen5-gender-badge{display:flex;align-items:center;justify-content:center;padding:2px 8px;background:#5ba5f5;transform:skewX(-20deg);border-radius:2px;box-shadow:0 1px 3px rgba(0,0,0,.4)}
+  .gen5-gender-badge.female{background:#f57ab5}
+  .gen5-gender-badge span{transform:skewX(20deg);font-size:.95em;font-weight:900;color:#0b1928}
+
+  /* Prominent Type Badges */
+  .gen5-types-row{display:flex;gap:5px;align-items:center}
+  .gen5-type-badge{display:inline-flex;align-items:center;padding:2px 8px;border-radius:4px;background:var(--type-bg,#788a80);color:#fff;font-family:var(--mono);font-size:calc(var(--hud-scale,1) * clamp(.62rem,.8cqw,.82rem));font-weight:900;text-transform:uppercase;letter-spacing:.06em;text-shadow:0 1px 2px rgba(0,0,0,.8);box-shadow:0 1px 3px rgba(0,0,0,.5)}
+
+  /* Distinct Status Badges */
+  .gen5-status-badge{padding:2px 7px;border-radius:3px;font-family:var(--mono);font-size:.68rem;font-weight:900;letter-spacing:.06em;text-transform:uppercase;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.85)}
+  .status-brn{background:#ff5733}
+  .status-par{background:#f4bf23;color:#1c1400;text-shadow:none}
+  .status-slp{background:#8e909a}
+  .status-frz{background:#3ec7f3;color:#021a24;text-shadow:none}
+  .status-psn,.status-tox{background:#b538e6}
+
+  /* Full-width HP bar groove with lime-green bar */
+  .gen5-bar-row{position:relative;width:100%;margin-top:3px}
+  .gen5-hp-track{position:relative;width:100%;height:calc(var(--hud-scale,1) * clamp(10px,1.3cqh,15px));border-radius:999px;background:#080e10;border:1.5px solid rgba(255,255,255,.2);overflow:hidden;box-shadow:inset 0 2px 5px rgba(0,0,0,.9)}
+  .gen5-hp-track b,.gen5-hp-track i{position:absolute;inset:0 auto 0 0;height:100%;border-radius:inherit}
+  .gen5-hp-track b{background:#fff3a8;opacity:.6;transition:width calc(var(--hp-duration) * 1.4) ease-out}
+  .gen5-hp-track i{z-index:1;background:linear-gradient(180deg,#9be842 0%,#74e028 55%,#429b10 100%);transition:width var(--hp-duration) cubic-bezier(.2,.8,.2,1)}
+  .gen5-hp-track[data-tone='mid'] i{background:linear-gradient(180deg,#ffd756 0%,#e6a817 60%,#a87405 100%)}
+  .gen5-hp-track[data-tone='low'] i{background:linear-gradient(180deg,#ff7268 0%,#e62c20 60%,#9e140b 100%)}
+
+  /* Bottom Row: Exact HP Numbers & Readout on Both Plates */
+  .gen5-bottom-row{display:flex;justify-content:space-between;align-items:baseline;margin-top:4px}
+  .gen5-hp-label{font-family:var(--mono);font-size:calc(var(--hud-scale,1) * clamp(.66rem,.86cqw,.88rem));font-weight:900;color:#ffd679;letter-spacing:.08em}
+  .gen5-exact-hp-wrap{display:flex;align-items:baseline;gap:.35rem}
+  .gen5-exact-hp{font-family:var(--display);font-size:calc(var(--hud-scale,1) * clamp(.98rem,1.3cqw,1.35rem));font-weight:900;color:#fff;letter-spacing:.02em;font-variant-numeric:tabular-nums;font-feature-settings:'tnum' 1;text-shadow:0 1px 3px rgba(0,0,0,.9)}
+  .gen5-hp-pct{font-family:var(--mono);font-size:calc(var(--hud-scale,1) * clamp(.76rem,1cqw,1.02rem));font-weight:800;color:#8ef3a9;font-variant-numeric:tabular-nums;font-feature-settings:'tnum' 1;text-shadow:0 1px 2px rgba(0,0,0,.9)}
+
+  /* ── Central Dialogue Box: Classic Pokémon Dialogue Window (Zero overlap with combatants) */
+  .dialogue-box{
+    position:absolute;z-index:22;bottom:2%;left:50%;transform:translateX(-50%);
+    width:clamp(320px,46cqw,580px);max-height:22%;display:grid;gap:.35rem;padding:.45rem .85rem;
+    border-radius:8px;background:rgba(8,16,14,.95);border:1.5px solid var(--r-line);
+    box-shadow:0 10px 30px rgba(0,0,0,.85);backdrop-filter:blur(10px)
+  }
+  .dialogue-item{display:grid;gap:.15rem;padding-left:.5rem}
+  .dialogue-item[data-side='p1']{--side-color:var(--r-p1);border-left:3px solid var(--side-color)}
+  .dialogue-item[data-side='p2']{--side-color:var(--r-p2);border-left:3px solid var(--side-color)}
+  .dialogue-header{display:flex;align-items:center;justify-content:space-between;gap:.4rem}
+  .dialogue-name{font-family:var(--display);font-size:calc(var(--hud-scale,1) * clamp(.66rem,.82cqw,.84rem));font-weight:800;color:#fff;letter-spacing:.02em;text-transform:uppercase}
+  .dialogue-phase{color:var(--side-color);font:900 calc(var(--hud-scale,1) * clamp(.52rem,.66cqw,.68rem)) var(--mono);letter-spacing:.12em}
+  .dialogue-text,.dialogue-item p{display:-webkit-box;overflow:hidden;margin:0;color:#dfeae3;font-size:calc(var(--hud-scale,1) * clamp(.74rem,.92cqw,.92rem));line-height:1.4;line-clamp:2;-webkit-box-orient:vertical;-webkit-line-clamp:2}
+  .dialogue-box .banter-quote{display:block;color:#ffd679;font-style:italic;font-weight:700;margin-bottom:.1rem}
+  .dialogue-box .thinking{color:var(--r-dim);font-style:italic}
+  .dialogue-box .live-response{color:#f3fff6;font-style:normal}
+  .dialogue-box .live-response span{color:var(--side-color);animation:cursor-blink 1s steps(2,end) infinite}
+  .dialogue-box .context-meter{color:var(--r-dim);font:600 calc(var(--hud-scale,1) * clamp(.44rem,.55cqw,.55rem)) var(--mono);letter-spacing:.04em;text-transform:none}
+  @keyframes cursor-blink{50%{opacity:0}}
 
   /* ── Combatants & Sprites (Classic Perspective) ─────────────────────────── */
   .combatant{position:absolute;z-index:10;display:flex;align-items:center;justify-content:center;pointer-events:none}
@@ -775,33 +848,6 @@
   .sprite-missing small{font:inherit}
   .hp-delta{position:absolute;top:4%;left:50%;z-index:4;transform:translateX(-50%);color:#ff9089;font:900 calc(var(--hud-scale,1) * clamp(1rem,2.3cqw,2.1rem)) var(--mono);text-shadow:0 2px 10px #000,0 0 22px rgba(0,0,0,.7);animation:value-pop .6s both}
   .hp-delta.positive{color:#8ef3a9}
-
-  .gen5-types-row{display:flex;gap:4px;margin-top:3px}
-  .plate-near .gen5-types-row{justify-content:flex-end}
-  .gen5-type-badge{display:inline-flex;align-items:center;padding:1px 7px;border-radius:999px;background:var(--type-bg,#788a80);color:#05120a;font-family:var(--mono);font-size:calc(var(--hud-scale,1) * clamp(.52rem,.7cqw,.7rem));font-weight:900;text-transform:uppercase;letter-spacing:.04em;box-shadow:0 1px 2px rgba(0,0,0,.5)}
-
-  /* ── Headline action and intent: Separated P1 Left, P2 Right ─────────────── */
-  .action-banner{position:absolute;z-index:13;top:44%;left:50%;display:grid;justify-items:center;gap:.15rem;padding:.5rem 1.8rem;transform:translate(-50%,-50%);border-radius:8px;background:rgba(4,9,7,.92);border:1px solid var(--r-line);text-align:center}
-  .action-banner small{color:var(--r-accent);font:900 calc(var(--hud-scale,1) * clamp(.6rem,.78cqw,.78rem)) var(--mono);letter-spacing:.18em}
-  .action-banner[data-phase='resolved'] small{color:var(--r-dim)}
-  .action-banner b{font:800 calc(var(--hud-scale,1) * clamp(1.1rem,1.9cqw,1.9rem))/1.1 var(--display);letter-spacing:-.02em;text-transform:uppercase}
-  .action-banner em{color:var(--r-dim);font:600 calc(var(--hud-scale,1) * clamp(.58rem,.74cqw,.74rem)) var(--mono);font-style:normal;letter-spacing:.1em}
-  .action-banner[data-phase='resolved']{opacity:.62}
-  .intent{position:absolute;z-index:22;display:grid;gap:.2rem;width:clamp(250px,30cqw,360px);padding:.45rem .75rem;border-radius:8px;background:rgba(8,16,14,.92);border:1.5px solid var(--side-color);box-shadow:0 8px 24px rgba(0,0,0,.75);backdrop-filter:blur(8px)}
-  .intent[data-side='p1']{--side-color:var(--r-p1)}
-  .intent[data-side='p2']{--side-color:var(--r-p2)}
-  .intent-far{top:13%;right:2.5%}
-  .intent-near{bottom:11%;left:2.5%}
-  .intent-header{display:flex;align-items:center;justify-content:space-between;gap:.4rem;padding-bottom:.15rem;border-bottom:1px solid rgba(255,255,255,.08)}
-  .intent-name{font-family:var(--display);font-size:calc(var(--hud-scale,1) * clamp(.68rem,.86cqw,.86rem));font-weight:800;color:#fff;letter-spacing:.02em;text-transform:uppercase}
-  .intent-phase{color:var(--side-color);font:900 calc(var(--hud-scale,1) * clamp(.55rem,.7cqw,.7rem)) var(--mono);letter-spacing:.14em}
-  .intent p{display:-webkit-box;overflow:hidden;margin:.15rem 0 0;color:#dfeae3;font-size:calc(var(--hud-scale,1) * clamp(.76rem,.96cqw,.96rem));line-height:1.42;line-clamp:3;-webkit-box-orient:vertical;-webkit-line-clamp:3}
-  .intent .banter-quote{display:block;color:#ffd679;font-style:italic;font-weight:700;margin-bottom:.1rem}
-  .intent .thinking{color:var(--r-dim);font-style:italic}
-  .intent .live-response{color:#f3fff6;font-style:normal}
-  .intent .live-response span{color:var(--side-color);animation:cursor-blink 1s steps(2,end) infinite}
-  .intent .context-meter{color:var(--r-dim);font:600 calc(var(--hud-scale,1) * clamp(.46rem,.58cqw,.58rem)) var(--mono);letter-spacing:.04em;text-transform:none}
-  @keyframes cursor-blink{50%{opacity:0}}
 
   /* ── Effects ────────────────────────────────────────────────────────────── */
   .effect{position:absolute;z-index:9;inset:0;display:grid;place-items:center;pointer-events:none}
