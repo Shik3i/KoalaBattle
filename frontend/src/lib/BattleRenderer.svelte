@@ -359,13 +359,14 @@
           <div
             class={`hp-plate plate-${slot.place}`}
             data-side={slot.side}
-            aria-label={`${slot.data.active.name}, ${slot.place === 'near' ? formatExactHp(slot.data.active) : `${hpPercent(slot.data.active)}%`}`}
+            role="region"
+            aria-label={`${slot.data.active.name}, ${slot.place === 'near' ? `${formatExactHp(slot.data.active)} (${hpPercent(slot.data.active)}%)` : `${hpPercent(slot.data.active)}%`} health`}
           >
             {#if slot.place === 'far'}
-              <!-- Far (Opponent) Plate: Lv | Name | Gender | HP Bar -->
+              <!-- Far (Opponent) Plate: Lv | Name | Gender | HP Bar | Subtle % -->
               <div class="gen5-far-box">
                 <div class="gen5-top-row">
-                  <div class="gen5-lv-badge">
+                  <div class="gen5-lv-badge" aria-label={`Level ${slot.data.active.level ?? 50}`}>
                     <span class="lv-text">Lv.</span>
                     <b class="lv-val">{slot.data.active.level ?? 50}</b>
                   </div>
@@ -373,34 +374,43 @@
                     <b class="gen5-name">{slot.data.active.name}</b>
                   </div>
                   {#if gender}
-                    <div class={`gen5-gender-badge ${gender}`}>
+                    <div class={`gen5-gender-badge ${gender}`} aria-label={gender}>
                       <span>{gender === 'male' ? '♂' : '♀'}</span>
                     </div>
                   {/if}
+                  <span class="gen5-far-pct" aria-label={`${hpPercent(slot.data.active)} percent health`}>{hpPercent(slot.data.active)}%</span>
                   {#if slot.data.active.status}
                     <span class="gen5-status-badge">{readableStatus(slot.data.active.status)}</span>
                   {/if}
                 </div>
                 <div class="gen5-bar-row">
-                  <div class="gen5-hp-track" data-tone={hpTone(slot.data.active.hp_fraction)}>
+                  <div
+                    class="gen5-hp-track"
+                    data-tone={hpTone(slot.data.active.hp_fraction)}
+                    role="progressbar"
+                    aria-valuenow={hpPercent(slot.data.active)}
+                    aria-valuemin="0"
+                    aria-valuemax="100"
+                    aria-label={`Opponent ${slot.data.active.name} health`}
+                  >
                     <b style={`width:${previousHp(slot.side, slot.data.active.hp_fraction) * 100}%`}></b>
                     <i style={`width:${slot.data.active.hp_fraction * 100}%`}></i>
                   </div>
                 </div>
               </div>
             {:else}
-              <!-- Near (Player) Plate: Gender | Name | Lv | HP Bar | "150 / 150" | EXP -->
+              <!-- Near (Player) Plate: Gender | Name | Lv | HP Bar | "150 / 150 (100%)" | EXP -->
               <div class="gen5-near-box">
                 <div class="gen5-top-row">
                   {#if gender}
-                    <div class={`gen5-gender-badge ${gender}`}>
+                    <div class={`gen5-gender-badge ${gender}`} aria-label={gender}>
                       <span>{gender === 'male' ? '♂' : '♀'}</span>
                     </div>
                   {/if}
                   <div class="gen5-name-wrap">
                     <b class="gen5-name">{slot.data.active.name}</b>
                   </div>
-                  <div class="gen5-lv-badge">
+                  <div class="gen5-lv-badge" aria-label={`Level ${slot.data.active.level ?? 50}`}>
                     <span class="lv-text">Lv.</span>
                     <b class="lv-val">{slot.data.active.level ?? 50}</b>
                   </div>
@@ -409,13 +419,22 @@
                   {/if}
                 </div>
                 <div class="gen5-bar-row">
-                  <div class="gen5-hp-track" data-tone={hpTone(slot.data.active.hp_fraction)}>
+                  <div
+                    class="gen5-hp-track"
+                    data-tone={hpTone(slot.data.active.hp_fraction)}
+                    role="progressbar"
+                    aria-valuenow={hpPercent(slot.data.active)}
+                    aria-valuemin="0"
+                    aria-valuemax="100"
+                    aria-label={`Player ${slot.data.active.name} health`}
+                  >
                     <b style={`width:${previousHp(slot.side, slot.data.active.hp_fraction) * 100}%`}></b>
                     <i style={`width:${slot.data.active.hp_fraction * 100}%`}></i>
                   </div>
                 </div>
                 <div class="gen5-num-row">
                   <span class="gen5-exact-hp">{formatExactHp(slot.data.active)}</span>
+                  <span class="gen5-hp-pct" aria-label={`${hpPercent(slot.data.active)} percent`}>({hpPercent(slot.data.active)}%)</span>
                 </div>
                 <div class="gen5-exp-bar" aria-hidden="true">
                   <i style="width: 78%"></i>
@@ -711,9 +730,11 @@
   .gen5-hp-track[data-tone='mid'] i{background:linear-gradient(180deg,#ffd756 0%,#e6a817 60%,#a87405 100%)}
   .gen5-hp-track[data-tone='low'] i{background:linear-gradient(180deg,#ff7268 0%,#e62c20 60%,#9e140b 100%)}
 
-  /* Near Box: Exact Numbers Row */
-  .gen5-num-row{display:flex;justify-content:flex-end;align-items:baseline;margin-top:4px;padding-right:4px}
-  .gen5-exact-hp{font-family:var(--display);font-size:calc(var(--hud-scale,1) * clamp(.92rem,1.25cqw,1.25rem));font-weight:800;color:#fff;letter-spacing:.04em;text-shadow:0 1px 3px rgba(0,0,0,.8)}
+  /* Near Box: Exact Numbers Row with Percentage */
+  .gen5-num-row{display:flex;justify-content:flex-end;align-items:baseline;gap:.35rem;margin-top:4px;padding-right:4px}
+  .gen5-exact-hp{font-family:var(--display);font-size:calc(var(--hud-scale,1) * clamp(.92rem,1.25cqw,1.25rem));font-weight:800;color:#fff;letter-spacing:.04em;font-variant-numeric:tabular-nums;font-feature-settings:'tnum' 1;text-shadow:0 1px 3px rgba(0,0,0,.85)}
+  .gen5-hp-pct{font-family:var(--mono);font-size:calc(var(--hud-scale,1) * clamp(.78rem,1.05cqw,1.05rem));font-weight:700;color:#9fe6b8;font-variant-numeric:tabular-nums;font-feature-settings:'tnum' 1;text-shadow:0 1px 2px rgba(0,0,0,.9)}
+  .gen5-far-pct{font-family:var(--mono);font-size:calc(var(--hud-scale,1) * clamp(.68rem,.9cqw,.9rem));font-weight:800;color:#fff;background:rgba(0,0,0,.45);border:1px solid rgba(255,255,255,.16);padding:1px 5px;border-radius:3px;font-variant-numeric:tabular-nums;font-feature-settings:'tnum' 1;text-shadow:0 1px 2px rgba(0,0,0,.9)}
   .gen5-exp-bar{position:relative;width:calc(100% - 6px);margin-left:auto;height:3px;background:#0d1a22;border-radius:2px;overflow:hidden;margin-top:2px}
   .gen5-exp-bar i{display:block;height:100%;background:#52e698}
 
