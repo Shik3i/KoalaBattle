@@ -21,6 +21,8 @@ class Settings(BaseSettings):
     showdown_auth_url: str = "https://play.pokemonshowdown.com/action.php?"
     team_validator_url: str = "http://localhost:8002"
     showdown_version: str = "b22742debfdce6e640193384f5731b9030f9cb6e"
+    orchestrator_local_base_url: str = "http://127.0.0.1:1234/v1"
+    orchestrator_default_model: str = "google/gemma-4-e4b"
     asset_root: Path = Path("data/assets")
     #: User-uploaded logos, backgrounds, watermarks and fonts. Runtime media, never
     #: committed; see docs/ASSETS.md for the backup implications.

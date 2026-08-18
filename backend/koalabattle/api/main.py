@@ -35,6 +35,13 @@ from koalabattle.core.assets import (
 from koalabattle.core.models import MatchArchive, MatchStatus, MatchSummary
 from koalabattle.core.public import presentation_archive
 from koalabattle.formats import FormatCatalog, FormatDescriptor, FormatGroup
+from koalabattle.orchestration.models import (
+    OrchestratorCapabilities,
+    OrchestratorPlan,
+    OrchestratorRequest,
+    OrchestratorRun,
+)
+from koalabattle.orchestration.service import OrchestratorService
 from koalabattle.production import (
     CreateProduction,
     DirectorCommand,
@@ -117,12 +124,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.production = production
         video = VideoExportService(database, repository, production, resolved)
         app.state.video = video
+        orchestrator = OrchestratorService(service, production, video, resolved)
+        app.state.orchestrator = orchestrator
         try:
             await service.start()
             await production.start()
             await video.start()
             yield
         finally:
+            await orchestrator.close()
             await video.close()
             await production.close()
             await service.close()
@@ -252,6 +262,57 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if path is None:
             raise HTTPException(status_code=404, detail="export manifest not found")
         return FileResponse(path, media_type="application/json", filename=path.name)
+
+    @app.get("/api/orchestrator/capabilities", response_model=OrchestratorCapabilities)
+    async def orchestrator_capabilities(request: Request) -> OrchestratorCapabilities:
+        return _orchestrator(request).capabilities()
+
+    @app.post("/api/orchestrator/plan", response_model=OrchestratorPlan)
+    async def orchestrator_plan(payload: OrchestratorRequest, request: Request) -> OrchestratorPlan:
+        return _orchestrator(request).plan(payload)
+
+    @app.post(
+        "/api/orchestrator/runs",
+        response_model=OrchestratorRun,
+        status_code=status.HTTP_202_ACCEPTED,
+    )
+    async def create_orchestrator_run(
+        payload: OrchestratorRequest, request: Request
+    ) -> OrchestratorRun:
+        plan = _orchestrator(request).plan(payload)
+        if not plan.ready:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "message": "orchestrator settings require input",
+                    "questions": [item.model_dump(mode="json") for item in plan.questions],
+                    "plan": plan.model_dump(mode="json"),
+                },
+            )
+        try:
+            return await _orchestrator(request).create(payload)
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.get("/api/orchestrator/runs", response_model=tuple[OrchestratorRun, ...])
+    async def list_orchestrator_runs(
+        request: Request, limit: int = 50
+    ) -> tuple[OrchestratorRun, ...]:
+        return await _orchestrator(request).list(min(max(limit, 1), 100))
+
+    @app.get("/api/orchestrator/runs/{run_id}", response_model=OrchestratorRun)
+    async def get_orchestrator_run(run_id: UUID, request: Request) -> OrchestratorRun:
+        try:
+            return await _orchestrator(request).get(run_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="orchestrator run not found") from error
+
+    @app.post("/api/orchestrator/runs/{run_id}/cancel", response_model=OrchestratorRun)
+    async def cancel_orchestrator_run(run_id: UUID, request: Request) -> OrchestratorRun:
+        try:
+            return await _orchestrator(request).cancel(run_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="orchestrator run not found") from error
 
     @app.get("/api/production/profiles")
     async def production_profiles(request: Request) -> dict[str, object]:
@@ -997,6 +1058,10 @@ def _production(request: Request) -> ProductionService:
 
 def _video(request: Request) -> VideoExportService:
     return cast(VideoExportService, request.app.state.video)
+
+
+def _orchestrator(request: Request) -> OrchestratorService:
+    return cast(OrchestratorService, request.app.state.orchestrator)
 
 
 app = create_app()
