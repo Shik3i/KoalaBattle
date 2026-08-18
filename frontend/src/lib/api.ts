@@ -1,6 +1,7 @@
 import { env } from '$env/dynamic/public';
 import { errorMessage } from './errors';
 import type { BrandAsset, BrandAssetKind, BrandAssetLibrary, ExportBackend, ExportPreflight, FormatCatalog, FormatDescriptor, FormatGroup, MatchArchive, NarratorProfile, NarratorSettings, ProductionProfile, ProductionStyle, ProductionTimeline, RenderEngine, RendererCapabilities, StylePreset, VideoExportJob, VideoExportPreset, VoicePool, VoicePreset } from './types';
+import type { RendererConfig } from './presentation/types';
 
 export const apiBase = () => {
   const fallback = env.PUBLIC_API_URL || 'http://localhost:8001';
@@ -61,6 +62,12 @@ export const getFormatGroups = (supportedOnly = false, signal?: AbortSignal) =>
 export const getFormat = (id: string) => api<FormatDescriptor>(`/api/formats/${id}`);
 export const getPresentationMatch = (id: string) =>
   api<MatchArchive>(`/api/matches/${id}/presentation`);
+/** Pushes the tuned renderer config to every connected viewer (OBS source, battle-view tab). */
+export const broadcastRendererConfig = (matchId: string, config: RendererConfig) =>
+  api<{ status: string }>(`/api/matches/${matchId}/renderer-config`, {
+    method: 'POST',
+    body: JSON.stringify(config)
+  });
 export const getProductions = (matchId: string) =>
   api<ProductionTimeline[]>(`/api/matches/${matchId}/productions`);
 export const getProduction = (id: string) => api<ProductionTimeline>(`/api/productions/${id}`);

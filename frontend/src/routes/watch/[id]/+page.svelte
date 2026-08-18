@@ -8,7 +8,7 @@
   import BattleRenderer from '$lib/BattleRenderer.svelte';
   import ProductionConsole from '$lib/production/ProductionConsole.svelte';
   import { getPresentationMatch, getStylePresets, wsBase } from '$lib/api';
-  import { configFromQuery } from '$lib/presentation/config';
+  import { configFromQuery, sanitizeRendererConfig } from '$lib/presentation/config';
   import { styleToRendererConfig } from '$lib/production/style';
   import { connectLiveSocket } from '$lib/presentation/live-socket';
   import { PresentationTimeline } from '$lib/presentation/timeline';
@@ -30,6 +30,7 @@
 
   interface StreamMessage {
     kind: string; match?: MatchArchive; event?: BattleEvent; request?: AgentRequest; error?: string;
+    config?: Partial<RendererConfig>;
   }
 
   onMount(() => {
@@ -79,6 +80,10 @@
     }
     if (message.kind === 'agent_submitted') agentStatus = { ...agentStatus, p1: 'executing', p2: 'executing' };
     if (message.kind === 'match_completed') agentStatus = { p1: 'finished', p2: 'finished' };
+    // Mirrors the overlay route: the control tab tunes settings live over this same socket.
+    if (message.kind === 'renderer_config' && message.config) {
+      config = sanitizeRendererConfig({ ...config, ...message.config });
+    }
   }
 </script>
 

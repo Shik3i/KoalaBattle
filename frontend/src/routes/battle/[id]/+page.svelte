@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import BattleRenderer from '$lib/BattleRenderer.svelte';
-  import { api, getMatch, wsBase } from '$lib/api';
+  import { api, broadcastRendererConfig, getMatch, wsBase } from '$lib/api';
   import { loadRendererConfig, saveRendererConfig } from '$lib/presentation/config';
   import { PresentationTimeline } from '$lib/presentation/timeline';
   import { connectLiveSocket } from '$lib/presentation/live-socket';
@@ -16,6 +16,7 @@
   let submitting: Partial<Record<Side, boolean>> = {};
   let copied: string | null = null;
   let copyTimer: ReturnType<typeof setTimeout> | null = null;
+  let configBroadcastTimer: ReturnType<typeof setTimeout> | null = null;
   let error = ''; let stopSocket: (() => void) | null = null;
   let timeline: PresentationTimeline | null = null; let snapshot: TimelineSnapshot | null = null;
   let config: RendererConfig = defaultRendererConfig();
@@ -79,7 +80,11 @@
   }
   onMount(() => {
     config = loadRendererConfig(); void connect();
-    return () => { stopSocket?.(); timeline?.destroy(); if (copyTimer) clearTimeout(copyTimer); };
+    return () => {
+      stopSocket?.(); timeline?.destroy();
+      if (copyTimer) clearTimeout(copyTimer);
+      if (configBroadcastTimer) clearTimeout(configBroadcastTimer);
+    };
   });
   async function connect() {
     try {
@@ -163,6 +168,14 @@
     config = { ...config, ...patch }; saveRendererConfig(config);
     if (patch.playbackSpeed !== undefined) timeline?.setSpeed(config.playbackSpeed);
     if (patch.preset !== undefined) timeline?.setPreset(config.preset);
+    // The local preview updates instantly; already-open OBS sources and battle-view tabs only
+    // hear about it over the match's live socket, so push it there too (debounced, since a
+    // dragged slider fires this on every pixel of movement).
+    if (configBroadcastTimer) clearTimeout(configBroadcastTimer);
+    configBroadcastTimer = setTimeout(() => {
+      configBroadcastTimer = null;
+      void broadcastRendererConfig(data.id, config).catch(() => {});
+    }, 200);
   }
   async function copyText(key: string, value: string) {
     await navigator.clipboard.writeText(value); copied = key;

@@ -3,7 +3,7 @@
   import BattleRenderer from '$lib/BattleRenderer.svelte';
   import ProductionConsole from '$lib/production/ProductionConsole.svelte';
   import { getPresentationMatch, getStylePresets, wsBase } from '$lib/api';
-  import { configFromQuery } from '$lib/presentation/config';
+  import { configFromQuery, sanitizeRendererConfig } from '$lib/presentation/config';
   import { styleToRendererConfig } from '$lib/production/style';
   import { PresentationTimeline } from '$lib/presentation/timeline';
   import {
@@ -30,6 +30,7 @@
     event?: BattleEvent;
     request?: AgentRequest;
     error?: string;
+    config?: Partial<RendererConfig>;
   }
 
   onMount(() => {
@@ -104,6 +105,11 @@
     }
     if (message.kind === 'match_completed') agentStatus = { p1: 'finished', p2: 'finished' };
     if (message.kind === 'match_failed') error = message.error || 'Battle failed.';
+    // The control tab tunes settings live; this is the same OBS source it's describing when it
+    // says the preview and the source share settings, so it has to actually hear the update.
+    if (message.kind === 'renderer_config' && message.config) {
+      config = sanitizeRendererConfig({ ...config, ...message.config });
+    }
   }
 </script>
 
