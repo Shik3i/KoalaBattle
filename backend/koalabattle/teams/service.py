@@ -41,6 +41,10 @@ class TeamBuilder:
     ) -> None:
         self.repository = repository
         self.validator = validator
+        # LM Studio can expose one loaded model through the OpenAI-compatible API while
+        # still rejecting a second simultaneous generation with HTTP 500. Keep separate
+        # models independent, but serialize requests targeting the same provider/model/url.
+        self._provider_locks: dict[tuple[str, str, str], asyncio.Lock] = {}
 
     async def build(
         self,
@@ -55,29 +59,47 @@ class TeamBuilder:
         validation_errors: list[tuple[str, ...]] = []
         usages: list[ProviderUsage] = []
         snapshot = None
+        lock_key = (
+            provider.name,
+            request.model,
+            request.configuration.base_url or "",
+        )
+        provider_lock = self._provider_locks.setdefault(lock_key, asyncio.Lock())
         for attempt in range(request.max_repair_attempts + 1):
-            try:
-                async with asyncio.timeout(request.configuration.timeout_seconds):
-                    response = await provider.generate(
-                        ProviderRequest(
-                            prompt=prompt,
-                            model=request.model,
-                            timeout_seconds=request.configuration.timeout_seconds,
-                            max_output_tokens=max(request.configuration.max_output_tokens, 2_048),
-                            temperature=(
-                                request.configuration.temperature
-                                if provider.capabilities.temperature
-                                else None
-                            ),
-                            output_schema_name="koalabattle_team",
-                            output_schema=TEAM_OUTPUT_SCHEMA,
-                        )
-                    )
-            except TimeoutError:
-                validation_errors.append(("provider request timed out",))
-                break
-            except ProviderError as error:
-                validation_errors.append((f"provider {error.category.value}: {error.detail}",))
+            response = None
+            for provider_attempt in range(request.configuration.max_retries + 1):
+                try:
+                    async with provider_lock:
+                        async with asyncio.timeout(request.configuration.timeout_seconds):
+                            response = await provider.generate(
+                                ProviderRequest(
+                                    prompt=prompt,
+                                    model=request.model,
+                                    timeout_seconds=request.configuration.timeout_seconds,
+                                    max_output_tokens=max(
+                                        request.configuration.max_output_tokens, 2_048
+                                    ),
+                                    temperature=(
+                                        request.configuration.temperature
+                                        if provider.capabilities.temperature
+                                        else None
+                                    ),
+                                    output_schema_name="koalabattle_team",
+                                    output_schema=TEAM_OUTPUT_SCHEMA,
+                                )
+                            )
+                    break
+                except TimeoutError:
+                    retryable = True
+                    detail = "provider request timed out"
+                except ProviderError as error:
+                    retryable = error.retryable
+                    detail = f"provider {error.category.value}: {error.detail}"
+                validation_errors.append((detail,))
+                if not retryable or provider_attempt >= request.configuration.max_retries:
+                    break
+                await asyncio.sleep(min(2.0, 0.5 * (2**provider_attempt)))
+            if response is None:
                 break
             raw_responses.append(response.text)
             if response.usage is not None:
@@ -111,6 +133,7 @@ class TeamBuilder:
             participant=request.participant,
             provider=provider.name,
             model=request.model,
+            format=request.format,
             rendered_prompt=original_prompt,
             raw_responses=tuple(raw_responses),
             validation_errors=tuple(validation_errors),
@@ -126,9 +149,7 @@ class TeamBuilder:
 
 
 def _build_prompt(request: TeamBuildRequest) -> str:
-    return render_team_prompt(
-        request.format, request.participant, request.context, response="json"
-    )
+    return render_team_prompt(request.format, request.participant, request.context, response="json")
 
 
 def render_team_prompt(
@@ -198,7 +219,7 @@ def render_team_prompt(
     payload["export_format"] = _export_format(context)
     rules.append(
         "Follow `export_format` exactly. Every set needs its EV line, or Showdown rejects the"
-        " team with \"did you forget to EV it?\"."
+        ' team with "did you forget to EV it?".'
     )
     payload["rules"] = rules
     return json.dumps(payload, indent=2, sort_keys=True)
@@ -241,11 +262,32 @@ def _export_format(context: TeamPromptContext) -> dict[str, object]:
         notes.append("This generation has no abilities: omit the Ability line.")
     if not context.has_items:
         notes.append("This generation has no held items: omit the ` @ Item` suffix.")
-    return {
+    payload: dict[str, object] = {
         "syntax": lines,
         "example_set": "\n".join(example),
         "notes": notes,
     }
+    if context.generation == 1:
+        payload["approved_seed_sets"] = {
+            "Tauros": ["Body Slam", "Hyper Beam", "Blizzard", "Earthquake"],
+            "Snorlax": ["Body Slam", "Earthquake", "Rest", "Hyper Beam"],
+            "Chansey": ["Seismic Toss", "Thunder Wave", "Soft-Boiled", "Ice Beam"],
+            "Exeggutor": ["Psychic", "Sleep Powder", "Explosion", "Mega Drain"],
+            "Starmie": ["Surf", "Thunderbolt", "Ice Beam", "Recover"],
+            "Gengar": ["Hypnosis", "Night Shade", "Thunderbolt", "Explosion"],
+            "Alakazam": ["Psychic", "Seismic Toss", "Thunder Wave", "Recover"],
+            "Zapdos": ["Thunderbolt", "Drill Peck", "Thunder Wave", "Agility"],
+            "Cloyster": ["Clamp", "Blizzard", "Explosion", "Rest"],
+            "Rhydon": ["Earthquake", "Rock Slide", "Body Slam", "Substitute"],
+            "Jynx": ["Lovely Kiss", "Ice Beam", "Psychic", "Rest"],
+            "Jolteon": ["Thunderbolt", "Thunder Wave", "Pin Missile", "Double Kick"],
+        }
+        notes.append(
+            "For Gen 1 OU, choose exactly six distinct species from approved_seed_sets and use"
+            " only the four moves listed for each chosen species. Do not invent any species or"
+            " move outside that table."
+        )
+    return payload
 
 
 def _competition_payload(context: TeamPromptContext) -> dict[str, object]:

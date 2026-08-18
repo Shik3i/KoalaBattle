@@ -2,11 +2,16 @@ from __future__ import annotations
 
 import pytest
 
-from koalabattle.agents.providers import FakeProvider
-from koalabattle.core.models import ProviderKind, TeamSource
+from koalabattle.agents.providers import FakeProvider, ProviderError, ProviderRequest
+from koalabattle.core.models import ProviderErrorCategory, ProviderKind, TeamSource
 from koalabattle.storage import Database
 from koalabattle.teams import TeamBuilder, TeamBuildRequest, TeamRepository
-from koalabattle.teams.models import MAX_TEAM_TEXT_LENGTH, TeamValidationResult
+from koalabattle.teams.models import (
+    MAX_TEAM_TEXT_LENGTH,
+    TeamPromptContext,
+    TeamValidationResult,
+)
+from koalabattle.teams.service import render_team_prompt
 from koalabattle.teams.validator import ShowdownTeamValidator
 
 
@@ -35,6 +40,18 @@ class _RepairingValidator:
             packed_team="repaired-packed-team",
             structured_team=({"species": "Great Tusk"},),
         )
+
+
+class _ProviderErrorThenValid(FakeProvider):
+    async def generate(self, request: ProviderRequest, **kwargs):  # type: ignore[no-untyped-def]
+        if request.output_schema_name == "koalabattle_team" and self.calls == 0:
+            self.calls += 1
+            raise ProviderError(
+                ProviderErrorCategory.PROVIDER_UNAVAILABLE,
+                "temporary local provider failure",
+                retryable=True,
+            )
+        return await super().generate(request, **kwargs)
 
 
 @pytest.mark.asyncio
@@ -124,6 +141,50 @@ async def test_team_builder_repairs_with_exact_errors_and_aggregates_usage(tmp_p
     assert audit.usage is not None and audit.usage.total_tokens == 1_800
     assert provider.calls == 2
     await database.close()
+
+
+@pytest.mark.asyncio
+async def test_team_builder_retries_transient_provider_errors_and_records_format(tmp_path) -> None:
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'provider-retry.db'}")
+    await database.create_schema()
+    repository = TeamRepository(database)
+    provider = _ProviderErrorThenValid()
+    audit, snapshot = await TeamBuilder(repository, _AcceptingValidator()).build(
+        TeamBuildRequest(
+            name="Provider retry",
+            participant="Fake",
+            format="gen9ou",
+            provider=ProviderKind.FAKE,
+            model="fake-battle-v1",
+        ),
+        provider,
+    )
+    assert audit.success and snapshot is not None
+    assert audit.format == "gen9ou"
+    assert audit.validation_errors[0] == (
+        "provider provider_unavailable: temporary local provider failure",
+    )
+    assert provider.calls == 2
+    await database.close()
+
+
+def test_gen1_team_prompt_contains_validator_checked_seed_sets() -> None:
+    prompt = render_team_prompt(
+        "gen1ou",
+        "Gemma",
+        TeamPromptContext(
+            format_name="[Gen 1] OU",
+            generation=1,
+            has_items=False,
+            has_abilities=False,
+            has_natures=False,
+        ),
+        response="json",
+    )
+    assert "approved_seed_sets" in prompt
+    assert '"Tauros"' in prompt
+    assert '"Lovely Kiss"' in prompt
+    assert "Do not invent any species or move outside that table." in prompt
 
 
 @pytest.mark.asyncio
