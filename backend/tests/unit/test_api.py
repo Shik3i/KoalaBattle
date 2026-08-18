@@ -263,3 +263,33 @@ def test_historical_match_can_receive_cached_free_production(
         )
         assert refused.status_code == 409
         assert "allow_paid=true" in refused.json()["detail"]
+
+
+def test_rematch_creates_new_match_with_same_config(tmp_path: Path) -> None:
+    database_url = f"sqlite+aiosqlite:///{tmp_path / 'rematch.db'}"
+    settings = Settings(
+        _env_file=None,
+        database_url=database_url,
+    )
+    create_test_schema(settings.database_url)
+    with TestClient(create_app(settings)) as client:
+        created = client.post(
+            "/api/matches",
+            json={
+                "player1": {"display_name": "P1", "agent_type": "random"},
+                "player2": {"display_name": "P2", "agent_type": "random"},
+            },
+        )
+        assert created.status_code == 202
+        match_id = created.json()["id"]
+
+        rematched = client.post(f"/api/matches/{match_id}/rematch")
+        assert rematched.status_code == 202
+        rematch_data = rematched.json()
+        assert rematch_data["id"] != match_id
+        assert rematch_data["config"]["players"][0]["display_name"] == "P1"
+        assert rematch_data["config"]["players"][1]["display_name"] == "P2"
+
+        not_found = client.post("/api/matches/00000000-0000-0000-0000-000000000000/rematch")
+        assert not_found.status_code == 404
+

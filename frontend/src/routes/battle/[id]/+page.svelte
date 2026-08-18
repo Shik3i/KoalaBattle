@@ -1,7 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { goto } from '$app/navigation';
   import BattleRenderer from '$lib/BattleRenderer.svelte';
-  import { api, broadcastRendererConfig, getMatch, wsBase } from '$lib/api';
+  import { api, broadcastRendererConfig, getMatch, rematch, wsBase } from '$lib/api';
   import { loadRendererConfig, saveRendererConfig } from '$lib/presentation/config';
   import { PresentationTimeline } from '$lib/presentation/timeline';
   import { connectLiveSocket } from '$lib/presentation/live-socket';
@@ -78,8 +79,20 @@
     kind: string; match?: MatchArchive; event?: BattleEvent; request?: AgentRequest;
     decision?: MatchArchive['decisions'][number]; request_id?: string; error?: string;
   }
+  let activeMatchId: string | null = null;
+  $: if (data.id && activeMatchId !== null && data.id !== activeMatchId) {
+    activeMatchId = data.id;
+    stopSocket?.();
+    timeline?.destroy();
+    match = null;
+    error = '';
+    void connect();
+  }
+
   onMount(() => {
-    config = loadRendererConfig(); void connect();
+    config = loadRendererConfig();
+    activeMatchId = data.id;
+    void connect();
     return () => {
       stopSocket?.(); timeline?.destroy();
       if (copyTimer) clearTimeout(copyTimer);
@@ -243,6 +256,19 @@
   async function lifecycleAction(action: 'pause' | 'resume') {
     try { await api(`/api/matches/${data.id}/${action}`, { method: 'POST' }); }
     catch (caught) { error = caught instanceof Error ? caught.message : String(caught); }
+  }
+  let rematching = false;
+  async function handleRematch() {
+    error = '';
+    rematching = true;
+    try {
+      const created = await rematch(data.id);
+      await goto(`/battle/${created.id}`);
+    } catch (caught) {
+      error = caught instanceof Error ? caught.message : String(caught);
+    } finally {
+      rematching = false;
+    }
   }
 </script>
 
@@ -411,7 +437,7 @@
   {#if match.config.players.some((player) => player.team_export)}
     <section class="team-inspector panel"><div><span class="eyebrow">Private control data</span><h2>Fixed team snapshots</h2><p>Available only in the local control archive; spectator and OBS payloads exclude these exports.</p></div>{#each match.config.players as player}{#if player.team_export}<details><summary>{player.side.toUpperCase()} · {player.display_name}</summary><textarea readonly value={player.team_export}></textarea></details>{/if}{/each}</section>
   {/if}
-  <section class="audit-head"><div><span class="eyebrow">Audit trail</span><h2>Decisions and events</h2></div><div class="audit-stats"><span><strong>{snapshot?.eventCount || match.events.length}</strong> events</span><span><strong>{match.decisions.length}</strong> decisions</span><span><strong>{match.turns}</strong> turns</span></div><div class="audit-actions"><a class="button secondary" href={`/replay/${match.id}`}>Replay</a>{#if ['running','waiting'].includes(match.status)}<button class="button secondary" on:click={() => lifecycleAction('pause')}>Pause</button>{:else if match.status === 'paused'}<button class="button secondary" on:click={() => lifecycleAction('resume')}>Resume</button>{/if}{#if !['completed','failed','cancelled','interrupted'].includes(match.status)}<button class="button danger" on:click={cancel}>Cancel</button>{/if}</div></section>
+  <section class="audit-head"><div><span class="eyebrow">Audit trail</span><h2>Decisions and events</h2></div><div class="audit-stats"><span><strong>{snapshot?.eventCount || match.events.length}</strong> events</span><span><strong>{match.decisions.length}</strong> decisions</span><span><strong>{match.turns}</strong> turns</span></div><div class="audit-actions"><a class="button secondary" href={`/replay/${match.id}`}>Replay</a>{#if ['running','waiting'].includes(match.status)}<button class="button secondary" on:click={() => lifecycleAction('pause')}>Pause</button>{:else if match.status === 'paused'}<button class="button secondary" on:click={() => lifecycleAction('resume')}>Resume</button>{/if}{#if ['failed','cancelled','interrupted'].includes(match.status)}<button class="button" disabled={rematching} on:click={handleRematch}>{rematching ? 'Rematching…' : 'Rematch'}</button>{/if}{#if !['completed','failed','cancelled','interrupted'].includes(match.status)}<button class="button danger" on:click={cancel}>Cancel</button>{/if}</div></section>
   <div class="decision-list">
     {#each [...match.decisions].reverse() as record}
       <details class="decision panel">

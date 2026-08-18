@@ -62,6 +62,10 @@ export const getFormatGroups = (supportedOnly = false, signal?: AbortSignal) =>
 export const getFormat = (id: string) => api<FormatDescriptor>(`/api/formats/${id}`);
 export const getPresentationMatch = (id: string) =>
   api<MatchArchive>(`/api/matches/${id}/presentation`);
+/** New match, same config as an interrupted/failed/cancelled one - there is no mid-battle
+ * resume path (no seed replay, no room reconnect), so this is the one-click alternative. */
+export const rematch = (matchId: string) =>
+  api<MatchArchive>(`/api/matches/${matchId}/rematch`, { method: 'POST' });
 /** Pushes the tuned renderer config to every connected viewer (OBS source, battle-view tab). */
 export const broadcastRendererConfig = (matchId: string, config: RendererConfig) =>
   api<{ status: string }>(`/api/matches/${matchId}/renderer-config`, {

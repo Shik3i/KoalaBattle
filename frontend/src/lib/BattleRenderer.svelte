@@ -1,4 +1,4 @@
-﻿<script lang="ts">
+<script lang="ts">
   import { pokemonAssetUrl } from './presentation/assets';
   import {
     defaultRendererConfig,
@@ -25,7 +25,7 @@
    * footprint instead of stretching sprites to fill space.
    */
   const NATIVE_SPRITE_PX = 96;
-  const MAX_UPSCALE = 3;
+  const MAX_UPSCALE = 2.4;
   const TEAM_SIZE = 6;
   const RETRO_GENERATIONS = new Set([1, 2]);
 
@@ -354,23 +354,21 @@
             <div class="sprite-slot">
               <div class="platform" aria-hidden="true"><i></i></div>
               <div class="contact-shadow" aria-hidden="true"></div>
-              {#key `${presentation.eventSequence}:${slot.side}:${presentation.players[slot.side].motion}`}
-                <div
-                  style={spriteStyle(presentation.players[slot.side].motion, slot.place === 'near')}
-                  class={`sprite ${presentation.players[slot.side].motion}`}
-                >
-                  {#if !failedAssets.has(assetKey(slot.data, slot.perspective))}
-                    <img
-                      src={spriteUrl(slot.data.active.species, slot.perspective)}
-                      alt={slot.data.active.name}
-                      on:load={onAssetLoad}
-                      on:error={() => slot.data && onAssetError(assetKey(slot.data, slot.perspective))}
-                    />
-                  {:else}
-                    <div class="sprite-missing"><span class="pokeball" aria-hidden="true"><i></i></span><small>SPRITE</small></div>
-                  {/if}
-                </div>
-              {/key}
+              <div
+                style={spriteStyle(presentation.players[slot.side].motion, slot.place === 'near')}
+                class={`sprite ${presentation.players[slot.side].motion}`}
+              >
+                {#if !failedAssets.has(assetKey(slot.data, slot.perspective))}
+                  <img
+                    src={spriteUrl(slot.data.active.species, slot.perspective)}
+                    alt={slot.data.active.name}
+                    on:load={onAssetLoad}
+                    on:error={() => slot.data && onAssetError(assetKey(slot.data, slot.perspective))}
+                  />
+                {:else}
+                  <div class="sprite-missing"><span class="pokeball" aria-hidden="true"><i></i></span><small>SPRITE</small></div>
+                {/if}
+              </div>
               {#if config.showDamageNumbers && presentation.impacts[slot.side]}
                 {#key presentation.impacts[slot.side]?.sequence}
                   <strong
@@ -610,25 +608,17 @@
   .hud-near .team-strip{justify-content:flex-end}
 
   /* ── Combatants ─────────────────────────────────────────────────────────── */
-  .combatant{position:absolute;z-index:8;display:flex;flex-direction:column;align-items:center;gap:.25rem;width:min(38%,420px)}
-  .combatant-far{top:9%;right:8%;flex-direction:column-reverse}
-  .combatant-near{bottom:13%;left:8%}
-  .combatant-far{--fighter-color:var(--r-p2)}
-  .combatant-near{--fighter-color:var(--r-p1)}
-  .platform{position:absolute;bottom:-6%;left:50%;width:86%;aspect-ratio:3.4/1;transform:translateX(-50%);pointer-events:none}
-  .platform i{position:absolute;inset:0;border-radius:50%;background:radial-gradient(ellipse at 50% 44%,rgba(150,255,200,.26),rgba(20,74,62,.44) 56%,transparent 74%);box-shadow:0 0 34px rgba(122,255,183,.14)}
+  .combatant{position:absolute;z-index:8;display:flex;flex-direction:column;align-items:center;gap:.35rem;width:min(34%,380px)}
+  .combatant-far{top:11%;right:12%;flex-direction:column-reverse;--fighter-color:var(--r-p2)}
+  .combatant-near{bottom:8%;left:10%;--fighter-color:var(--r-p1)}
+  .platform{position:absolute;bottom:0;left:50%;width:84%;aspect-ratio:3.4/1;transform:translate(-50%,36%);pointer-events:none}
+  .platform i{position:absolute;inset:0;border-radius:50%;background:radial-gradient(ellipse at 50% 46%,rgba(140,255,190,.32),rgba(20,74,62,.44) 56%,transparent 74%);box-shadow:0 0 32px rgba(122,255,183,.16)}
   .combatant-far .platform{width:72%}
-  .sprite-slot{position:relative;display:grid;align-items:end;justify-items:center;width:100%;height:min(34cqh,calc(var(--sprite-native) * var(--max-upscale) * var(--depth,1)))}
-  .combatant-far .sprite-slot{--depth:.82}
-  .contact-shadow{position:absolute;bottom:-1%;left:50%;z-index:1;width:46%;height:11%;transform:translateX(-50%);border-radius:50%;background:radial-gradient(ellipse,rgba(0,0,0,.6),transparent 68%);filter:blur(2.5px);pointer-events:none}
-  .sprite{position:relative;z-index:2;display:grid;place-items:end center;width:100%;height:100%;transform-origin:center bottom}
-  /* Never scale a 96px sprite past MAX_UPSCALE; cap the footprint instead of stretching. */
-  /* Height is the smaller of the slot and this asset's own size times the upscale cap, so a
-     48px animated frame is never stretched as far as a 96px sheet. */
-  /* Installed sprites are 96px indexed-color art with hard edges at every generation, not
-     just gen 1-2 (mixed-gen packs use the same flat classic set throughout). Smoothing that
-     upscale blurs and fringes every edge; nearest-neighbor keeps it crisp at MAX_UPSCALE. */
-  .sprite img{display:block;width:auto;max-width:100%;height:min(100%,calc(var(--natural-h,96) * var(--max-upscale) * 1px));object-fit:contain;image-rendering:pixelated;filter:drop-shadow(0 10px 12px rgba(0,0,0,.5))}
+  .sprite-slot{position:relative;display:flex;align-items:flex-end;justify-content:center;width:100%;height:min(30cqh,calc(var(--sprite-native) * var(--max-upscale) * var(--depth,1)))}
+  .combatant-far .sprite-slot{--depth:.78}
+  .contact-shadow{position:absolute;bottom:0;left:50%;z-index:1;width:48%;height:14%;transform:translate(-50%,30%);border-radius:50%;background:radial-gradient(ellipse,rgba(0,0,0,.65),transparent 70%);filter:blur(3px);pointer-events:none}
+  .sprite{position:relative;z-index:2;display:flex;align-items:flex-end;justify-content:center;width:100%;height:100%;transform-origin:center bottom}
+  .sprite img{display:block;width:auto;max-width:100%;height:min(100%,calc(var(--natural-h,96) * var(--max-upscale) * var(--depth,1) * 1px));object-fit:contain;image-rendering:pixelated;filter:drop-shadow(0 8px 14px rgba(0,0,0,.45))}
   .sprite-missing{display:grid;place-items:center;gap:.25rem;color:var(--r-dim);font:800 .55rem var(--mono);letter-spacing:.12em}
   .sprite-missing .pokeball{width:clamp(28px,4cqw,52px)}
   .sprite-missing small{font:inherit}

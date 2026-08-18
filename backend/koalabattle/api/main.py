@@ -565,6 +565,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
 
+    @app.post(
+        "/api/matches/{match_id}/rematch", response_model=MatchArchive, status_code=status.HTTP_202_ACCEPTED
+    )
+    async def rematch_match(match_id: UUID, request: Request) -> MatchArchive:
+        """A runtime session that died with its process (backend restart, crash) has nothing
+        left to reconnect to - there is no seed-replay or room-reconnect path today. This is
+        the honest alternative: a new match, same config, one click instead of a manual
+        recreate."""
+        archive = await _repository(request).get_match(match_id)
+        if archive is None:
+            raise HTTPException(status_code=404, detail="match not found")
+        try:
+            return await _service(request).create_match(archive.config)
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
     @app.get("/api/matches", response_model=tuple[MatchSummary, ...])
     async def list_matches(
         request: Request,
