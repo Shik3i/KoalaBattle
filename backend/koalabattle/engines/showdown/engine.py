@@ -100,6 +100,7 @@ class _KoalaPlayer(Player):
             memory_policy=self.context.config.memory_policy,
             strategy_memory=self.strategy_memory,
             maximum_turns=self.context.config.limits.maximum_turns,
+            banter_enabled=self.context.config.banter_enabled,
         )
         request = AgentRequest(
             request_id=uuid4(),
@@ -124,6 +125,7 @@ class _KoalaPlayer(Player):
             memory_policy_version=context_snapshot.memory_policy_version,
             prompt_schema_version=PROMPT_SCHEMA_VERSION,
             prompt_template_version=PROMPT_TEMPLATE_VERSION,
+            banter_enabled=self.context.config.banter_enabled,
         )
         await _bridge(
             self.app_loop,
@@ -168,6 +170,10 @@ class _KoalaPlayer(Player):
                     "action": decision.action,
                     "action_name": selected.name,
                     "commentary": decision.commentary,
+                    "banter": decision.banter,
+                    "public_text": " ".join(
+                        item for item in (decision.commentary, decision.banter) if item
+                    ),
                     "provider": decision.provider,
                     "model": decision.model,
                     "latency_ms": decision.latency_ms,

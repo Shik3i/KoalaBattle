@@ -160,6 +160,7 @@ test('forward-looking snapshots cannot reveal HP or switches before their events
   assert.equal(beforeEvents.battle?.turn, 5);
   assert.equal(beforeEvents.battle?.opponent.active?.name, 'Eevee');
   assert.equal(beforeEvents.battle?.opponent.active?.hp_fraction, 1);
+  assert.deepEqual(beforeEvents.battle?.opponent.team.map((member) => member.name), ['Eevee', 'Snorlax']);
 
   const afterEvents = reduceEvents(beforeEvents, [
     event(3, 'damage', { target: 'p2a: Eevee', hp: '0 fnt' }),
@@ -170,6 +171,21 @@ test('forward-looking snapshots cannot reveal HP or switches before their events
   assert.equal(afterEvents.battle?.turn, 6);
   assert.equal(afterEvents.battle?.opponent.active?.name, 'Snorlax');
   assert.equal(afterEvents.battle?.opponent.active?.hp_fraction, 1);
+});
+
+test('a switch event can reveal an opponent that was absent from prior snapshots', () => {
+  const initial = reducePresentation(createPresentationState(match), event(1, 'state_snapshot', {
+    state: {
+      ...battle,
+      player: { ...battle.player, active: null, team: [] },
+      opponent: { ...battle.opponent, active: null, team: [] }
+    }
+  }));
+  const switched = reducePresentation(initial, event(2, 'pokemon_switched', {
+    actor: 'p2a: Gholdengo', hp: '100/100'
+  }));
+  assert.equal(switched.battle?.opponent.active?.species, 'gholdengo');
+  assert.equal(switched.battle?.opponent.team[0]?.name, 'Gholdengo');
 });
 
 test('maps internal Showdown winner usernames back to participant display names', () => {

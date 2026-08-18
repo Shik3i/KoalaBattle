@@ -5,6 +5,7 @@ import json
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from koalabattle.core.models import (
+    MAX_BANTER_CHARACTERS,
     MAX_COMMENTARY_CHARACTERS,
     MAX_STORED_COMMENTARY_CHARACTERS,
     MAX_STRATEGY_MEMORY_CHARACTERS,
@@ -16,6 +17,9 @@ class StructuredDecision(BaseModel):
 
     action: str
     commentary: str = Field(default="", max_length=MAX_STORED_COMMENTARY_CHARACTERS)
+    # Trim after parsing so a wordy model response can still produce a legal turn.
+    # AgentDecision applies the same maximum to the persisted/public value.
+    banter: str | None = Field(default=None)
     strategy_memory: str | None = Field(default=None, max_length=MAX_STRATEGY_MEMORY_CHARACTERS)
 
 
@@ -35,6 +39,20 @@ def trim_commentary(commentary: str) -> str:
     return f"{clipped.rstrip(' ,;:.')}…"
 
 
+def trim_banter(banter: str | None) -> str:
+    """Keep optional opponent-facing banter short, clean and safe to speak aloud."""
+    if not banter:
+        return ""
+    collapsed = " ".join(banter.split())
+    if len(collapsed) <= MAX_BANTER_CHARACTERS:
+        return collapsed
+    clipped = collapsed[: MAX_BANTER_CHARACTERS - 1]
+    boundary = clipped.rfind(" ")
+    if boundary > MAX_BANTER_CHARACTERS // 2:
+        clipped = clipped[:boundary]
+    return f"{clipped.rstrip(' ,;:.')}…"
+
+
 def parse_structured_decision(raw_response: str, legal_ids: set[str]) -> StructuredDecision:
     try:
         payload = _decode_object(raw_response)
@@ -48,7 +66,12 @@ def parse_structured_decision(raw_response: str, legal_ids: set[str]) -> Structu
         raise ValueError(f"Response schema is invalid: {error}") from error
     if response.action not in legal_ids:
         raise ValueError("Selected action is no longer legal.")
-    return response.model_copy(update={"commentary": trim_commentary(response.commentary)})
+    return response.model_copy(
+        update={
+            "commentary": trim_commentary(response.commentary),
+            "banter": trim_banter(response.banter),
+        }
+    )
 
 
 def _decode_object(raw_response: str) -> object:

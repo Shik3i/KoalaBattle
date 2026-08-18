@@ -14,6 +14,8 @@ SCHEMA_VERSION = "1.0"
 
 #: Public commentary is read on the overlay and spoken by TTS: one sentence, not an essay.
 MAX_COMMENTARY_CHARACTERS = 240
+#: Optional opponent-facing banter is shorter than commentary and is also spoken by TTS.
+MAX_BANTER_CHARACTERS = 160
 #: Private strategy memory the agent carries between turns. Never shown to spectators.
 MAX_STRATEGY_MEMORY_CHARACTERS = 400
 #: Historical archives predate the shorter public limit and must still load.
@@ -173,7 +175,7 @@ class FallbackRecord(FrozenModel):
 
 
 class AgentConfiguration(FrozenModel):
-    timeout_seconds: float = Field(default=45.0, ge=1, le=600)
+    timeout_seconds: float = Field(default=300.0, ge=1, le=600)
     max_retries: int = Field(default=1, ge=0, le=5)
     fallback: FallbackPolicy = FallbackPolicy.RANDOM
     temperature: float | None = Field(default=None, ge=0, le=2)
@@ -327,6 +329,8 @@ class AgentContextSnapshot(FrozenModel):
     #: The match ends when this turn is reached, so it changes how a position should be played.
     #: Absent on archives recorded before the limit was part of the prompt.
     maximum_turns: int | None = Field(default=None, ge=1)
+    #: Optional public opponent-facing line. It is never enabled implicitly.
+    banter_enabled: bool = False
     side: Side
     knowledge: PlayerKnowledgeState
     recent_events: tuple[str, ...] = ()
@@ -436,6 +440,7 @@ class AgentRequest(FrozenModel):
     prompt_schema_version: str = "5.0"
     prompt_template_version: str = "pokemon-battle-v2"
     information_profile: Literal["standard"] = "standard"
+    banter_enabled: bool = False
 
 
 class AgentDecision(FrozenModel):
@@ -449,6 +454,7 @@ class AgentDecision(FrozenModel):
     # Stored archives keep the historical ceiling; new decisions are trimmed to
     # MAX_COMMENTARY_CHARACTERS when the response is parsed.
     commentary: str = Field(default="", max_length=MAX_STORED_COMMENTARY_CHARACTERS)
+    banter: str = Field(default="", max_length=MAX_BANTER_CHARACTERS)
     strategy_memory: str | None = Field(default=None, max_length=MAX_STRATEGY_MEMORY_CHARACTERS)
     raw_response: str | None = None
     provider_metadata: dict[str, Any] = Field(default_factory=dict)
@@ -523,6 +529,7 @@ class MatchConfig(FrozenModel):
     prompt_profile: PromptProfileId = PromptProfileId.STANDARD_COMPETITIVE
     context_profile: ContextProfileId = ContextProfileId.STANDARD
     memory_policy: MemoryPolicyId = MemoryPolicyId.STRATEGY_NOTE
+    banter_enabled: bool = False
     team_policy: TeamPolicy = TeamPolicy.SHOWDOWN_RANDOM
     limits: MatchLimits = Field(default_factory=MatchLimits)
 

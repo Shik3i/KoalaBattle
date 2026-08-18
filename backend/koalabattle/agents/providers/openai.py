@@ -6,6 +6,7 @@ import openai
 from openai import AsyncOpenAI
 
 from koalabattle.core.models import (
+    MAX_BANTER_CHARACTERS,
     MAX_COMMENTARY_CHARACTERS,
     MAX_STRATEGY_MEMORY_CHARACTERS,
     ProviderErrorCategory,
@@ -18,6 +19,7 @@ from .base import (
     ProviderModel,
     ProviderRequest,
     ProviderResponse,
+    TextDeltaCallback,
 )
 
 DECISION_SCHEMA: dict[str, object] = {
@@ -25,12 +27,16 @@ DECISION_SCHEMA: dict[str, object] = {
     "properties": {
         "action": {"type": "string"},
         "commentary": {"type": "string", "maxLength": MAX_COMMENTARY_CHARACTERS},
+        "banter": {
+            "type": ["string", "null"],
+            "maxLength": MAX_BANTER_CHARACTERS,
+        },
         "strategy_memory": {
             "type": ["string", "null"],
             "maxLength": MAX_STRATEGY_MEMORY_CHARACTERS,
         },
     },
-    "required": ["action", "commentary", "strategy_memory"],
+    "required": ["action", "commentary", "banter", "strategy_memory"],
     "additionalProperties": False,
 }
 
@@ -48,7 +54,12 @@ class OpenAIProvider:
     def __init__(self, api_key: str) -> None:
         self._api_key = api_key
 
-    async def generate(self, request: ProviderRequest) -> ProviderResponse:
+    async def generate(
+        self,
+        request: ProviderRequest,
+        *,
+        on_text_delta: TextDeltaCallback | None = None,
+    ) -> ProviderResponse:
         client = AsyncOpenAI(api_key=self._api_key, timeout=request.timeout_seconds, max_retries=0)
         arguments: dict[str, Any] = {
             "model": request.model,

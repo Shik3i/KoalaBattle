@@ -16,18 +16,24 @@ Presets: YouTube 1080p60 and 1080p30, 1440p60, optional 4K60, Vertical 1080x1920
 60 or 30 FPS, and Fast Preview 1280x720p30. Existing 60 FPS presets retain their meaning.
 H.264/yuv420p MP4 is the compatible final output. The default native engine feature-detects
 WebCodecs H.264, then VP9 with a local FFmpeg H.264 conversion. Encoder selection maps only to
-a bounded hardware preference; arbitrary codec arguments are never accepted.
-An actual one-frame encode validates advertised WebCodecs support. If neither browser encoder
-works, bounded Canvas RGBA frames feed local `libx264`; static holds are expanded in the pipe.
+a bounded hardware preference; arbitrary codec arguments are never accepted. An actual one-frame
+encode validates advertised WebCodecs support. On Linux/container rendering, compressed MJPEG
+keyframes feed local `libx264`; static holds are expanded in the pipe. Raw RGBA is the bounded
+compatibility fallback.
 
 `render_engine=native` is the default. `render_engine=legacy` exposes the previous screenshot
 pipeline for explicit debug/compatibility work only. Native failures never silently switch to
 Legacy. OBS remains a separate realtime backend.
 
 Pacing profiles are versioned independently: Full Replay, YouTube, Fast, and Shorts. They
-define synthetic thinking time, transition gaps, result hold time, and commentary policy;
-persisted provider latency remains untouched in the historical decision records. Query them
-through `GET /api/video/pacing-profiles`.
+define deterministic minimum turn slots, the gap between turns, intro/result/outro holds, and
+commentary policy; persisted provider latency remains untouched in the historical decision
+records. Events within one turn share the same slot and do not receive synthetic gaps. Query
+them through `GET /api/video/pacing-profiles`.
+
+The YouTube defaults are 20,000 ms minimum per turn, 180 ms between turns, and
+2,200/1,800/600 ms for intro/result/outro. A real speech artifact may extend a turn when its
+duration is longer than the slot. This is the only intended timing extension.
 
 Filesystem:
 
@@ -126,10 +132,15 @@ Cancellation stops owned Chromium/FFmpeg or OBS recording and removes temp files
 active in-memory work becomes failed/interrupted and can be retried. Export failure never
 updates match events, decisions, winner, or tournament results.
 
-Native preflight requires a finalized production, writable output, configured free disk,
-FFmpeg/FFprobe, Playwright, Chromium, working WebCodecs H.264/VP9 or raw-frame `libx264`, and required cached
-speech. It never makes paid TTS calls.
-Use **Prepare free neural speech** explicitly when required clips are absent.
+Native preflight requires a finalized or prepared production, writable output, configured free
+disk, FFmpeg/FFprobe, Playwright, Chromium, working WebCodecs H.264/VP9 or raw-frame `libx264`,
+and required cached speech. Archived replay creation, preflight, and export automatically prepare
+missing public Edge Neural speech with `allow_paid=false`, reusing valid cache entries and
+regenerating only missing or corrupt artifacts. The default automatic path never selects a system
+voice. Missing Edge cues are scheduled concurrently, bounded by
+`KOALABATTLE_SPEECH_MAX_CONCURRENCY`. Internal agent progress/state and raw Showdown message
+events do not become replay beats. The **Prepare speech audio** action remains available for an
+explicit retry or regeneration.
 
 When Chromium runs in the optional external renderer container, the API reads its capability
 heartbeat from the shared video volume. The renderer refreshes it every 10 seconds and the API

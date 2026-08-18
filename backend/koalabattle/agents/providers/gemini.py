@@ -11,6 +11,7 @@ from .base import (
     ProviderModel,
     ProviderRequest,
     ProviderResponse,
+    TextDeltaCallback,
 )
 from .openai import DECISION_SCHEMA
 
@@ -28,7 +29,12 @@ class GeminiProvider:
     def __init__(self, api_key: str) -> None:
         self._client = genai.Client(api_key=api_key)
 
-    async def generate(self, request: ProviderRequest) -> ProviderResponse:
+    async def generate(
+        self,
+        request: ProviderRequest,
+        *,
+        on_text_delta: TextDeltaCallback | None = None,
+    ) -> ProviderResponse:
         config = types.GenerateContentConfig(
             response_mime_type="application/json",
             response_json_schema=request.output_schema or DECISION_SCHEMA,

@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import random
 from collections.abc import Awaitable, Callable
 from time import perf_counter
 
 from koalabattle.core.models import (
+    MAX_COMMENTARY_CHARACTERS,
     AgentConfiguration,
     AgentDecision,
     AgentLifecycleState,
@@ -89,7 +91,43 @@ class ApiAgent:
         system_prompt = request.system_prompt
         prompt = request.user_prompt or request.prompt
         response = None
-        await self._state_callback(request.side, AgentLifecycleState.THINKING, request.turn, {})
+        streaming = self.provider.capabilities.streaming
+        preview = _CommentaryPreview() if streaming else None
+        last_preview = ""
+        last_preview_at = 0.0
+
+        async def on_text_delta(delta: str) -> None:
+            nonlocal last_preview, last_preview_at
+            if preview is None:
+                return
+            commentary = preview.feed(delta)
+            now = perf_counter()
+            if (
+                not commentary
+                or commentary == last_preview
+                or (len(commentary) - len(last_preview) < 8 and now - last_preview_at < 0.25)
+            ):
+                return
+            last_preview = commentary
+            last_preview_at = now
+            await self._state_callback(
+                request.side,
+                AgentLifecycleState.THINKING,
+                request.turn,
+                {"streaming": True, "progress": commentary},
+            )
+
+        context_metrics = (
+            request.context_metrics.model_dump(mode="json")
+            if request.context_metrics is not None
+            else None
+        )
+        await self._state_callback(
+            request.side,
+            AgentLifecycleState.THINKING,
+            request.turn,
+            {"streaming": streaming, "context_metrics": context_metrics},
+        )
         for attempt in range(1, self.configuration.max_retries + 2):
             try:
                 async with asyncio.timeout(self.configuration.timeout_seconds):
@@ -111,7 +149,8 @@ class ApiAgent:
                                 else None
                             ),
                             output_schema=DECISION_SCHEMA,
-                        )
+                        ),
+                        on_text_delta=on_text_delta if streaming else None,
                     )
                 parsed = parse_structured_decision(response.text, legal_ids)
                 cost = self._pricing.estimate(self.provider.name, response.model, response.usage)
@@ -127,6 +166,7 @@ class ApiAgent:
                     decision_sequence=request.decision_sequence,
                     action=parsed.action,
                     commentary=parsed.commentary,
+                    banter=parsed.banter or "",
                     strategy_memory=(
                         parsed.strategy_memory
                         if request.memory_policy.value == "strategy-note"
@@ -150,7 +190,11 @@ class ApiAgent:
                     request.side,
                     AgentLifecycleState.DECIDED,
                     request.turn,
-                    {"action": decision.action, "commentary": decision.commentary},
+                    {
+                        "action": decision.action,
+                        "commentary": decision.commentary,
+                        "banter": decision.banter,
+                    },
                 )
                 return decision
             except TimeoutError as error:
@@ -186,6 +230,10 @@ class ApiAgent:
             prompt = _repair_prompt(
                 request.user_prompt or request.prompt, legal_ids, provider_error.detail
             )
+            if preview is not None:
+                preview = _CommentaryPreview()
+                last_preview = ""
+                last_preview_at = 0.0
             await asyncio.sleep(min(1.0, 0.2 * (2 ** (attempt - 1))))
         return await self._fallback(
             request,
@@ -266,3 +314,37 @@ def _repair_prompt(original_prompt: str, legal_ids: set[str], detail: str) -> st
         f"Allowed action IDs: {allowed}\n"
         "Return a corrected JSON object using the same authoritative context."
     )
+
+
+class _CommentaryPreview:
+    """Extract only the public commentary field from a streamed JSON response."""
+
+    def __init__(self) -> None:
+        self.buffer = ""
+
+    def feed(self, delta: str) -> str:
+        self.buffer = (self.buffer + delta)[-8_000:]
+        marker = '"commentary"'
+        marker_start = self.buffer.find(marker)
+        if marker_start < 0:
+            return ""
+        quote_start = self.buffer.find('"', marker_start + len(marker))
+        if quote_start < 0:
+            return ""
+        raw = self.buffer[quote_start + 1 :]
+        escaped = False
+        end = len(raw)
+        for index, character in enumerate(raw):
+            if character == '"' and not escaped:
+                end = index
+                break
+            if character == "\\" and not escaped:
+                escaped = True
+            else:
+                escaped = False
+        fragment = raw[:end]
+        try:
+            decoded = json.loads(f'"{fragment}"')
+            return decoded[:MAX_COMMENTARY_CHARACTERS] if isinstance(decoded, str) else ""
+        except json.JSONDecodeError:
+            return ""

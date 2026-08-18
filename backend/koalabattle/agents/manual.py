@@ -44,6 +44,7 @@ class ManualDecisionBroker:
                 decision_sequence=request.decision_sequence,
                 action=response.action,
                 commentary=response.commentary,
+                banter=response.banter or "",
                 strategy_memory=(
                     response.strategy_memory
                     if request.memory_policy.value == "strategy-note"

@@ -16,9 +16,9 @@ export interface RenderPlanFrame {
  * Holding an identical frame for seconds at a time froze the Pokemon mid-battle, which read
  * as "the sprites are static" even though the compositor animates idle breathing. Rendering
  * a reduced cadence through those stretches restores the motion while keeping most of the
- * saving, because breathing is slow enough that 15 Hz is indistinguishable from 60 Hz.
+ * saving; 6 Hz is enough for the slow idle loop while avoiding needless 1080p rasters.
  */
-export const IDLE_RENDER_HZ = 15;
+export const IDLE_RENDER_HZ = 6;
 
 export interface RenderPlan {
   version: '1.0';
@@ -33,6 +33,13 @@ export interface RenderPlan {
   frames: RenderPlanFrame[];
 }
 
+export interface RenderPlanOptions {
+  /** 0 disables idle animation for offline export; event animation remains frame-accurate. */
+  idleRenderHz?: number;
+  /** Deterministic animation sampling rate. CFR output still repeats held frames. */
+  animatedRenderHz?: number;
+}
+
 const CONTINUOUS_VISUALS = new Set([
   'move_used', 'move_missed', 'damage', 'healing', 'critical_hit', 'status_applied',
   'status_removed', 'super_effective', 'resisted', 'immune', 'weather_changed',
@@ -44,7 +51,8 @@ export function createRenderPlan(
   production: ProductionTimeline,
   startMs: number,
   endMs: number,
-  fps: number
+  fps: number,
+  options: RenderPlanOptions = {}
 ): RenderPlan {
   if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
     throw new Error('render plan requires a non-empty finite time range');
@@ -66,7 +74,16 @@ export function createRenderPlan(
     }
   }
   const frames: RenderPlanFrame[] = [];
-  const idleStride = Math.max(1, Math.round(fps / IDLE_RENDER_HZ));
+  const idleRenderHz = options.idleRenderHz ?? IDLE_RENDER_HZ;
+  if (!Number.isFinite(idleRenderHz) || idleRenderHz < 0 || idleRenderHz > fps) {
+    throw new Error('render plan idle render rate must be between 0 and fps');
+  }
+  const animatedRenderHz = options.animatedRenderHz ?? fps;
+  if (!Number.isFinite(animatedRenderHz) || animatedRenderHz <= 0 || animatedRenderHz > fps) {
+    throw new Error('render plan animated render rate must be between 1 and fps');
+  }
+  const idleStride = idleRenderHz > 0 ? Math.max(1, Math.round(fps / idleRenderHz)) : Infinity;
+  const animatedStride = Math.max(1, Math.round(fps / animatedRenderHz));
   let unique = 0;
   let animatedFrames = 0;
   let idleFrames = 0;
@@ -75,8 +92,9 @@ export function createRenderPlan(
     const animated = relevant.some((cue) => cueAnimatedAt(cue, logicalTimeMs));
     const boundary = boundaries.has(index);
     // Purely index-based, so the plan stays deterministic for a given range and fps.
-    const idle = !animated && !boundary && index % idleStride === 0;
-    const render = index === 0 || animated || boundary || idle;
+    const idle = idleRenderHz > 0 && !animated && !boundary && index % idleStride === 0;
+    const animatedSample = animated && index % animatedStride === 0;
+    const render = index === 0 || animatedSample || boundary || idle;
     if (render) unique += 1;
     if (animated) animatedFrames += 1;
     if (idle) idleFrames += 1;

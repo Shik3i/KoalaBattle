@@ -74,6 +74,7 @@ class MatchTemplateSnapshot(FrozenTournamentModel):
     prompt_profile: PromptProfileId = PromptProfileId.STANDARD_COMPETITIVE
     context_profile: ContextProfileId = ContextProfileId.STANDARD
     memory_policy: MemoryPolicyId = MemoryPolicyId.STRATEGY_NOTE
+    banter_enabled: bool = False
     team_policy: TeamPolicy = TeamPolicy.SHOWDOWN_RANDOM
     limits: MatchLimits = Field(default_factory=MatchLimits)
     presentation: dict[str, Any] = Field(default_factory=dict)

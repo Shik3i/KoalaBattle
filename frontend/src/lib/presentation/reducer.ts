@@ -5,6 +5,7 @@ import {
   type BattleEffect,
   type BattlePresentationState,
   type CommentaryPhase,
+  type ContextMetricsPresentation,
   type ImpactPresentationState,
   type MoveVisualArchetype,
   type MoveVisualProfile,
@@ -28,7 +29,9 @@ export function createPresentationState(match: PresentationMatch): BattlePresent
       motion: 'idle',
       commentary: [],
       currentCommentary: null,
-      commentaryPhase: 'waiting'
+      commentaryPhase: 'waiting',
+      streamPreview: null,
+      contextMetrics: null
     };
   };
   return {
@@ -175,14 +178,21 @@ export function reducePresentation(
       battle = updateBattleActive(battle, targetSide, { hp: '0 fnt', fainted: true });
       players = setMotion(players, targetSide, 'fainting');
       break;
-    case 'agent_state': {
+    case 'agent_state':
+    case 'agent_progress': {
       if (!side) break;
       const lifecycle = stringValue(payload.state);
       if (lifecycle === 'thinking' || lifecycle === 'waiting' || lifecycle === 'retrying') {
         // A new decision has started, so the previous turn's commentary is no longer current.
         players = {
           ...players,
-          [side]: { ...players[side], commentaryPhase: 'thinking', currentCommentary: null }
+          [side]: {
+            ...players[side],
+            commentaryPhase: 'thinking',
+            currentCommentary: null,
+            streamPreview: stringValue(payload.progress) || null,
+            contextMetrics: contextMetricsValue(payload.context_metrics) || players[side].contextMetrics
+          }
         };
       }
       break;
@@ -195,7 +205,7 @@ export function reducePresentation(
         side,
         action: stringValue(payload.action),
         actionName: stringValue(payload.action_name),
-        commentary: stringValue(payload.commentary),
+        commentary: stringValue(payload.public_text) || stringValue(payload.commentary),
         latencyMs: numberValue(payload.latency_ms)
       };
       players = {
@@ -205,6 +215,7 @@ export function reducePresentation(
           agentStatus: 'decided',
           commentaryPhase: 'decided',
           currentCommentary: entry,
+          streamPreview: null,
           commentary: [...players[side].commentary, entry]
         }
       };
@@ -368,6 +379,16 @@ function stringValue(value: unknown): string {
   return typeof value === 'string' ? value : '';
 }
 
+function contextMetricsValue(value: unknown): ContextMetricsPresentation | null {
+  if (!value || typeof value !== 'object') return null;
+  const candidate = value as Record<string, unknown>;
+  const renderedCharacters = numberValue(candidate.rendered_characters);
+  const estimatedTokens = numberValue(candidate.estimated_tokens);
+  return renderedCharacters !== null && estimatedTokens !== null
+    ? { renderedCharacters, estimatedTokens }
+    : null;
+}
+
 function numberValue(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
@@ -467,7 +488,8 @@ function updateBattleActive(
     status: update.status !== undefined ? update.status : active.status,
     fainted: update.fainted ?? active.fainted
   };
-  return { ...battle, [key]: { ...battle[key], active: nextActive } };
+  const team = battle[key].team.map((member) => member.id === active.id ? nextActive : member);
+  return { ...battle, [key]: { ...battle[key], active: nextActive, team } };
 }
 
 function mergeBattleSnapshot(
@@ -483,10 +505,15 @@ function mergeBattleSnapshot(
     const previousSide = currentBySide.get(nextSide.side);
     const previousActive = previousSide?.active;
     const nextActive = nextSide.active;
-    if (!previousSide || !previousActive || !nextActive) return nextSide;
-    const sameActive = previousActive.id === nextActive.id
-      || previousActive.name.toLocaleLowerCase() === nextActive.name.toLocaleLowerCase();
-    const active = sameActive
+    if (!previousSide) return nextSide;
+    const sameActive = Boolean(previousActive && nextActive && (
+      previousActive.id === nextActive.id
+      || previousActive.name.toLocaleLowerCase() === nextActive.name.toLocaleLowerCase()
+    ));
+    // State snapshots are recorded before the normalized event stream catches up. Keep the
+    // active switch and HP changes event-driven, but never discard team members revealed by a
+    // snapshot from the opposite player's perspective.
+    const active = sameActive && previousActive && nextActive
       ? {
           ...nextActive,
           current_hp: previousActive.current_hp,
@@ -496,9 +523,9 @@ function mergeBattleSnapshot(
           fainted: previousActive.fainted,
           active: previousActive.active
         }
-      : previousActive;
-    const team = nextSide.team.map((member) => member.id === active.id ? active : member);
-    if (!team.some((member) => member.id === active.id)) team.push(active);
+      : previousActive || null;
+    const team = mergeTeam(previousSide.team, nextSide.team);
+    if (active && !team.some((member) => member.id === active.id)) team.push(active);
     return { ...nextSide, active, team };
   };
   return {
@@ -511,6 +538,29 @@ function mergeBattleSnapshot(
   };
 }
 
+function mergeTeam(previous: BattleState['player']['team'], incoming: BattleState['player']['team']) {
+  const merged = previous.map((member) => member);
+  for (const member of incoming) {
+    const index = merged.findIndex((candidate) => candidate.id === member.id);
+    if (index < 0) {
+      merged.push(member);
+      continue;
+    }
+    const existing = merged[index];
+    merged[index] = {
+      ...member,
+      // Keep event-driven combat facts when a future snapshot reports the same Pokémon.
+      current_hp: existing.current_hp,
+      max_hp: existing.max_hp,
+      hp_fraction: existing.hp_fraction,
+      status: existing.status,
+      active: existing.active,
+      fainted: existing.fainted
+    };
+  }
+  return merged;
+}
+
 function switchBattleActive(
   battle: BattlePresentationState['battle'],
   side: Side | null,
@@ -521,10 +571,25 @@ function switchBattleActive(
   if (!key) return battle;
   const battleSide = battle[key];
   const name = actorName(payload.actor).toLocaleLowerCase();
-  const selected = battleSide.team.find((member) =>
+  let selected = battleSide.team.find((member) =>
     member.name.toLocaleLowerCase() === name || member.id.toLocaleLowerCase().endsWith(`: ${name}`)
   );
-  if (!selected) return battle;
+  if (!selected) {
+    const species = name.replace(/[^a-z0-9]/g, '') || 'unknown';
+    selected = {
+      id: `${side}: ${actorName(payload.actor)}`,
+      name: actorName(payload.actor),
+      species,
+      hp_fraction: 1,
+      current_hp: null,
+      max_hp: null,
+      status: null,
+      types: [],
+      moves: [],
+      active: false,
+      fainted: false
+    };
+  }
   const hp = stringValue(payload.hp);
   const match = hp.match(/([0-9.]+)\s*\/\s*([0-9.]+)/);
   const hpFraction = match
@@ -536,7 +601,7 @@ function switchBattleActive(
     hp_fraction: hpFraction,
     fainted: hp.includes('fnt')
   };
-  const team = battleSide.team.map((member) => ({
+  const team = [...battleSide.team, ...(battleSide.team.some((member) => member.id === selected?.id) ? [] : [selected])].map((member) => ({
     ...member,
     active: member.id === active.id,
     ...(member.id === active.id ? active : {})

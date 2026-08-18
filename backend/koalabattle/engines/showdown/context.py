@@ -24,7 +24,7 @@ from koalabattle.core.models import (
 from koalabattle.formats import FormatMechanics, describe_format
 
 KNOWLEDGE_SCHEMA_VERSION = "1.0"
-CONTEXT_SCHEMA_VERSION = "1.0"
+CONTEXT_SCHEMA_VERSION = "1.1"
 HISTORY_POLICY_VERSION = "relevant-v1"
 MEMORY_POLICY_VERSION = "1.0"
 
@@ -40,6 +40,7 @@ class AgentContextProvider(Protocol):
         memory_policy: MemoryPolicyId,
         strategy_memory: str | None,
         maximum_turns: int | None = None,
+        banter_enabled: bool = False,
     ) -> tuple[PlayerKnowledgeState, AgentContextSnapshot, RenderedPrompt, ContextMetrics]: ...
 
 
@@ -93,6 +94,7 @@ class PokemonShowdownContextProvider:
         memory_policy: MemoryPolicyId,
         strategy_memory: str | None,
         maximum_turns: int | None = None,
+        banter_enabled: bool = False,
     ) -> tuple[PlayerKnowledgeState, AgentContextSnapshot, RenderedPrompt, ContextMetrics]:
         knowledge = self.reducer.reduce(self._knowledge, state)
         self._knowledge = knowledge
@@ -101,6 +103,7 @@ class PokemonShowdownContextProvider:
         recent_events = _relevant_history(state.public_history, context.maximum_history_events)
         descriptor = describe_format(state.format)
         snapshot = AgentContextSnapshot(
+            schema_version=CONTEXT_SCHEMA_VERSION,
             match_id=state.match_id,
             format=state.format,
             format_name=descriptor.name if descriptor else state.format,
@@ -109,6 +112,7 @@ class PokemonShowdownContextProvider:
             generation=state.generation,
             turn=state.turn,
             maximum_turns=maximum_turns,
+            banter_enabled=banter_enabled,
             side=state.perspective,
             knowledge=knowledge,
             recent_events=recent_events,

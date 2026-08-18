@@ -2,6 +2,11 @@
   import { goto } from '$app/navigation';
   import { onMount } from 'svelte';
   import FormatSelector from '$lib/FormatSelector.svelte';
+  import {
+    CUSTOM_ENDPOINT_PRESET_ID,
+    LOCAL_ENDPOINT_PRESETS,
+    localEndpointPreset
+  } from '$lib/local-endpoints';
   import { api, copyText, getFormatGroups } from '$lib/api';
   import type {
     AgentType,
@@ -16,6 +21,7 @@
 
   interface PlayerDraft {
     name: string; agentType: AgentType; provider: ProviderKind; model: string; baseUrl: string;
+    endpointPreset: string;
     timeout: number; retries: number; fallback: 'random' | 'manual' | 'forfeit';
     temperature: string; maxTokens: number; reasoning: '' | 'low' | 'medium' | 'high' | 'max';
     maximumCost: string; fakeScenario: string; teamSnapshotId: string;
@@ -30,7 +36,8 @@
   };
   const draft = (name: string): PlayerDraft => ({
     name, agentType: 'random', provider: 'openai', model: defaultModels.openai, baseUrl: '',
-    timeout: 45, retries: 1, fallback: 'random', temperature: '', maxTokens: 256,
+    endpointPreset: CUSTOM_ENDPOINT_PRESET_ID,
+    timeout: 300, retries: 1, fallback: 'random', temperature: '', maxTokens: 256,
     reasoning: '', maximumCost: '', fakeScenario: 'valid', teamSnapshotId: ''
   });
 
@@ -39,9 +46,9 @@
    * Pokemon stats, battle mechanics or Showdown legality.
    */
   const RESOURCE_PROFILES = {
-    economy: { label: 'Economy', hint: 'Cheapest: short timeout, no retry, 128 output tokens', timeout: 25, retries: 0, maxTokens: 128 },
-    balanced: { label: 'Balanced', hint: 'Default: 45s timeout, one retry, 256 output tokens', timeout: 45, retries: 1, maxTokens: 256 },
-    power: { label: 'Power', hint: 'Most headroom: 90s timeout, two retries, 512 output tokens', timeout: 90, retries: 2, maxTokens: 512 }
+    economy: { label: 'Economy', hint: 'Five-minute timeout, one retry, 128 output tokens', timeout: 300, retries: 1, maxTokens: 128 },
+    balanced: { label: 'Balanced', hint: 'Five-minute timeout, one retry, 256 output tokens', timeout: 300, retries: 1, maxTokens: 256 },
+    power: { label: 'Power', hint: 'Five-minute timeout, one retry, 512 output tokens', timeout: 300, retries: 1, maxTokens: 512 }
   } as const;
   type ResourceProfile = keyof typeof RESOURCE_PROFILES;
 
@@ -54,6 +61,7 @@
   let format = 'gen9randombattle';
   let descriptor: FormatDescriptor | null = null;
   let seed = ''; let maximumTotalCost = ''; let maximumTurns = '200';
+  let banterEnabled = false;
   let resourceProfile: ResourceProfile = 'balanced';
   let loading = false; let error = ''; let discovering: number | null = null;
   let discoveredModels: Record<number, string[]> = {};
@@ -162,7 +170,12 @@
     }
   }
   function selectProvider(index: number, value: ProviderKind) {
-    players[index].provider = value; players[index].model = defaultModels[value]; players = [...players];
+    players[index].provider = value;
+    players[index].model = defaultModels[value];
+    players[index].endpointPreset = CUSTOM_ENDPOINT_PRESET_ID;
+    players[index].baseUrl = '';
+    if (value === 'openai-compatible') applyEndpointPreset(index, 'lm-studio-gemma-4', false);
+    players = [...players];
   }
   function selectAgentType(index: number, value: AgentType) {
     players[index].agentType = value;
@@ -178,6 +191,18 @@
     resourceProfile = value;
     const { timeout, retries, maxTokens } = RESOURCE_PROFILES[value];
     players = players.map((player) => ({ ...player, timeout, retries, maxTokens }));
+  }
+  function applyEndpointPreset(index: number, presetId: string, rerender = true) {
+    players[index].endpointPreset = presetId;
+    const preset = localEndpointPreset(presetId);
+    if (preset) {
+      players[index].provider = 'openai-compatible';
+      players[index].baseUrl = preset.baseUrl;
+      players[index].model = preset.model;
+      players[index].timeout = preset.timeoutSeconds;
+      players[index].retries = preset.maxRetries;
+    }
+    if (rerender) players = [...players];
   }
   async function discover(index: number) {
     discovering = index; error = '';
@@ -228,6 +253,7 @@
           random_seed: seed ? Number(seed) : null, fair_prompt_mode: true,
           prompt_profile: 'benchmark-fair', context_profile: 'pokemon-standard',
           memory_policy: 'strategy-note',
+          banter_enabled: banterEnabled,
           team_policy: needsCustomTeam ? 'fixed' : 'showdown-random',
           limits: {
             maximum_total_cost: maximumTotalCost ? Number(maximumTotalCost) : null,
@@ -270,11 +296,28 @@
               {#if providers.some((status) => status.id === 'fake')}<optgroup label="Development / Testing">{#each providers.filter((status) => status.id === 'fake') as status}<option value={status.id} disabled={!status.configured}>{providerLabels[status.id]}{status.configured ? ' · enabled' : ' · disabled'}</option>{/each}</optgroup>{/if}
             </select>
           </label>
+          {#if player.provider === 'openai-compatible'}
+            <label>Local endpoint preset
+              <select
+                value={player.endpointPreset}
+                aria-label={`Player ${index + 1} local endpoint preset`}
+                on:change={(event) => applyEndpointPreset(index, event.currentTarget.value)}
+              >
+                <option value={CUSTOM_ENDPOINT_PRESET_ID}>Custom endpoint</option>
+                {#each LOCAL_ENDPOINT_PRESETS as preset}
+                  <option value={preset.id}>{preset.label}</option>
+                {/each}
+              </select>
+            </label>
+            {#if localEndpointPreset(player.endpointPreset)}
+              <small class="field-hint endpoint-hint">{localEndpointPreset(player.endpointPreset)?.hint}</small>
+            {/if}
+          {/if}
           <label>Model
             <input bind:value={player.model} required list={`models-${index}`} />
           </label>
           <datalist id={`models-${index}`}>{#each discoveredModels[index] || [] as model}<option value={model}></option>{/each}</datalist>
-          {#if player.provider === 'openai-compatible'}<label>Base URL<input type="url" bind:value={player.baseUrl} required placeholder="http://localhost:11434/v1" /></label>{/if}
+          {#if player.provider === 'openai-compatible'}<label>Base URL<input type="url" bind:value={player.baseUrl} required placeholder="http://host.docker.internal:1234/v1" /></label>{/if}
           <button type="button" class="link-button" on:click={() => discover(index)} disabled={discovering === index}>{discovering === index ? 'Discovering…' : 'Discover models'}</button>
         {:else}
           <p class="mode-note">
@@ -356,6 +399,10 @@
       </p>
       <label>Match name <span class="optional">Optional</span>
         <input bind:value={matchName} maxlength="120" placeholder="Benchmark Run 14" />
+      </label>
+      <label class="check-option">
+        <input type="checkbox" bind:checked={banterEnabled} />
+        <span><strong>Optional banter</strong><small>Short, situational opponent lines are included in the JSON and spoken aloud.</small></span>
       </label>
     </section>
 
@@ -439,6 +486,7 @@
   .name{min-height:40px;padding:.4rem .6rem;border-color:transparent;background:transparent;font-size:var(--step-1);font-weight:750;letter-spacing:-.02em}
   .name:hover{border-color:var(--border)}
   .mode-note{margin:0;color:var(--muted);font-size:.78rem;line-height:1.5}
+  .endpoint-hint{margin:-.45rem 0 -.15rem;color:var(--accent)}
   /* The grid lives on an explicit wrapper: Chrome puts every non-summary child of <details>
      into one ::details-content box, so a grid on <details> itself never reaches them. */
   .team-import{padding:.7rem .8rem;border:1px solid var(--border);border-radius:var(--radius);background:var(--panel-strong)}
@@ -457,6 +505,10 @@
   .optional{margin-left:.35rem;padding:.05rem .35rem;border-radius:999px;background:var(--surface);color:var(--muted);font-size:.62rem;font-weight:600}
   label:has(.optional){grid-template-columns:auto auto 1fr}
   label:has(.optional) input{grid-column:1/-1}
+  .check-option{display:flex;align-items:flex-start;gap:.55rem;grid-template-columns:none}
+  .check-option input{width:17px;min-height:17px;margin-top:.1rem;accent-color:var(--accent)}
+  .check-option span{display:grid;gap:.2rem}
+  .check-option small{color:var(--muted);font-size:.72rem;line-height:1.45}
   .advanced-card summary::marker{color:var(--accent)}
   .format-note{margin:-.35rem 0 0}
   .format-note a{color:var(--accent);font-weight:650}

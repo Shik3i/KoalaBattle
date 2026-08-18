@@ -97,6 +97,11 @@ export interface CommentaryPresentationState {
   latencyMs: number | null;
 }
 
+export interface ContextMetricsPresentation {
+  renderedCharacters: number;
+  estimatedTokens: number;
+}
+
 export interface PlayerPresentationState {
   side: Side;
   displayName: string;
@@ -108,6 +113,10 @@ export interface PlayerPresentationState {
   /** Only the commentary that belongs to the action in flight; null once it resolves. */
   currentCommentary: CommentaryPresentationState | null;
   commentaryPhase: CommentaryPhase;
+  /** Safe public commentary preview from providers that support token streaming. */
+  streamPreview: string | null;
+  /** Prompt size only; never the private battle prompt itself. */
+  contextMetrics: ContextMetricsPresentation | null;
 }
 
 /** Transient HP change shown next to the Pokemon it happened to. */

@@ -11,6 +11,7 @@ from .base import (
     ProviderModel,
     ProviderRequest,
     ProviderResponse,
+    TextDeltaCallback,
 )
 
 
@@ -29,7 +30,12 @@ class FakeProvider:
         self.calls = 0
         self._action: tuple[str, str] | None = None
 
-    async def generate(self, request: ProviderRequest) -> ProviderResponse:
+    async def generate(
+        self,
+        request: ProviderRequest,
+        *,
+        on_text_delta: TextDeltaCallback | None = None,
+    ) -> ProviderResponse:
         self.calls += 1
         if request.output_schema_name == "koalabattle_team":
             return ProviderResponse(
@@ -65,6 +71,11 @@ class FakeProvider:
                 {
                     "action": self._action[0],
                     "commentary": f"Fake API selected {self._action[1]} deterministically.",
+                    "banter": (
+                        "That last choice was clever; now answer this."
+                        if "BANTER MODE\nEnabled" in request.prompt
+                        else None
+                    ),
                     "strategy_memory": "Preserve healthy switch options for the next turn.",
                 }
             )

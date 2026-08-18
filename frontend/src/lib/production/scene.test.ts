@@ -64,6 +64,96 @@ test('scene does not replay the previous move during agent commentary', () => {
   assert.equal(scene.commentary, 'I will pivot.');
 });
 
+test('only an authoritative move cue can draw an attack', () => {
+  const base = {
+    timeMs: 300,
+    presentation: presentation(1),
+    priorPresentation: presentation(1),
+    commentary: null,
+    caption: null,
+    director: null,
+    visualElapsedMs: 300,
+    visualProgress: .5
+  } as any;
+  const switched = createProductionScene({
+    ...base,
+    visual: { id: 'switch', kind: 'pokemon_switched', start_ms: 0, duration_ms: 600 },
+    event: { sequence: 2, payload: { side: 'p1a: Tauros' } }
+  }, false, 'http://api', style());
+  assert.equal(switched.effect.attack, false);
+
+  const damaged = createProductionScene({
+    ...base,
+    visual: { id: 'damage', kind: 'damage', start_ms: 0, duration_ms: 500 },
+    event: { sequence: 3, payload: { actor: 'p1a: Tauros', target: 'p2a: Alakazam' } }
+  }, false, 'http://api', style());
+  assert.equal(damaged.effect.attack, false);
+
+  const move = createProductionScene({
+    ...base,
+    visual: { id: 'move', kind: 'move_used', start_ms: 0, duration_ms: 520 },
+    event: { sequence: 4, payload: { actor: 'p1a: Tauros', target: 'p2a: Alakazam' } }
+  }, false, 'http://api', style());
+  assert.equal(move.effect.attack, true);
+});
+
+test('special and status moves receive distinct effect categories', () => {
+  const special = createProductionScene({
+    timeMs: 200,
+    presentation: presentation(1),
+    priorPresentation: null,
+    commentary: null,
+    caption: null,
+    director: null,
+    visual: { id: 'move', kind: 'move_used', start_ms: 0, duration_ms: 500 },
+    event: { sequence: 1, payload: { actor: 'p1a: Tauros', target: 'p2a: Alakazam' } },
+    visualElapsedMs: 200,
+    visualProgress: .4
+  } as any, false, 'http://api', style());
+  assert.equal(special.effect.category, 'special');
+  assert.equal(special.effect.archetype, 'beam');
+
+  const statusPresentation = {
+    ...presentation(1),
+    currentMoveProfile: { type: 'electric', archetype: 'status', seed: 9 }
+  };
+  const status = createProductionScene({
+    timeMs: 200,
+    presentation: statusPresentation,
+    priorPresentation: null,
+    commentary: null,
+    caption: null,
+    director: null,
+    visual: { id: 'move', kind: 'move_used', start_ms: 0, duration_ms: 500 },
+    event: { sequence: 1, payload: { actor: 'p1a: Tauros', target: 'p2a: Alakazam' } },
+    visualElapsedMs: 200,
+    visualProgress: .4
+  } as any, false, 'http://api', style());
+  assert.equal(status.effect.category, 'status');
+  assert.equal(status.effect.archetype, 'status');
+});
+
+test('move ids stay available for move-specific production animation recipes', () => {
+  const earthquake = createProductionScene({
+    timeMs: 200,
+    presentation: {
+      ...presentation(1),
+      currentMove: 'Earthquake',
+      currentMoveProfile: { type: 'ground', archetype: 'physical', seed: 11 }
+    },
+    priorPresentation: null,
+    commentary: null,
+    caption: null,
+    director: null,
+    visual: { id: 'move', kind: 'move_used', start_ms: 0, duration_ms: 500 },
+    event: { sequence: 1, payload: { actor: 'p1a: Tauros', target: 'p2a: Alakazam' } },
+    visualElapsedMs: 200,
+    visualProgress: .4
+  } as any, false, 'http://api', style());
+  assert.equal(earthquake.effect.moveId, 'earthquake');
+  assert.equal(earthquake.effect.attack, true);
+});
+
 const sceneAt = (overrides: Record<string, unknown>) => {
   const frame = {
     timeMs: 0, presentation: presentation(1), priorPresentation: null,

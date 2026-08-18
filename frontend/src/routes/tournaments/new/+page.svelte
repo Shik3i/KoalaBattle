@@ -24,6 +24,7 @@
   let maxDrawReplays = 3;
   let manualScheduling = false;
   let randomizeSeeds = false;
+  let banterEnabled = false;
   let participants = [participant(1), participant(2), participant(3), participant(4)];
   let loading = false;
   let error = '';
@@ -172,6 +173,7 @@
             engine: 'pokemon-showdown', format: battleFormat,
             generation: descriptor?.generation ?? 9,
             fair_prompt_mode: true,
+            banter_enabled: banterEnabled,
             team_policy: needsCustomTeam ? 'fixed-per-tournament' : 'showdown-random',
             presentation: { theme: 'koala-dark', layout: 'standard-landscape' }
           },
@@ -203,7 +205,9 @@
   {:else if step === 3}<section><span class="eyebrow">Match template</span><h2>Pokémon Showdown baseline</h2>
       <FormatSelector groups={formatGroups} loading={formatsLoading} value={battleFormat} on:change={(event) => selectBattleFormat(event.detail)} />
       <div class="template"><span>Engine<strong>Pokémon Showdown</strong></span><span>Teams<strong>{needsCustomTeam ? 'One fixed team per participant' : 'Showdown generates every team'}</strong></span><span>Prompt<strong>Standard Fair · v3</strong></span><span>Presentation<strong>Koala Dark</strong></span></div>
-      <p class="note">{needsCustomTeam ? 'Each participant brings one validated team, used for the whole tournament. Assign them in the agent-preset step.' : 'The tournament stores a secret-free snapshot. Reusable templates can also be managed through the API.'}</p></section>
+      <p class="note">{needsCustomTeam ? 'Each participant brings one validated team, used for the whole tournament. Assign them in the agent-preset step.' : 'The tournament stores a secret-free snapshot. Reusable templates can also be managed through the API.'}</p>
+      <label class="check-option"><input type="checkbox" bind:checked={banterEnabled} /> <span><strong>Optional banter</strong><small>Short situational lines may address the opponent and are spoken in replays.</small></span></label>
+    </section>
   {:else if step === 4}<section><span class="eyebrow">Series rules</span><h2>Best-of-N</h2><div class="choice-grid three">{#each [1,3,5] as value}<button type="button" class:chosen={bestOf === value} on:click={() => (bestOf = value)}><strong>Best of {value}</strong><span>First to {Math.floor(value / 2) + 1} wins.</span></button>{/each}</div><label>Custom odd value<input type="number" min="1" max="99" step="2" bind:value={bestOf} /></label></section>
   {:else if step === 5}<section><span class="eyebrow"><i class="ph ph-users-three" aria-hidden="true"></i> Roster</span><h2>Add participants</h2><div class="participant-list">{#each participants as entry, index}<div><span>{index + 1}</span><input bind:value={entry.name} maxlength="120" required /><button type="button" aria-label={`Remove ${entry.name}`} on:click={() => removeParticipant(index)}><i class="ph ph-trash" aria-hidden="true"></i></button></div>{/each}</div><button type="button" class="button secondary" on:click={addParticipant}><i class="ph ph-user-plus" aria-hidden="true"></i>Add participant</button></section>
   {:else if step === 6}<section><span class="eyebrow">Agent snapshots</span><h2>Choose control mode</h2><div class="agent-list">{#each participants as entry, index}<article><strong>{entry.name}</strong><label>Agent preset<select value={entry.agentType} on:change={(event) => setAgent(index, event.currentTarget.value as AgentType)}><option value="random">Random baseline</option><option value="manual">Manual Web Chat</option><option value="api">Provider API</option></select></label>{#if entry.agentType === 'api'}<label>Provider<select bind:value={entry.provider}><option value="openai">OpenAI</option><option value="gemini">Gemini</option><option value="anthropic">Anthropic</option><option value="deepseek">DeepSeek</option><option value="fake">Fake (development)</option></select></label><label>Model<input bind:value={entry.model} required /></label>{/if}
@@ -247,4 +251,5 @@
      ::details-content box, so a grid on <details> itself never reaches them. */
   .team-import{padding:.7rem .8rem;border:1px solid var(--border);border-radius:.7rem;background:var(--panel)}.team-import summary{color:var(--accent);font-size:.75rem;font-weight:650;cursor:pointer}.team-import summary:hover{color:var(--accent-strong)}.team-body{display:grid;gap:.55rem;margin-top:.55rem;min-width:0}.team-import textarea{width:100%;min-width:0;padding:.55rem .65rem;border:1px solid var(--border);border-radius:.6rem;background:var(--bg);color:var(--text);font:.72rem/1.5 var(--mono);resize:vertical}.team-actions{display:flex;flex-wrap:wrap;gap:.5rem}.prompt-fallback{display:grid;gap:.3rem;color:var(--warning);font-size:.72rem}.team-result{padding:.5rem .65rem;border:1px solid var(--danger);border-radius:.6rem;color:var(--danger);font-size:.75rem}.team-result.valid{border-color:var(--accent);color:var(--accent)}.team-result p{margin:.25rem 0 0;line-height:1.45}
   .seed-list,.field-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:.7rem}.check{display:flex;align-items:center;gap:.6rem}.check input{width:20px;min-height:20px}@media(max-width:760px){.page-head{align-items:stretch;flex-direction:column}.stepper li small{display:none}.choice-grid,.choice-grid.three,.template,.review,.field-grid,.seed-list{grid-template-columns:1fr}.agent-list article{grid-template-columns:1fr}.wizard section{min-height:0}}
+  .check-option{display:flex;align-items:flex-start;gap:.55rem}.check-option input{width:17px;min-height:17px;margin-top:.15rem;accent-color:var(--accent)}.check-option span{display:grid;gap:.2rem}.check-option small{color:var(--muted);font-size:.72rem;line-height:1.45}
 </style>

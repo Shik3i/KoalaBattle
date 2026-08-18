@@ -8,6 +8,7 @@ from pydantic import ValidationError
 
 from koalabattle.core.models import (
     ActionType,
+    AgentConfiguration,
     AgentDecision,
     AgentType,
     BattleAction,
@@ -26,6 +27,12 @@ from koalabattle.core.public import presentation_archive
 
 def test_battle_state_round_trip(state: BattleState) -> None:
     assert BattleState.model_validate_json(state.model_dump_json()) == state
+
+
+def test_llm_defaults_allow_slow_models_one_recovery_attempt() -> None:
+    configuration = AgentConfiguration()
+    assert configuration.timeout_seconds == 300
+    assert configuration.max_retries == 1
 
 
 def test_battle_event_round_trip(match_id) -> None:

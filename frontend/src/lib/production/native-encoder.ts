@@ -13,13 +13,13 @@ export interface NativeRenderRequest {
   endMs: number;
   hardwareAcceleration: 'no-preference' | 'prefer-hardware' | 'prefer-software';
   assetApiBase: string;
-  transport: 'webcodecs' | 'raw-rgba';
+  transport: 'webcodecs' | 'mjpeg' | 'raw-rgba';
 }
 
 export interface NativeRenderMetrics {
-  transport: 'canvas-webcodecs-stream' | 'canvas-raw-rgba-pipe';
+  transport: 'canvas-webcodecs-stream' | 'canvas-mjpeg-image-pipe' | 'canvas-raw-rgba-pipe';
   codec: string;
-  codecPath: 'h264-annexb' | 'vp9-ivf' | 'raw-rgba';
+  codecPath: 'h264-annexb' | 'vp9-ivf' | 'mjpeg' | 'raw-rgba';
   hardwareAcceleration: string;
   outputFrames: number;
   uniqueRenders: number;
@@ -70,6 +70,7 @@ declare global {
     __KOALABATTLE_RENDER_PROGRESS?: (payload: { completed: number; total: number; speedRatio: number }) => Promise<void>;
     __KOALABATTLE_RENDER_CANCELLED?: () => Promise<boolean>;
     __KOALABATTLE_WRITE_RAW_FRAME?: (payload: { data: string; repeat: number }) => Promise<void>;
+    __KOALABATTLE_WRITE_MJPEG_FRAME?: (payload: { data: string; repeat: number }) => Promise<void>;
   }
 }
 
@@ -79,6 +80,9 @@ export async function renderNativeProduction(
   production: ProductionTimeline,
   request: NativeRenderRequest
 ): Promise<NativeRenderMetrics> {
+  if (request.transport === 'mjpeg') {
+    return renderMjpegProduction(canvas, match, production, request);
+  }
   if (request.transport === 'raw-rgba') {
     return renderRawProduction(canvas, match, production, request);
   }
@@ -97,7 +101,7 @@ async function renderWebCodecsProduction(
   canvas.width = request.width;
   canvas.height = request.height;
   const planStarted = performance.now();
-  const plan = createRenderPlan(production, request.startMs, request.endMs, request.fps);
+  const plan = createRenderPlan(production, request.startMs, request.endMs, request.fps, { idleRenderHz: 0, animatedRenderHz: 15 });
   const renderPlanSeconds = (performance.now() - planStarted) / 1000;
   const selected = await selectCodec(Encoder, request);
   const packets: EncodedPacket[] = [];
@@ -215,7 +219,7 @@ async function renderRawProduction(
   canvas.width = request.width;
   canvas.height = request.height;
   const planStarted = performance.now();
-  const plan = createRenderPlan(production, request.startMs, request.endMs, request.fps);
+  const plan = createRenderPlan(production, request.startMs, request.endMs, request.fps, { idleRenderHz: 0, animatedRenderHz: 15 });
   const renderPlanSeconds = (performance.now() - planStarted) / 1000;
   const compositor = new ProductionCompositor(canvas, request.assetApiBase);
   const frameRenderer = createProductionFrameRenderer(match, production);
@@ -278,6 +282,96 @@ async function renderRawProduction(
     maxEncodeQueue: 0,
     ...assets
   };
+}
+
+async function renderMjpegProduction(
+  canvas: HTMLCanvasElement,
+  match: MatchArchive,
+  production: ProductionTimeline,
+  request: NativeRenderRequest
+): Promise<NativeRenderMetrics> {
+  if (!window.__KOALABATTLE_WRITE_MJPEG_FRAME) {
+    throw new Error('native MJPEG frame transport is unavailable');
+  }
+  canvas.width = request.width;
+  canvas.height = request.height;
+  const planStarted = performance.now();
+  const plan = createRenderPlan(production, request.startMs, request.endMs, request.fps, { idleRenderHz: 0, animatedRenderHz: 15 });
+  const renderPlanSeconds = (performance.now() - planStarted) / 1000;
+  const compositor = new ProductionCompositor(canvas, request.assetApiBase);
+  const frameRenderer = createProductionFrameRenderer(match, production);
+  let rasterSeconds = 0;
+  let frameCreateSeconds = 0;
+  let transferSeconds = 0;
+  let uniqueRenders = 0;
+  let transferredBytes = 0;
+  const started = performance.now();
+  let index = 0;
+  while (index < plan.frames.length) {
+    const instruction = plan.frames[index];
+    if (await window.__KOALABATTLE_RENDER_CANCELLED?.()) {
+      throw new DOMException('Render cancelled', 'AbortError');
+    }
+    if (!instruction.render) {
+      index += 1;
+      continue;
+    }
+    const rasterStarted = performance.now();
+    const frameState = frameRenderer.renderAt(instruction.logicalTimeMs);
+    const scene = createProductionScene(frameState, request.height > request.width, request.assetApiBase, production.style, production.title);
+    await compositor.render(scene);
+    rasterSeconds += (performance.now() - rasterStarted) / 1000;
+    uniqueRenders += 1;
+    let repeat = 1;
+    while (index + repeat < plan.frames.length && !plan.frames[index + repeat].render) repeat += 1;
+    const frameStarted = performance.now();
+    const jpeg = await canvasToJpeg(canvas);
+    frameCreateSeconds += (performance.now() - frameStarted) / 1000;
+    const transferStarted = performance.now();
+    await window.__KOALABATTLE_WRITE_MJPEG_FRAME({ data: jpeg.data, repeat });
+    transferSeconds += (performance.now() - transferStarted) / 1000;
+    transferredBytes += jpeg.byteLength;
+    index += repeat;
+    await window.__KOALABATTLE_RENDER_PROGRESS?.({
+      completed: index,
+      total: plan.outputFrames,
+      speedRatio: (index / request.fps) / Math.max(.001, (performance.now() - started) / 1000)
+    });
+  }
+  const totalSeconds = (performance.now() - started) / 1000;
+  const assets = compositor.metrics();
+  return {
+    transport: 'canvas-mjpeg-image-pipe',
+    codec: 'mjpeg',
+    codecPath: 'mjpeg',
+    hardwareAcceleration: 'prefer-software',
+    outputFrames: plan.outputFrames,
+    uniqueRenders,
+    staticHeldFrames: plan.outputFrames - uniqueRenders,
+    animatedFrames: plan.plannedAnimatedFrames,
+    renderPlanSeconds,
+    rasterSeconds,
+    frameCreateSeconds,
+    encoderWaitSeconds: 0,
+    transferSeconds,
+    totalSeconds,
+    speedRatio: (plan.outputFrames / request.fps) / Math.max(.000001, totalSeconds),
+    encodedBytes: transferredBytes,
+    maxEncodeQueue: 0,
+    ...assets
+  };
+}
+
+async function canvasToJpeg(canvas: HTMLCanvasElement): Promise<{ data: string; byteLength: number }> {
+  const blob = await new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob(
+      value => value ? resolve(value) : reject(new Error('Canvas JPEG encoding returned no data')),
+      'image/jpeg',
+      0.82
+    );
+  });
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  return { data: base64(bytes), byteLength: bytes.byteLength };
 }
 
 async function selectCodec(Encoder: VideoEncoderConstructor, request: NativeRenderRequest) {

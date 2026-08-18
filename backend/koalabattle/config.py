@@ -56,7 +56,7 @@ class Settings(BaseSettings):
     speech_edge_enabled: bool = True
     speech_edge_voice_p1: str = "en-US-EmmaMultilingualNeural"
     speech_edge_voice_p2: str = "en-US-BrianMultilingualNeural"
-    speech_max_concurrency: int = Field(default=2, ge=1, le=16)
+    speech_max_concurrency: int = Field(default=8, ge=1, le=16)
     speech_max_text_characters: int = Field(default=1000, ge=1, le=4096)
     speech_openai_model: str = "gpt-4o-mini-tts"
     speech_openai_base_url: str | None = None
@@ -75,7 +75,10 @@ class Settings(BaseSettings):
     video_ffmpeg_path: str = "ffmpeg"
     video_ffprobe_path: str = "ffprobe"
     video_chromium_path: Path | None = None
-    video_native_transport: str = Field(default="auto", pattern=r"^(auto|webcodecs|raw-rgba)$")
+    video_native_transport: str = Field(
+        default="auto",
+        pattern=r"^(auto|webcodecs|mjpeg|raw-rgba)$",
+    )
     video_min_free_bytes: int = Field(default=1_073_741_824, ge=50_000_000)
     obs_host: str = "127.0.0.1"
     obs_port: int = Field(default=4455, ge=1, le=65535)

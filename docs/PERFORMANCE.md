@@ -43,10 +43,25 @@ synthetic browser FPS number.
 ## Audio limits
 
 Speech work is bounded independently of match concurrency by
-`KOALABATTLE_SPEECH_MAX_CONCURRENCY` (default 2). Identical cache misses share one in-flight
-task, and cache hits perform no provider call. The browser uses one 40 ms production scheduler
+`KOALABATTLE_SPEECH_MAX_CONCURRENCY` (default 8). Every missing replay cue is scheduled at
+preparation start; the queue remains the bounded provider-pressure valve. Identical cache
+misses share one in-flight task, and cache hits perform no provider call. The browser uses one 40 ms production scheduler
 per visible production client; seeking stops old media before re-indexing cues. WAV payloads
 are capped at 16 MiB and are streamed from disk rather than SQLite.
+
+Replay production timelines omit internal `agent_progress`, `agent_state` and
+`showdown_message` stream events. `state_snapshot` checkpoints remain instantaneous so they
+can restore deterministic state without adding video time.
+
+Turn pacing is deterministic: the YouTube profile targets a minimum 20,000 ms slot per turn,
+adds only a 180 ms gap between turns, and never inserts a gap between events in the same turn.
+Intro/result/outro are fixed at 2,200/1,800/600 ms. Real Edge audio can extend a turn when it is
+longer than the target; it never creates a hidden per-event delay.
+
+Native offline rendering disables idle rasterization, samples active animation at 15 Hz, and
+holds those keyframes to the requested 30/60 FPS CFR output. Linux/container exports transfer
+compressed MJPEG keyframes instead of raw RGBA. The current 1280x720/30 Fast Preview measured
+2.46x media/wall time locally; the 5x aspiration is not claimed as a universal guarantee.
 
 The offline-fallback smoke test validates an actual local system WAV. FakeSpeechProvider
 is used for repeatable concurrency/cache tests; no paid network synthesis is part of the gate.
@@ -130,10 +145,10 @@ Admin API/UI, and WebSocket response remained 56 ms, 157/113 ms, and 75 ms respe
 
 ## Native compositor profile and result
 
-The native compositor replaces the default screenshot/JPEG round trip with
-`RenderPlan -> ProductionScene -> Canvas2D -> VideoFrame -> WebCodecs`. The same Chrome 151 /
-FFmpeg 8.1.2 macOS host reports
-WebCodecs H.264 Annex-B and VP9 support. The old screenshot path is retained only as an explicit
+The native compositor uses `RenderPlan -> ProductionScene -> Canvas2D` and a transport selected
+per renderer. WebCodecs is preferred where an actual probe succeeds; Linux/container rendering
+uses compressed MJPEG keyframes plus FFmpeg H.264, with raw RGBA retained only as an explicit
+compatibility fallback. The old screenshot path is retained only as an explicit
 `render_engine=legacy` debug option.
 
 Measured native exports:

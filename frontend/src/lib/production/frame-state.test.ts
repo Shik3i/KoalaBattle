@@ -45,6 +45,36 @@ test('renderAt samples animation from logical time', () => {
   assert.equal(frame.visualProgress, 0.5);
 });
 
+test('instant state checkpoints apply before a same-time visible event', () => {
+  const state = {
+    match_id: 'm',
+    turn: 1,
+    perspective: 'p1',
+    player: { side: 'p1', display_name: 'Alpha', active: null, team: [] },
+    opponent: { side: 'p2', display_name: 'Beta', active: null, team: [] },
+    weather: [],
+    fields: [],
+    last_action: null,
+    public_history: [],
+    result: null
+  };
+  const checkpointMatch = {
+    ...match,
+    events: [
+      { ...match.events[0], sequence: 1, event_type: 'state_snapshot', payload: { state } },
+      { ...match.events[0], sequence: 2, event_type: 'move_used', payload: { side: 'p1', move: 'Tackle' } }
+    ]
+  } as any;
+  const checkpointProduction = {
+    duration_ms: 2000,
+    cues: [
+      { id: 'event-2-visual', track: 'visual', kind: 'move_used', start_ms: 1000, duration_ms: 500, event_sequence: 2, turn: 1, payload: {} },
+      { id: 'event-1-state', track: 'visual', kind: 'state_snapshot', start_ms: 1000, duration_ms: 0, event_sequence: 1, turn: 1, payload: {} }
+    ]
+  } as any;
+  assert.equal(createProductionFrameRenderer(checkpointMatch, checkpointProduction).renderAt(1000).event?.sequence, 2);
+});
+
 test('renderAt keeps a 1500-event archive bounded by logical cue time', () => {
   const events = Array.from({ length: 1500 }, (_, index) => ({
     id: index + 1,

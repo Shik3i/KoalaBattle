@@ -11,9 +11,9 @@ from koalabattle.core.models import (
 
 from .prompt_renderer import PROMPT_RENDERER_VERSION, RenderedPrompt, render
 
-PROMPT_SCHEMA_VERSION = "6.0"
+PROMPT_SCHEMA_VERSION = "7.0"
 PROMPT_TEMPLATE_VERSION = PROMPT_RENDERER_VERSION
-OUTPUT_SCHEMA_VERSION = "battle-decision-v2"
+OUTPUT_SCHEMA_VERSION = "battle-decision-v3"
 
 
 @dataclass(frozen=True)
@@ -45,13 +45,13 @@ PROMPT_PROFILES = {
     PromptProfileId.STANDARD_COMPETITIVE: PromptProfile(
         id=PromptProfileId.STANDARD_COMPETITIVE,
         name="Standard Competitive",
-        version="2.0",
+        version="3.0",
         system_policy=_SHARED_POLICY,
     ),
     PromptProfileId.BENCHMARK_FAIR: PromptProfile(
         id=PromptProfileId.BENCHMARK_FAIR,
         name="Benchmark Fair",
-        version="2.0",
+        version="3.0",
         system_policy=_SHARED_POLICY,
     ),
 }

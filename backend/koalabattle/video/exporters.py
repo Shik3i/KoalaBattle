@@ -293,6 +293,94 @@ class RawFramePipe:
                 await self.process.wait()
 
 
+class MjpegFramePipe:
+    """Compressed keyframe sink; static repeats are expanded without RGBA transfer."""
+
+    def __init__(self, process: asyncio.subprocess.Process) -> None:
+        self.process = process
+        self.frame_count = 0
+        self.transferred_bytes = 0
+
+    @classmethod
+    async def start(
+        cls, ffmpeg: str, output: Path, *, width: int, height: int, fps: int
+    ) -> MjpegFramePipe:
+        process = await asyncio.create_subprocess_exec(
+            ffmpeg,
+            "-hide_banner",
+            "-loglevel",
+            "warning",
+            "-f",
+            "image2pipe",
+            "-vcodec",
+            "mjpeg",
+            "-framerate",
+            str(fps),
+            "-i",
+            "pipe:0",
+            "-an",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "ultrafast",
+            "-crf",
+            "21",
+            "-pix_fmt",
+            "yuv420p",
+            "-movflags",
+            "+faststart",
+            "-f",
+            "mp4",
+            "-y",
+            str(output),
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        return cls(process)
+
+    async def write_frame(self, payload: object) -> None:
+        if not isinstance(payload, dict):
+            raise ValueError("invalid MJPEG frame payload")
+        encoded = payload.get("data")
+        repeat = payload.get("repeat")
+        if not isinstance(encoded, str) or len(encoded) > 16_000_000:
+            raise ValueError("invalid MJPEG frame data")
+        if not isinstance(repeat, int) or repeat < 1 or repeat > 3600:
+            raise ValueError("invalid MJPEG frame repeat")
+        data = base64.b64decode(encoded, validate=True)
+        if len(data) < 4 or data[:2] != b"\xff\xd8" or data[-2:] != b"\xff\xd9":
+            raise ValueError("invalid JPEG frame")
+        stream = self.process.stdin
+        if stream is None:
+            raise RuntimeError("MJPEG FFmpeg stdin is unavailable")
+        for _ in range(repeat):
+            stream.write(data)
+            await stream.drain()
+        self.frame_count += repeat
+        self.transferred_bytes += len(data)
+
+    async def close(self) -> None:
+        if self.process.stdin is not None and not self.process.stdin.is_closing():
+            self.process.stdin.close()
+            await self.process.stdin.wait_closed()
+        stderr = await self.process.stderr.read() if self.process.stderr is not None else b""
+        code = await self.process.wait()
+        if code != 0:
+            raise RuntimeError(stderr.decode(errors="replace")[-4000:] or "MJPEG FFmpeg failed")
+        if self.frame_count == 0:
+            raise RuntimeError("MJPEG compositor returned no frames")
+
+    async def abort(self) -> None:
+        if self.process.returncode is None:
+            self.process.terminate()
+            try:
+                await asyncio.wait_for(self.process.wait(), timeout=3)
+            except TimeoutError:
+                self.process.kill()
+                await self.process.wait()
+
+
 class VideoExporter(ABC):
     backend: ExportBackend
 
@@ -782,6 +870,17 @@ class OfflineRendererExporter(LegacyScreenshotRendererExporter):
             if transport == "raw-rgba"
             else None
         )
+        mjpeg_pipe = (
+            await MjpegFramePipe.start(
+                self.settings.video_ffmpeg_path,
+                video_part,
+                width=job.preset.width,
+                height=job.preset.height,
+                fps=job.preset.fps,
+            )
+            if transport == "mjpeg"
+            else None
+        )
         browser_metrics: dict[str, int | float | str] = {}
         setup_seconds = 0.0
         browser = None
@@ -817,6 +916,11 @@ class OfflineRendererExporter(LegacyScreenshotRendererExporter):
                         raise RuntimeError("raw-frame transport was not selected")
                     await raw_pipe.write_frame(payload)
 
+                async def write_mjpeg_frame(_: object, payload: object) -> None:
+                    if mjpeg_pipe is None:
+                        raise RuntimeError("MJPEG frame transport was not selected")
+                    await mjpeg_pipe.write_frame(payload)
+
                 async def render_progress(_: object, payload: object) -> None:
                     if not isinstance(payload, dict):
                         return
@@ -835,6 +939,7 @@ class OfflineRendererExporter(LegacyScreenshotRendererExporter):
 
                 await page.expose_binding("__KOALABATTLE_WRITE_CHUNKS", write_chunks)
                 await page.expose_binding("__KOALABATTLE_WRITE_RAW_FRAME", write_raw_frame)
+                await page.expose_binding("__KOALABATTLE_WRITE_MJPEG_FRAME", write_mjpeg_frame)
                 await page.expose_binding("__KOALABATTLE_RENDER_PROGRESS", render_progress)
                 await page.expose_binding("__KOALABATTLE_RENDER_CANCELLED", render_cancelled)
                 setup_started = time.monotonic()
@@ -884,6 +989,14 @@ class OfflineRendererExporter(LegacyScreenshotRendererExporter):
                     )
                 ffmpeg_encoder = "libx264"
                 codec_path = "raw-rgba"
+            elif mjpeg_pipe is not None:
+                await mjpeg_pipe.close()
+                if mjpeg_pipe.frame_count != job.frame_count:
+                    raise RuntimeError(
+                        f"MJPEG frame count mismatch: {mjpeg_pipe.frame_count} != {job.frame_count}"
+                    )
+                ffmpeg_encoder = "libx264"
+                codec_path = "mjpeg"
             else:
                 if writer is None:
                     raise RuntimeError("native compositor transport was not initialized")
@@ -925,6 +1038,8 @@ class OfflineRendererExporter(LegacyScreenshotRendererExporter):
             encoder_label = (
                 "canvas-raw-rgba+libx264"
                 if codec_path == "raw-rgba"
+                else "canvas-mjpeg+libx264"
+                if codec_path == "mjpeg"
                 else "webcodecs-h264"
                 if codec_path == "h264-annexb"
                 else f"webcodecs-vp9+{ffmpeg_encoder}"
@@ -938,6 +1053,8 @@ class OfflineRendererExporter(LegacyScreenshotRendererExporter):
                 writer.abort()
             if raw_pipe is not None:
                 await raw_pipe.abort()
+            if mjpeg_pipe is not None:
+                await mjpeg_pipe.abort()
             for path in (encoded_part, video_part, muxed_part, audio_part):
                 path.unlink(missing_ok=True)
 
@@ -1038,7 +1155,10 @@ class OfflineRendererExporter(LegacyScreenshotRendererExporter):
         configured = self.settings.video_native_transport
         if configured != "auto":
             return configured
-        return "raw-rgba" if sys.platform.startswith("linux") else "webcodecs"
+        # Chromium in the Linux renderer has no usable WebCodecs encoder. JPEG keyframes keep
+        # the exact same deterministic compositor while avoiding an 8 MB RGBA readback per
+        # frame; the old raw path remains an explicit diagnostic fallback.
+        return "mjpeg" if sys.platform.startswith("linux") else "webcodecs"
 
 
 class OBSRecorderExporter(VideoExporter):

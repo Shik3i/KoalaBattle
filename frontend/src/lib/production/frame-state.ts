@@ -37,7 +37,12 @@ export function createProductionFrameRenderer(
   const eventBySequence = new Map(match.events.map((event) => [event.sequence, event]));
   const visualCues = production.cues
     .filter((cue) => cue.track === 'visual' && cue.event_sequence !== null)
-    .sort((left, right) => left.start_ms - right.start_ms || left.id.localeCompare(right.id));
+    .sort(
+      (left, right) =>
+        left.start_ms - right.start_ms
+        || (left.event_sequence || 0) - (right.event_sequence || 0)
+        || left.id.localeCompare(right.id)
+    );
   const trackCues = new Map<ProductionCue['track'], ProductionCue[]>();
   for (const cue of production.cues) {
     const cues = trackCues.get(cue.track) || [];

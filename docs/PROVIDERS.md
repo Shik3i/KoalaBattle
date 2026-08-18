@@ -21,6 +21,18 @@ Custom model IDs are always accepted. Discovery failures do not invalidate a cus
 ID. The compatible adapter negotiates JSON Schema, then JSON object mode, then plain
 text with the same local parser and legal-action validation.
 
+The New match player builder includes ready-to-select local endpoint presets for LM Studio,
+Ollama, and llama.cpp. Docker runs provider calls from the backend container, so these presets
+use `http://host.docker.internal:<port>/v1` rather than `localhost`. The LM Studio Gemma preset
+uses model ID `google/gemma-4-e4b`; use **Discover models** to replace it with another model
+currently available from the local server. All LLM presets use a five-minute request timeout
+and one automatic retry, which gives slow local models enough time to finish while retaining a
+single recovery attempt.
+
+OpenAI-compatible providers that expose token streaming also publish a live, viewer-safe
+commentary preview and prompt-size metrics to the battle view. Raw prompts, model output outside
+the public commentary field, and private strategy memory are never streamed to spectators.
+
 Provider reference contracts: [OpenAI structured outputs](https://developers.openai.com/api/docs/guides/structured-outputs),
 [OpenAI models](https://developers.openai.com/api/reference/resources/models/methods/list),
 [Gemini structured output](https://ai.google.dev/gemini-api/docs/structured-output),

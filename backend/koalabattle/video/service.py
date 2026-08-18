@@ -104,7 +104,7 @@ class VideoExportService:
         return tuple(PACING_PROFILES.values())
 
     async def create(self, request: CreateVideoExport, *, attempt: int = 1) -> VideoExportJob:
-        production = await self.productions.require(request.production_id)
+        production = await self.productions.ensure_prepared(request.production_id)
         if production.status not in {
             ProductionStatus.FINALIZED,
             ProductionStatus.READY,
@@ -214,7 +214,7 @@ class VideoExportService:
         backend: ExportBackend,
         render_engine: RenderEngine = RenderEngine.NATIVE,
     ) -> ExportPreflight:
-        production = await self.productions.require(production_id)
+        production = await self.productions.ensure_prepared(production_id)
         capabilities = await self.capabilities()
         missing: list[str] = []
         commentary_sequences = {

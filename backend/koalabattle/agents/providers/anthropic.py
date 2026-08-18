@@ -13,6 +13,7 @@ from .base import (
     ProviderModel,
     ProviderRequest,
     ProviderResponse,
+    TextDeltaCallback,
 )
 from .openai import DECISION_SCHEMA
 
@@ -33,7 +34,12 @@ class AnthropicProvider:
             max_retries=0,
         )
 
-    async def generate(self, request: ProviderRequest) -> ProviderResponse:
+    async def generate(
+        self,
+        request: ProviderRequest,
+        *,
+        on_text_delta: TextDeltaCallback | None = None,
+    ) -> ProviderResponse:
         arguments: dict[str, Any] = {
             "model": request.model,
             "max_tokens": request.max_output_tokens,

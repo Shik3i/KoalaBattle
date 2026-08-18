@@ -40,7 +40,12 @@ Creating a production automatically:
 2. builds the deterministic ProductionTimeline,
 3. fills in player branding from each agent (display name, neutral mark, accent),
 4. applies the chosen style preset,
-5. opens `/studio/<production-id>`.
+5. prepares missing public Edge Neural speech through the configured free provider,
+6. opens `/studio/<production-id>` after the production media is ready.
+
+Preparation reuses valid cache entries and regenerates only missing or corrupt artifacts. It
+never selects a system voice implicitly, never uses a paid provider, and may take a while for a
+long replay because every public commentary cue must be prepared before the Studio opens.
 
 ## The workspace
 

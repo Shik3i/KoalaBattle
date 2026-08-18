@@ -193,7 +193,7 @@ class BattleService:
             payload: dict[str, object],
         ) -> None:
             await sink.emit(
-                "agent_state",
+                "agent_progress" if "progress" in payload else "agent_state",
                 turn,
                 {"side": side.value, "state": state.value, **payload},
             )
@@ -436,6 +436,7 @@ class BattleService:
                 prompt_profile=template.prompt_profile,
                 context_profile=template.context_profile,
                 memory_policy=template.memory_policy,
+                banter_enabled=template.banter_enabled,
                 team_policy=template.team_policy,
                 limits=template.limits,
             )

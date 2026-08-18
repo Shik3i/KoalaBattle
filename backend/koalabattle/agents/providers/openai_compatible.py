@@ -6,7 +6,13 @@ from openai import AsyncOpenAI, BadRequestError
 
 from koalabattle.core.models import ProviderUsage
 
-from .base import ProviderCapabilities, ProviderModel, ProviderRequest, ProviderResponse
+from .base import (
+    ProviderCapabilities,
+    ProviderModel,
+    ProviderRequest,
+    ProviderResponse,
+    TextDeltaCallback,
+)
 from .openai import DECISION_SCHEMA, _openai_error
 
 
@@ -18,6 +24,7 @@ class OpenAICompatibleProvider:
         temperature=True,
         reasoning_control=False,
         usage_reporting=True,
+        streaming=True,
     )
 
     def __init__(self, base_url: str, api_key: str | None = None) -> None:
@@ -27,7 +34,12 @@ class OpenAICompatibleProvider:
             max_retries=0,
         )
 
-    async def generate(self, request: ProviderRequest) -> ProviderResponse:
+    async def generate(
+        self,
+        request: ProviderRequest,
+        *,
+        on_text_delta: TextDeltaCallback | None = None,
+    ) -> ProviderResponse:
         messages: list[dict[str, str]] = []
         if request.system_prompt:
             messages.append({"role": "system", "content": request.system_prompt})
@@ -40,7 +52,6 @@ class OpenAICompatibleProvider:
         }
         if request.temperature is not None:
             common["temperature"] = request.temperature
-        response = None
         formats: tuple[dict[str, Any] | None, ...] = (
             {
                 "type": "json_schema",
@@ -58,30 +69,55 @@ class OpenAICompatibleProvider:
                 arguments = dict(common)
                 if response_format is not None:
                     arguments["response_format"] = response_format
+                if on_text_delta is not None:
+                    return await self._stream_completion(arguments, on_text_delta)
                 response = await self._client.chat.completions.create(**arguments)
-                break
+                choice = response.choices[0]
+                return ProviderResponse(
+                    text=choice.message.content or "",
+                    model=response.model,
+                    usage=_provider_usage(response.usage),
+                    request_id=response.id,
+                    finish_reason=choice.finish_reason,
+                )
             except BadRequestError as error:
                 if response_format is None:
                     raise _openai_error(error) from error
             except Exception as error:
                 raise _openai_error(error) from error
-        if response is None:
-            raise RuntimeError("OpenAI-compatible response negotiation failed")
-        choice = response.choices[0]
-        usage_object = response.usage
-        details = getattr(usage_object, "prompt_tokens_details", None)
-        usage = ProviderUsage(
-            input_tokens=getattr(usage_object, "prompt_tokens", None),
-            output_tokens=getattr(usage_object, "completion_tokens", None),
-            cached_tokens=getattr(details, "cached_tokens", None),
-            total_tokens=getattr(usage_object, "total_tokens", None),
-        )
+        raise RuntimeError("OpenAI-compatible response negotiation failed")
+
+    async def _stream_completion(
+        self,
+        arguments: dict[str, Any],
+        on_text_delta: TextDeltaCallback,
+    ) -> ProviderResponse:
+        stream = await self._client.chat.completions.create(**{**arguments, "stream": True})
+        chunks: list[str] = []
+        model = str(arguments["model"])
+        request_id: str | None = None
+        finish_reason: str | None = None
+        usage_object: Any = None
+        async for chunk in stream:
+            model = getattr(chunk, "model", None) or model
+            request_id = getattr(chunk, "id", None) or request_id
+            usage_object = getattr(chunk, "usage", None) or usage_object
+            choices = getattr(chunk, "choices", ())
+            if not choices:
+                continue
+            choice = choices[0]
+            finish_reason = getattr(choice, "finish_reason", None) or finish_reason
+            delta = getattr(choice, "delta", None)
+            text = getattr(delta, "content", None) or ""
+            if text:
+                chunks.append(text)
+                await on_text_delta(text)
         return ProviderResponse(
-            text=choice.message.content or "",
-            model=response.model,
-            usage=usage,
-            request_id=response.id,
-            finish_reason=choice.finish_reason,
+            text="".join(chunks),
+            model=model,
+            usage=_provider_usage(usage_object),
+            request_id=request_id,
+            finish_reason=finish_reason,
         )
 
     async def list_models(self) -> tuple[ProviderModel, ...]:
@@ -99,3 +135,15 @@ class DeepSeekProvider(OpenAICompatibleProvider):
 
     def __init__(self, api_key: str) -> None:
         super().__init__("https://api.deepseek.com", api_key)
+
+
+def _provider_usage(usage_object: Any) -> ProviderUsage | None:
+    if usage_object is None:
+        return None
+    details = getattr(usage_object, "prompt_tokens_details", None)
+    return ProviderUsage(
+        input_tokens=getattr(usage_object, "prompt_tokens", None),
+        output_tokens=getattr(usage_object, "completion_tokens", None),
+        cached_tokens=getattr(details, "cached_tokens", None),
+        total_tokens=getattr(usage_object, "total_tokens", None),
+    )

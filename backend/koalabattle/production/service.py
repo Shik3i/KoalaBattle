@@ -209,16 +209,94 @@ class ProductionService:
         )
         if production.status is ProductionStatus.FINALIZED:
             production = self._seal(production)
-        return await self.repository.save(production)
+        saved = await self.repository.save(production)
+        if saved.status is ProductionStatus.FINALIZED:
+            # Archived replays are already complete. Prepare their public media before the
+            # caller opens the Studio, so the first export cannot discover an empty speech
+            # cache later. The default assignments are Edge Neural; no system voice is used
+            # by this automatic path.
+            return await self.ensure_prepared(saved.id)
+        return saved
+
+    async def ensure_prepared(self, production_id: UUID) -> ProductionTimeline:
+        """Materialize missing public production media for an archived replay.
+
+        Preparation is deliberately idempotent: valid cached speech is reused, while a
+        missing or corrupt artifact is regenerated through the production's assigned voice.
+        Live productions remain untouched until match completion finalizes them.
+        """
+        production = await self.require(production_id)
+        if production.status not in {
+            ProductionStatus.FINALIZED,
+            ProductionStatus.READY,
+            ProductionStatus.PARTIAL,
+        } or not production.profile.speech_enabled:
+            return production
+        if self._needs_timeline_compaction(production):
+            production = await self._compact_archived_timeline(production)
+        if not self._needs_speech_preparation(production):
+            return production
+        return await self.prepare(
+            production.id,
+            PrepareSpeechRequest(force=False, allow_paid=False),
+        )
+
+    def _needs_speech_preparation(self, production: ProductionTimeline) -> bool:
+        voice_by_event = {
+            cue.event_sequence: cue
+            for cue in production.cues
+            if cue.track is Track.VOICE and cue.event_sequence is not None
+        }
+        for commentary in production.cues:
+            if commentary.track is not Track.COMMENTARY or commentary.event_sequence is None:
+                continue
+            voice = voice_by_event.get(commentary.event_sequence)
+            cache_key = voice.payload.get("cache_key") if voice else None
+            if not isinstance(cache_key, str) or self.cache.validate(cache_key) is None:
+                return True
+        return False
+
+    @staticmethod
+    def _needs_timeline_compaction(production: ProductionTimeline) -> bool:
+        return production.profile.turn_gap_ms is None or any(
+            cue.track is Track.VISUAL
+            and cue.kind in {"agent_progress", "agent_state", "showdown_message"}
+            for cue in production.cues
+        )
+
+    async def _compact_archived_timeline(
+        self, production: ProductionTimeline
+    ) -> ProductionTimeline:
+        archive = await self.battles.get_match(production.match_id)
+        if archive is None:
+            raise KeyError(str(production.match_id))
+        profile = PRODUCTION_PROFILES.get(production.profile.id, production.profile)
+        compacted = build_timeline(
+            archive,
+            profile,
+            production_id=production.id,
+            revision=production.revision + 1,
+            voices=production.voice_assignments,
+        ).model_copy(
+            update={
+                "style": production.style,
+                "title": production.title,
+                "overrides": production.overrides,
+                "created_at": production.created_at,
+            }
+        )
+        return await self.repository.save(compacted)
 
     async def rebuild(self, production_id: UUID) -> ProductionTimeline:
         previous = await self.require(production_id)
         archive = await self.battles.get_match(previous.match_id)
         if archive is None:
             raise KeyError(str(previous.match_id))
+        profile = PRODUCTION_PROFILES.get(previous.profile.id, previous.profile)
         rebuilt = build_timeline(
             archive,
-            previous.profile,
+            profile,
+            production_id=previous.id,
             revision=previous.revision + 1,
             voices=previous.voice_assignments,
         ).model_copy(
@@ -341,9 +419,35 @@ class ProductionService:
             for production in productions:
                 if any(cue.event_sequence == event.sequence for cue in production.cues):
                     continue
-                added, event_duration = cues_for_event(
-                    event, production.profile, start_ms=production.duration_ms
+                last_turn = max(
+                    (cue.turn or 0 for cue in production.cues if cue.event_sequence is not None),
+                    default=0,
                 )
+                event_turn = (
+                    event.turn
+                    if event.event_type == "turn_started" and event.turn > 0
+                    else last_turn or None
+                )
+                added, event_duration = cues_for_event(
+                    event,
+                    production.profile,
+                    start_ms=production.duration_ms,
+                    timeline_turn=event_turn,
+                )
+                turn_gap = (
+                    production.profile.turn_pause_ms
+                    if added
+                    and event_turn is not None
+                    and event.event_type == "turn_started"
+                    and last_turn > 0
+                    and event_turn != last_turn
+                    else 0
+                )
+                if turn_gap:
+                    added = tuple(
+                        cue.model_copy(update={"start_ms": cue.start_ms + turn_gap})
+                        for cue in added
+                    )
                 updated = production.model_copy(
                     update={
                         "status": ProductionStatus.LIVE,
@@ -353,11 +457,7 @@ class ProductionService:
                                 key=lambda cue: (cue.start_ms, cue.track.value, cue.id),
                             )
                         ),
-                        "duration_ms": (
-                            production.duration_ms
-                            + event_duration
-                            + production.profile.event_gap_ms
-                        ),
+                        "duration_ms": production.duration_ms + event_duration + turn_gap,
                         "revision": production.revision + 1,
                         "updated_at": datetime.now(UTC),
                     }
@@ -385,8 +485,19 @@ class ProductionService:
                 cues = production.cues
                 duration = production.duration_ms
                 if not any(cue.id == "director-result" for cue in cues):
-                    cues = (*cues, *final_cues(archive, start_ms=duration))
-                    duration += 2400
+                    cues = (
+                        *cues,
+                        *final_cues(
+                            archive,
+                            start_ms=duration,
+                            result_duration_ms=production.profile.result_duration_ms,
+                            outro_duration_ms=production.profile.outro_duration_ms,
+                        ),
+                    )
+                    duration += (
+                        production.profile.result_duration_ms
+                        + production.profile.outro_duration_ms
+                    )
                 finalizing = production.model_copy(
                     update={
                         "status": ProductionStatus.FINALIZING,
@@ -482,6 +593,7 @@ class ProductionService:
         await self.repository.save(preparing)
         generated: dict[str, SpeechArtifact] = {}
         failures: list[str] = []
+        pending: list[tuple[ProductionCue, VoicePreset]] = []
         for cue in production.cues:
             if cue.track is not Track.COMMENTARY or not cue.side:
                 continue
@@ -489,15 +601,31 @@ class ProductionService:
             if preset is None:
                 failures.append(f"{cue.id}: missing VoicePreset")
                 continue
+            pending.append((cue, preset))
+
+        async def generate(
+            cue: ProductionCue, preset: VoicePreset
+        ) -> tuple[str, SpeechArtifact | None, str | None]:
             try:
-                generated[cue.id] = await self.synthesize(
+                artifact = await self.synthesize(
                     str(cue.payload["text"]),
                     preset,
                     allow_paid=request.allow_paid,
                     force=request.force,
                 )
+                return cue.id, artifact, None
             except Exception as error:
-                failures.append(f"{cue.id}: {error}")
+                return cue.id, None, f"{cue.id}: {error}"
+
+        # Schedule every cue immediately. SpeechGenerationQueue remains the bounded safety
+        # valve for Edge/network pressure, while one slow request no longer serializes the
+        # entire replay preparation.
+        results = await asyncio.gather(*(generate(cue, preset) for cue, preset in pending))
+        for cue_id, artifact, failure in results:
+            if artifact is not None:
+                generated[cue_id] = artifact
+            if failure is not None:
+                failures.append(failure)
         cues = self._with_speech(production.cues, generated, production)
         # Real speech is longer or shorter than the estimate the timeline was built from, so
         # the clock has to be normalized against it. Live matches got this through

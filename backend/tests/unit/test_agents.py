@@ -5,6 +5,7 @@ import asyncio
 import pytest
 
 from koalabattle.agents import ApiAgent, ManualAgent, ManualDecisionBroker, RandomAgent
+from koalabattle.agents.api_agent import _CommentaryPreview
 from koalabattle.agents.providers import FakeProvider
 from koalabattle.core.models import (
     AgentConfiguration,
@@ -14,6 +15,15 @@ from koalabattle.core.models import (
     Side,
 )
 from koalabattle.core.pricing import PricingTable
+
+
+def test_streamed_preview_exposes_only_public_commentary() -> None:
+    preview = _CommentaryPreview()
+    assert preview.feed('{"action":"move:1","commentary":"Choose ') == "Choose "
+    assert (
+        preview.feed('the safe line.","strategy_memory":"Keep this private."}')
+        == "Choose the safe line."
+    )
 
 
 @pytest.mark.asyncio

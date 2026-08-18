@@ -1,5 +1,5 @@
 import type { PokemonType } from '../presentation/types.ts';
-import type { ProductionStyle } from '../types.ts';
+import type { PokemonState, ProductionStyle } from '../types.ts';
 import { damageCallout, directorCard, isKnockedOut } from './scene.ts';
 import type { ProductionScene, ProductionSceneSide } from './scene.ts';
 import { commentaryMotion, hpReadout, hudLayout, mix, withAlpha } from './layout.ts';
@@ -81,6 +81,8 @@ export class ProductionCompositor {
       [
         scene.p1.spriteUrl,
         scene.p2.spriteUrl,
+        ...scene.p1.team.map((member) => this.teamSpriteUrl(member)),
+        ...scene.p2.team.map((member) => this.teamSpriteUrl(member)),
         scene.p1.logoUrl,
         scene.p2.logoUrl,
         assetUrl(this.assetApiBase, background),
@@ -362,14 +364,14 @@ export class ProductionCompositor {
     const positions = combatantPositions(scene, width, height);
     const p1Size = (scene.vertical ? 455 : 475) * scale;
     const p2Size = (scene.vertical ? 425 : 445) * scale;
-    if (scene.style.stage.ground_shadow) {
+    if (scene.p2.active && scene.style.stage.ground_shadow) {
       this.drawPlatform(positions.p2.x, positions.p2.y, p2Size * .55, p2Size * .09, scene.p2.accent);
     }
-    this.drawPokemon(scene, resolved, scene.p2, positions.p2.x, positions.p2.y, p2Size);
-    if (scene.style.stage.ground_shadow) {
+    if (scene.p2.active) this.drawPokemon(scene, resolved, scene.p2, positions.p2.x, positions.p2.y, p2Size);
+    if (scene.p1.active && scene.style.stage.ground_shadow) {
       this.drawPlatform(positions.p1.x, positions.p1.y, p1Size * .58, p1Size * .095, scene.p1.accent);
     }
-    this.drawPokemon(scene, resolved, scene.p1, positions.p1.x, positions.p1.y, p1Size);
+    if (scene.p1.active) this.drawPokemon(scene, resolved, scene.p1, positions.p1.x, positions.p1.y, p1Size);
   }
 
   private drawPlatform(x: number, y: number, rx: number, ry: number, color: string) {
@@ -397,23 +399,37 @@ export class ProductionCompositor {
     const down = isKnockedOut(side);
     const faint = down ? Math.max(fainting, 1) : fainting;
     const appear = scene.effect.kind === 'pokemon_switched' && scene.effect.actor === side.side ? easeOut(scene.effect.progress) : 1;
+    const quake = isGroundMove(scene.effect.moveId) && scene.effect.attack
+      ? Math.sin(scene.effect.progress * Math.PI * 7 + (side.near ? 0 : .8))
+        * Math.sin(scene.effect.progress * Math.PI) * size * .045
+      : 0;
     const bitmap = this.bitmap(side.spriteUrl);
     const breath = idle * size * .014;
-    context.save(); context.translate(x + lunge + recoil + shake, y - size * .012 - breath);
+    context.save(); context.translate(x + lunge + recoil + shake, y - size * .012 - breath + quake);
     // Squash on the inhale and stretch on the exhale so even a static PNG has weight.
     const squash = idle * .008;
     context.globalAlpha = (1 - faint) * appear; context.rotate((recoil / size) * .16 + faint * direction * .12); context.scale(.78 + appear * .22 + attacking * .06 + squash, .78 + appear * .22 - attacking * .025 - squash);
     context.shadowColor = impact ? '#fff4bd' : 'rgba(0,0,0,.75)'; context.shadowBlur = impact ? size * .15 : size * .055;
     if (resolved.effect > 0 && attacking > .18 && bitmap) { context.save(); context.globalAlpha = attacking * .16; context.translate(-direction * size * .11, 0); context.drawImage(bitmap, -size / 2, -size, size, size); context.restore(); }
-    if (bitmap) context.drawImage(bitmap, -size / 2, -size, size, size); else this.drawPlaceholder(side, size);
+    if (bitmap) context.drawImage(bitmap, -size / 2, -size, size, size); else this.drawMissingSprite(side, size);
     context.restore();
   }
 
-  private drawPlaceholder(side: ProductionSceneSide, size: number) {
-    const color = side.accent; const gradient = this.context.createLinearGradient(0, -size, 0, 0);
-    gradient.addColorStop(0, withAlpha(color, .95)); gradient.addColorStop(1, withAlpha(color, .25)); this.context.fillStyle = gradient;
-    this.context.beginPath(); this.context.ellipse(0, -size * .43, size * .31, size * .43, side.near ? -.18 : .18, 0, Math.PI * 2); this.context.fill();
-    this.context.fillStyle = '#fff'; this.context.beginPath(); this.context.arc(side.near ? size * .08 : -size * .08, -size * .57, size * .035, 0, Math.PI * 2); this.context.fill();
+  private drawMissingSprite(side: ProductionSceneSide, size: number) {
+    // A missing asset is a compact Pokéball marker, never a giant egg silhouette. This also
+    // keeps the battle readable when a user has not installed a local sprite pack yet.
+    const radius = size * .1;
+    const y = -size * .14;
+    const context = this.context;
+    context.save();
+    context.globalAlpha = .82;
+    context.fillStyle = withAlpha(side.accent, .16);
+    context.beginPath(); context.ellipse(0, 0, size * .18, size * .045, 0, 0, Math.PI * 2); context.fill();
+    context.fillStyle = '#e85d5d'; context.beginPath(); context.arc(0, y, radius, Math.PI, 0); context.fill();
+    context.fillStyle = '#f1f4ed'; context.beginPath(); context.arc(0, y, radius, 0, Math.PI); context.fill();
+    context.strokeStyle = '#1b2522'; context.lineWidth = Math.max(1, size * .012); context.beginPath(); context.arc(0, y, radius, 0, Math.PI * 2); context.stroke();
+    context.fillStyle = '#f5faf5'; context.beginPath(); context.arc(0, y, radius * .24, 0, Math.PI * 2); context.fill();
+    context.restore();
   }
 
   // -------------------------------------------------------------------- HUD
@@ -598,23 +614,55 @@ export class ProductionCompositor {
     const mode = scene.style.hud.team_indicators;
     if (mode === 'hidden') return;
     const context = this.context;
-    // `revealed` respects hidden information: the public presentation archive only ever
-    // exposes opponent Pokemon the spectator has already seen, so filtering here can
-    // narrow visibility but never widen it.
-    const members = side.team.filter((member) => {
-      if (mode === 'fainted-only') return member.fainted || member.active;
-      if (mode === 'revealed') return member.active || member.fainted || member.hp_fraction < 1;
-      return true;
+    // Showdown keeps six fixed positions. Unknown opponents occupy a Pokéball slot instead of
+    // disappearing, so the HUD never jumps between two and six indicators.
+    const members = Array.from({ length: 6 }, (_, index) => {
+      const member = side.team[index] || null;
+      if (!member) return null;
+      if (mode === 'fainted-only') return member.fainted || member.active ? member : null;
+      if (mode === 'revealed') return member.active || member.fainted || member.hp_fraction < 1 ? member : null;
+      return member;
     });
     const pad = 28 * scale;
-    members.slice(0, 6).forEach((member, index) => {
-      const px = alignRight ? x + width - pad - index * 27 * scale : x + pad + index * 27 * scale;
-      const py = y + height - 14 * scale;
-      context.fillStyle = member.fainted ? 'rgba(255,255,255,.12)' : index % 2 ? typeColor : side.accent;
-      context.beginPath(); context.arc(px, py, 8 * scale, 0, Math.PI * 2); context.fill();
-      context.strokeStyle = member.active ? '#fff' : 'rgba(255,255,255,.45)';
-      context.lineWidth = member.active ? 3 * scale : 1.5 * scale; context.stroke();
+    const size = 25 * scale;
+    const gap = 31 * scale;
+    members.forEach((member, index) => {
+      const centerX = alignRight ? x + width - pad - index * gap : x + pad + index * gap;
+      const centerY = y + height - 18 * scale;
+      const left = centerX - size / 2;
+      const top = centerY - size / 2;
+      roundedRect(context, left, top, size, size, size * .22);
+      context.fillStyle = member?.fainted ? 'rgba(255,255,255,.08)' : member ? withAlpha(index % 2 ? typeColor : side.accent, .16) : 'rgba(9,14,13,.72)';
+      context.fill();
+      context.strokeStyle = member?.active ? '#fff' : 'rgba(255,255,255,.38)';
+      context.lineWidth = member?.active ? 2.5 * scale : 1.2 * scale;
+      context.stroke();
+      const bitmap = member ? this.bitmap(this.teamSpriteUrl(member)) : null;
+      if (bitmap) {
+        const ratio = bitmap.width / bitmap.height;
+        const drawWidth = ratio >= 1 ? size * 1.2 : size * 1.2 * ratio;
+        const drawHeight = ratio >= 1 ? size * 1.2 / ratio : size * 1.2;
+        context.drawImage(bitmap, centerX - drawWidth / 2, centerY - drawHeight / 2, drawWidth, drawHeight);
+      } else {
+        this.drawTeamPokeball(centerX, centerY, size * .28, member?.fainted ? 'rgba(255,255,255,.36)' : '#e85d5d');
+      }
+      if (member?.fainted) {
+        context.strokeStyle = 'rgba(255,255,255,.68)'; context.lineWidth = Math.max(1, scale * 1.5);
+        context.beginPath(); context.moveTo(left + size * .2, top + size * .2); context.lineTo(left + size * .8, top + size * .8); context.stroke();
+      }
     });
+  }
+
+  private teamSpriteUrl(member: PokemonState): string {
+    return `${this.assetApiBase}/api/assets/pokemon/${encodeURIComponent(member.species)}?perspective=front&animated=false`;
+  }
+
+  private drawTeamPokeball(x: number, y: number, radius: number, topColor: string) {
+    const context = this.context;
+    context.fillStyle = topColor; context.beginPath(); context.arc(x, y, radius, Math.PI, 0); context.fill();
+    context.fillStyle = '#f1f4ed'; context.beginPath(); context.arc(x, y, radius, 0, Math.PI); context.fill();
+    context.strokeStyle = 'rgba(12,20,18,.9)'; context.lineWidth = Math.max(1, radius * .13); context.beginPath(); context.arc(x, y, radius, 0, Math.PI * 2); context.stroke();
+    context.fillStyle = '#f5faf5'; context.beginPath(); context.arc(x, y, radius * .26, 0, Math.PI * 2); context.fill();
   }
 
   private drawTypeChip(resolved: Resolved, type: string, x: number, y: number, alignRight: boolean, scale: number) {
@@ -661,9 +709,13 @@ export class ProductionCompositor {
     const context = this.context;
     const color = TYPE_COLORS[scene.effect.type];
     const alpha = Math.min(1, scene.effect.progress * 6 * move.duration_scale, (1 - scene.effect.progress) * 5 * move.duration_scale);
-    const y = move.layout === 'lower-third' ? height * .8 : scene.vertical ? height * .48 : height * .275;
-    const meta = [move.show_type ? scene.effect.type.toUpperCase() : null, move.show_archetype ? scene.effect.archetype.toUpperCase() : null]
-      .filter(Boolean).join(' // ');
+    const boxes = hudLayout(scene.style.hud.preset, scene.vertical, width, height, scale);
+    const hudBottom = Math.max(boxes.p1.y + boxes.p1.height, boxes.p2.y + boxes.p2.height);
+    const y = move.layout === 'lower-third'
+      ? height * .8
+      : scene.vertical
+        ? height * .48
+        : Math.max(height * .34, hudBottom + 50 * scale);
     context.save();
     context.globalAlpha = alpha;
     context.textAlign = 'center';
@@ -675,25 +727,65 @@ export class ProductionCompositor {
       return;
     }
     const impact = move.layout === 'impact';
-    const boxWidth = (impact ? 700 : 580) * scale;
-    const boxHeight = (impact ? 104 : 86) * scale;
+    const boxWidth = Math.min((impact ? 700 : 620) * scale, width * .52);
+    const boxHeight = (impact ? 112 : 98) * scale;
     if (impact) {
       context.translate(width / 2, y);
       context.scale(1 + (1 - alpha) * .18, 1 + (1 - alpha) * .18);
       context.translate(-width / 2, -y);
     }
-    context.fillStyle = 'rgba(4,6,10,.88)';
+    context.shadowColor = 'rgba(0,0,0,.35)';
+    context.shadowBlur = 18 * scale;
+    context.fillStyle = 'rgba(4,6,10,.94)';
     this.shape(context, scene, width / 2 - boxWidth / 2, y - boxHeight / 2, boxWidth, boxHeight, 24 * scale);
     context.fill();
-    context.strokeStyle = color; context.lineWidth = (impact ? 6 : 4) * scale; context.stroke();
-    if (meta) {
+    context.shadowBlur = 0;
+    context.strokeStyle = withAlpha(color, .92); context.lineWidth = (impact ? 5 : 3) * scale; context.stroke();
+
+    const category = scene.effect.category || categoryLabel(scene.effect.archetype);
+    const tags = [
+      move.show_type ? scene.effect.type.toUpperCase() : null,
+      move.show_archetype ? category : null
+    ].filter((value): value is string => Boolean(value));
+    const tagGap = 8 * scale;
+    const tagWidths = tags.map((tag) => {
+      context.font = this.font(resolved, 'mono', 12 * scale, 900);
+      return context.measureText(tag).width + 26 * scale;
+    });
+    const tagsWidth = tagWidths.reduce((sum, value) => sum + value, 0) + Math.max(0, tags.length - 1) * tagGap;
+    let tagX = width / 2 - tagsWidth / 2;
+    tags.forEach((tag, index) => {
+      const tagWidth = tagWidths[index];
+      roundedRect(context, tagX, y - boxHeight / 2 + 13 * scale, tagWidth, 23 * scale, 11 * scale);
+      context.fillStyle = withAlpha(color, .18);
+      context.fill();
+      context.strokeStyle = withAlpha(color, .65);
+      context.lineWidth = Math.max(1, scale);
+      context.stroke();
       context.fillStyle = color;
-      context.font = this.font(resolved, 'mono', 16 * scale, 900);
-      context.fillText(meta, width / 2, y - boxHeight * .16);
+      context.font = this.font(resolved, 'mono', 12 * scale, 900);
+      context.fillText(tag, tagX + tagWidth / 2, y - boxHeight / 2 + 29 * scale);
+      tagX += tagWidth + tagGap;
+    });
+    if (tags.length) {
+      context.strokeStyle = withAlpha(color, .22);
+      context.lineWidth = Math.max(1, scale);
+      context.beginPath();
+      context.moveTo(width / 2 - boxWidth / 2 + 28 * scale, y - boxHeight / 2 + 43 * scale);
+      context.lineTo(width / 2 + boxWidth / 2 - 28 * scale, y - boxHeight / 2 + 43 * scale);
+      context.stroke();
     }
     context.fillStyle = '#fff';
-    context.font = this.font(resolved, 'display', (impact ? 46 : 38) * scale, resolved.weight);
-    this.paintText(context, resolved, this.text(resolved, scene.effect.moveName), width / 2, y + boxHeight * (meta ? .3 : .12), boxWidth - 60 * scale);
+    const title = this.text(resolved, scene.effect.moveName);
+    let titleSize = (impact ? 43 : 38) * scale;
+    const titleMaxWidth = boxWidth - 58 * scale;
+    context.font = this.font(resolved, 'display', titleSize, resolved.weight);
+    while (context.measureText(title).width > titleMaxWidth && titleSize > 22 * scale) {
+      titleSize -= 1 * scale;
+      context.font = this.font(resolved, 'display', titleSize, resolved.weight);
+    }
+    const titleY = y + (tags.length ? boxHeight * .31 : boxHeight * .12);
+    this.paintText(context, resolved, title, width / 2, titleY, titleMaxWidth);
     context.restore();
   }
 
@@ -971,37 +1063,188 @@ export class ProductionCompositor {
     const targetSide = effect.target || (effect.actor === 'p1' ? 'p2' : 'p1');
     const end = positions[targetSide];
     const color = TYPE_COLORS[effect.type];
+    const impactCue = new Set(['damage', 'critical_hit', 'super_effective', 'resisted', 'immune']);
     const context = this.context;
     context.save(); context.globalCompositeOperation = 'lighter';
     if (effect.archetype === 'heal') this.drawHeal(end, effect, color, scale);
-    else if (['status', 'pulse', 'field', 'buff', 'debuff'].includes(effect.archetype)) this.drawPulse(effect.archetype === 'field' ? { x: width / 2, y: height * .7 } : end, effect, effect.archetype === 'debuff' ? '#ff5f72' : color, scale);
+    else if (effect.archetype === 'status') this.drawStatusEffect(end, effect, color, scale);
+    else if (['pulse', 'field', 'buff', 'debuff'].includes(effect.archetype)) this.drawPulse(effect.archetype === 'field' ? { x: width / 2, y: height * .7 } : end, effect, effect.archetype === 'debuff' ? '#ff5f72' : color, scale);
     else if (effect.archetype === 'barrier') this.drawBarrier(end, effect, color, scale);
     else if (effect.archetype === 'hazard') this.drawHazard(end, effect, color, scale);
-    else if (effect.actor) this.drawAttack(positions[effect.actor], end, effect, color, width, scale, resolved);
-    if (scene.style.effect.impact_flash && effect.impactProgress > 0 && effect.kind !== 'move_missed' && effect.archetype !== 'heal') {
+    else if (effect.attack && effect.moveId === 'earthquake') this.drawEarthquake(scene, effect, width, height, scale);
+    else if (effect.attack && effect.moveId === 'earthpower' && effect.actor) this.drawEarthPower(positions[effect.actor], end, scene, effect, width, height, scale);
+    else if (effect.attack && effect.actor) this.drawAttack(positions[effect.actor], end, effect, color, width, scale, resolved);
+    if (scene.style.effect.impact_flash && impactCue.has(effect.kind) && effect.impactProgress > 0 && effect.impactProgress < 1) {
       const burst = impactEnvelope(effect.impactProgress) * resolved.effect;
       const rays = Math.max(6, Math.round(18 * resolved.effect));
-      context.globalAlpha = Math.min(1, burst); context.strokeStyle = '#fff9d6'; context.lineWidth = 10 * scale; context.lineCap = 'round';
+      const impactColor = effect.kind === 'critical_hit' ? TONE_COLORS.crit : color;
+      context.globalAlpha = Math.min(1, burst); context.strokeStyle = impactColor; context.lineWidth = 10 * scale; context.lineCap = 'round';
       for (let index = 0; index < rays; index += 1) { const angle = index / rays * Math.PI * 2 + hash(effect.seed + index) * .22; const inner = 30 * scale; const outer = (90 + hash(index * 7) * 175) * scale * burst; context.beginPath(); context.moveTo(end.x + Math.cos(angle) * inner, end.y - 120 * scale + Math.sin(angle) * inner); context.lineTo(end.x + Math.cos(angle) * outer, end.y - 120 * scale + Math.sin(angle) * outer); context.stroke(); }
-      context.fillStyle = '#fff'; context.globalAlpha = Math.min(1, burst * .7); context.beginPath(); context.arc(end.x, end.y - 120 * scale, 75 * scale * burst, 0, Math.PI * 2); context.fill();
+      context.fillStyle = withAlpha(impactColor, .28); context.globalAlpha = Math.min(1, burst * .7); context.beginPath(); context.arc(end.x, end.y - 120 * scale, 75 * scale * burst, 0, Math.PI * 2); context.fill();
     }
     context.restore();
+  }
+
+  /** Original canvas treatment for Ground moves: arena-wide shockwaves, cracks and debris. */
+  private drawEarthquake(scene: ProductionScene, effect: ProductionScene['effect'], width: number, height: number, scale: number) {
+    const context = this.context;
+    const progress = effect.progress;
+    const pulse = Math.sin(progress * Math.PI);
+    const floor = height * (scene.vertical ? .66 : .72);
+    context.lineCap = 'round';
+    for (let ring = 0; ring < 3; ring += 1) {
+      const phase = clamp(progress * 1.5 - ring * .16);
+      if (phase <= 0) continue;
+      const fade = (1 - phase) * pulse;
+      context.globalAlpha = fade * .72;
+      context.strokeStyle = '#e3a44d';
+      context.lineWidth = (7 - ring * 1.5) * scale;
+      context.beginPath();
+      context.ellipse(width / 2, floor, (50 + phase * width * .48) * scale, (12 + phase * height * .09) * scale, 0, 0, Math.PI * 2);
+      context.stroke();
+    }
+    const positions = combatantPositions(scene, width, height);
+    const crackOrigins = [positions.p1.x, positions.p2.x, width * .5];
+    for (let index = 0; index < crackOrigins.length; index += 1) {
+      const origin = crackOrigins[index];
+      const crackProgress = clamp((progress - .08 - index * .035) / .55);
+      context.globalAlpha = crackProgress * (1 - progress * .35) * .82;
+      context.strokeStyle = index === 2 ? '#f0c56b' : '#b8793f';
+      context.lineWidth = (4 + (index === 2 ? 2 : 0)) * scale;
+      context.beginPath();
+      context.moveTo(origin - 48 * scale, floor + 3 * scale);
+      context.lineTo(origin - 18 * scale, floor - 12 * scale);
+      context.lineTo(origin - 5 * scale, floor + 2 * scale);
+      context.lineTo(origin + 26 * scale, floor - 28 * crackProgress * scale);
+      context.lineTo(origin + 48 * scale, floor - 18 * crackProgress * scale);
+      context.stroke();
+    }
+    for (let index = 0; index < 10; index += 1) {
+      const launch = clamp((progress - .16 - hash(effect.seed + index) * .12) / .56);
+      if (launch <= 0) continue;
+      const source = positions[index % 2 === 0 ? 'p1' : 'p2'];
+      const x = source.x + (hash(effect.seed + index * 13) - .5) * 180 * scale;
+      const y = floor - easeOut(launch) * (46 + hash(effect.seed + index * 19) * 130) * scale;
+      const size = (5 + hash(effect.seed + index * 29) * 10) * scale;
+      context.globalAlpha = (1 - launch) * pulse * .9;
+      context.fillStyle = index % 3 === 0 ? '#f0c56b' : '#ad713f';
+      context.beginPath();
+      context.moveTo(x - size, y + size);
+      context.lineTo(x + size * .65, y + size * .3);
+      context.lineTo(x + size * .3, y - size);
+      context.lineTo(x - size * .8, y - size * .45);
+      context.closePath();
+      context.fill();
+    }
+  }
+
+  /** Earth Power keeps the Ground identity but adds a directed, molten projectile. */
+  private drawEarthPower(start: Point, end: Point, scene: ProductionScene, effect: ProductionScene['effect'], width: number, height: number, scale: number) {
+    this.drawEarthquake(scene, effect, width, height, scale * .72);
+    const context = this.context;
+    const travel = easeInOut(clamp((effect.progress - .12) / .58));
+    const origin = { x: start.x, y: start.y - 125 * scale };
+    const target = { x: end.x, y: end.y - 125 * scale };
+    const x = origin.x + (target.x - origin.x) * travel;
+    const y = origin.y + (target.y - origin.y) * travel - Math.sin(travel * Math.PI) * 95 * scale;
+    const pulse = Math.sin(effect.progress * Math.PI);
+    for (let index = 0; index < 6; index += 1) {
+      const offset = (hash(effect.seed + index * 23) - .5) * 34 * scale;
+      const drift = Math.sin(effect.progress * Math.PI * 2 + index) * 18 * scale;
+      context.globalAlpha = pulse * (.45 + hash(effect.seed + index * 31) * .45);
+      context.fillStyle = index % 2 ? '#ff8b3d' : '#e3a44d';
+      context.beginPath();
+      context.arc(x + offset + drift, y + offset * .35, (10 + hash(effect.seed + index * 37) * 16) * scale, 0, Math.PI * 2);
+      context.fill();
+    }
+    context.globalAlpha = pulse;
+    const glow = context.createRadialGradient(x, y, 0, x, y, 70 * scale);
+    glow.addColorStop(0, '#ffd36b'); glow.addColorStop(.3, '#ff8b3d'); glow.addColorStop(1, 'rgba(255,139,61,0)');
+    context.fillStyle = glow;
+    context.beginPath(); context.arc(x, y, 70 * scale, 0, Math.PI * 2); context.fill();
   }
 
   private drawAttack(start: Point, end: Point, effect: ProductionScene['effect'], color: string, width: number, scale: number, resolved: Resolved) {
     const context = this.context; const travel = clamp((effect.progress - .18) / .56); const miss = effect.kind === 'move_missed' ? (effect.actor === 'p1' ? 1 : -1) * 200 * scale : 0;
     const target = { x: end.x + miss, y: end.y - 130 * scale }; const origin = { x: start.x, y: start.y - 165 * scale }; const x = origin.x + (target.x - origin.x) * easeInOut(travel); const y = origin.y + (target.y - origin.y) * easeInOut(travel) - Math.sin(travel * Math.PI) * 105 * scale;
     if (effect.archetype === 'contact') {
-      context.strokeStyle = color; context.lineWidth = 16 * scale; context.lineCap = 'round';
-      for (let index = -2; index <= 2; index += 1) { const spread = index * 34 * scale; context.globalAlpha = (.18 + (2 - Math.abs(index)) * .2) * resolved.effect; context.beginPath(); context.moveTo(origin.x - 40 * scale, origin.y + spread); context.lineTo(target.x + 40 * scale, target.y + spread * .3); context.stroke(); }
+      const slashProgress = clamp((effect.progress - .34) / .42);
+      const impactX = target.x;
+      const impactY = target.y;
+      context.lineCap = 'round';
+      for (let index = -1; index <= 1; index += 1) {
+        const offset = index * 42 * scale;
+        const length = (105 + Math.abs(index) * 22) * scale * easeOut(slashProgress);
+        const angle = -.72 + index * .22;
+        const alpha = (.88 - Math.abs(index) * .18) * slashProgress * resolved.effect;
+        context.globalAlpha = alpha;
+        context.strokeStyle = mix(color, '#061016', .28); context.lineWidth = (22 - Math.abs(index) * 3) * scale;
+        context.beginPath();
+        context.moveTo(impactX - Math.cos(angle) * length - offset, impactY - 120 * scale - Math.sin(angle) * length);
+        context.lineTo(impactX + Math.cos(angle) * length * .35 - offset, impactY - 120 * scale + Math.sin(angle) * length * .35);
+        context.stroke();
+        context.strokeStyle = color; context.lineWidth = (10 - Math.abs(index) * 1.5) * scale; context.stroke();
+        context.globalAlpha = alpha * .42;
+        context.strokeStyle = mix(color, '#ffffff', .35); context.lineWidth = 3 * scale;
+        context.beginPath();
+        context.moveTo(impactX - Math.cos(angle) * length * .82 - offset, impactY - 120 * scale - Math.sin(angle) * length * .82);
+        context.lineTo(impactX - Math.cos(angle) * length * .25 - offset, impactY - 120 * scale - Math.sin(angle) * length * .25);
+        context.stroke();
+      }
+      context.globalAlpha = slashProgress * .75 * resolved.effect;
+      context.strokeStyle = color; context.lineWidth = 7 * scale;
+      context.beginPath(); context.arc(impactX, impactY - 120 * scale, (42 + slashProgress * 70) * scale, 0, Math.PI * 2); context.stroke();
     } else if (effect.archetype === 'beam') {
       const beam = clamp((effect.progress - .18) / .45); const angle = Math.atan2(target.y - origin.y, target.x - origin.x); const length = Math.hypot(target.x - origin.x, target.y - origin.y) * easeOut(beam);
-      context.strokeStyle = withAlpha(color, .3); context.lineWidth = 62 * scale * Math.sin(beam * Math.PI); context.lineCap = 'round'; context.beginPath(); context.moveTo(origin.x, origin.y); context.lineTo(origin.x + Math.cos(angle) * length, origin.y + Math.sin(angle) * length); context.stroke();
-      context.strokeStyle = '#fff'; context.lineWidth = 12 * scale * Math.sin(beam * Math.PI); context.beginPath(); context.moveTo(origin.x, origin.y); context.lineTo(origin.x + Math.cos(angle) * length, origin.y + Math.sin(angle) * length); context.stroke();
+      const pulse = Math.sin(beam * Math.PI);
+      context.strokeStyle = withAlpha(color, .26); context.lineWidth = 72 * scale * pulse; context.lineCap = 'round'; context.beginPath(); context.moveTo(origin.x, origin.y); context.lineTo(origin.x + Math.cos(angle) * length, origin.y + Math.sin(angle) * length); context.stroke();
+      context.strokeStyle = color; context.lineWidth = 28 * scale * pulse; context.beginPath(); context.moveTo(origin.x, origin.y); context.lineTo(origin.x + Math.cos(angle) * length, origin.y + Math.sin(angle) * length); context.stroke();
+      context.strokeStyle = mix(color, '#ffffff', .3); context.lineWidth = 8 * scale * pulse; context.beginPath(); context.moveTo(origin.x, origin.y); context.lineTo(origin.x + Math.cos(angle) * length, origin.y + Math.sin(angle) * length); context.stroke();
+      for (let particle = 0; particle < 5; particle += 1) {
+        const distance = length * clamp(beam + (hash(effect.seed + particle * 31) - .5) * .22);
+        const px = origin.x + Math.cos(angle) * distance;
+        const py = origin.y + Math.sin(angle) * distance;
+        const radius = (7 + hash(effect.seed + particle * 17) * 9) * scale * pulse;
+        context.fillStyle = withAlpha(mix(color, '#ffffff', .2), .8);
+        context.globalAlpha = .35 + pulse * .65;
+        context.beginPath(); context.arc(px, py, radius, 0, Math.PI * 2); context.fill();
+      }
     } else {
       const trails = resolved.style.effect.trails ? 4 : 0;
-      for (let trail = trails; trail >= 0; trail -= 1) { const tx = x - (x - origin.x) * trail * .05; const ty = y - (y - origin.y) * trail * .05; const radius = (34 + (4 - trail) * 8) * scale; const glow = context.createRadialGradient(tx, ty, 0, tx, ty, radius * 2.4); glow.addColorStop(0, trail === 0 ? '#fff' : withAlpha(color, .75)); glow.addColorStop(.28, withAlpha(color, .8)); glow.addColorStop(1, 'rgba(0,0,0,0)'); context.globalAlpha = 1 - trail * .16; context.fillStyle = glow; context.beginPath(); context.arc(tx, ty, radius * 2.4, 0, Math.PI * 2); context.fill(); }
-      context.strokeStyle = color; context.lineWidth = 4 * scale; context.globalAlpha = .65; context.beginPath(); context.moveTo(origin.x, origin.y); context.quadraticCurveTo(width / 2, Math.min(origin.y, target.y) - 150 * scale, x, y); context.stroke();
+      for (let trail = trails; trail >= 0; trail -= 1) { const tx = x - (x - origin.x) * trail * .05; const ty = y - (y - origin.y) * trail * .05; const radius = (34 + (4 - trail) * 8) * scale; const glow = context.createRadialGradient(tx, ty, 0, tx, ty, radius * 2.4); glow.addColorStop(0, mix(color, '#ffffff', .22)); glow.addColorStop(.28, withAlpha(color, .8)); glow.addColorStop(1, 'rgba(0,0,0,0)'); context.globalAlpha = 1 - trail * .16; context.fillStyle = glow; context.beginPath(); context.arc(tx, ty, radius * 2.4, 0, Math.PI * 2); context.fill(); }
+      context.strokeStyle = color; context.lineWidth = 7 * scale; context.globalAlpha = .72; context.beginPath(); context.moveTo(origin.x, origin.y); context.quadraticCurveTo(width / 2, Math.min(origin.y, target.y) - 150 * scale, x, y); context.stroke();
+    }
+  }
+
+  private drawStatusEffect(end: Point, effect: ProductionScene['effect'], color: string, scale: number) {
+    const context = this.context;
+    const center = { x: end.x, y: end.y - 120 * scale };
+    const condition = effect.condition || '';
+    const pulse = Math.sin(effect.progress * Math.PI);
+    const statusColor = condition.includes('par') ? '#ffe148'
+      : condition.includes('brn') ? '#ff7043'
+        : condition.includes('psn') || condition.includes('tox') ? '#d16bff'
+          : condition.includes('slp') ? '#a9a4ff'
+            : condition.includes('frz') ? '#82f4f1'
+              : color;
+    context.globalAlpha = pulse * .7;
+    context.strokeStyle = statusColor;
+    context.lineWidth = 7 * scale;
+    context.beginPath(); context.arc(center.x, center.y, (64 + pulse * 34) * scale, 0, Math.PI * 2); context.stroke();
+    for (let index = 0; index < 8; index += 1) {
+      const angle = index / 8 * Math.PI * 2 + effect.progress * Math.PI;
+      const distance = (70 + pulse * 28 + hash(effect.seed + index) * 24) * scale;
+      const x = center.x + Math.cos(angle) * distance;
+      const y = center.y + Math.sin(angle) * distance;
+      const size = (6 + hash(effect.seed + index * 7) * 8) * scale;
+      context.fillStyle = statusColor;
+      context.beginPath();
+      if (condition.includes('par')) {
+        context.moveTo(x, y - size); context.lineTo(x + size * .55, y); context.lineTo(x - size * .1, y); context.lineTo(x + size * .25, y + size); context.lineTo(x - size * .55, y + size * .05); context.lineTo(x, y + size * .05); context.closePath();
+      } else {
+        context.arc(x, y, size, 0, Math.PI * 2);
+      }
+      context.fill();
     }
   }
 
@@ -1051,8 +1294,16 @@ function combatantPositions(scene: ProductionScene, width: number, height: numbe
 
 function cameraOffset(scene: ProductionScene, scale: number, strength: number) {
   const impact = impactEnvelope(scene.effect.impactProgress) * strength;
-  if (impact <= 0) return { x: 0, y: 0 };
-  return { x: Math.sin(scene.effect.seed + scene.effect.impactProgress * 97) * 20 * scale * impact, y: Math.cos(scene.effect.seed + scene.effect.impactProgress * 79) * 13 * scale * impact };
+  const quake = isGroundMove(scene.effect.moveId) && scene.effect.attack
+    ? Math.sin(scene.effect.progress * Math.PI * 7) * Math.sin(scene.effect.progress * Math.PI) * strength
+    : 0;
+  if (impact <= 0 && quake === 0) return { x: 0, y: 0 };
+  return {
+    x: Math.sin(scene.effect.seed + scene.effect.impactProgress * 97) * 20 * scale * impact
+      + Math.sin(scene.effect.seed * .0001 + scene.effect.progress * 37) * 9 * scale * quake,
+    y: Math.cos(scene.effect.seed + scene.effect.impactProgress * 79) * 13 * scale * impact
+      + Math.cos(scene.effect.seed * .00013 + scene.effect.progress * 43) * 6 * scale * quake
+  };
 }
 function anticipationLunge(progress: number): number {
   if (progress < .16) return -easeInOut(progress / .16) * .16;
@@ -1082,6 +1333,18 @@ function wrap(context: CanvasRenderingContext2D, text: string, maxWidth: number,
 function readableStatus(value: string): string { return ({ BRN: 'BURN', PAR: 'PAR', PSN: 'PSN', TOX: 'TOXIC', SLP: 'SLEEP', FRZ: 'FRZ' } as Record<string, string>)[value.toUpperCase()] || value.toUpperCase(); }
 function pokemonTypeColor(types: string[] | undefined): string { return TYPE_COLORS[(types?.[0]?.toLowerCase() || 'normal') as PokemonType] || TYPE_COLORS.normal; }
 function statusColor(status: string): string { return ({ BRN: '#ff8055', PAR: '#f6d34c', PSN: '#c979e8', TOX: '#9d59c8', SLP: '#9ba8b6', FRZ: '#7ee8f0' } as Record<string, string>)[status] || '#d9d7ca'; }
+
+function categoryLabel(archetype: ProductionScene['effect']['archetype']): string {
+  if (archetype === 'contact') return 'PHYSICAL';
+  if (archetype === 'beam' || archetype === 'projectile') return 'SPECIAL';
+  if (archetype === 'status' || archetype === 'buff' || archetype === 'debuff') return 'STATUS';
+  if (archetype === 'heal') return 'RECOVERY';
+  return archetype.toUpperCase();
+}
+
+function isGroundMove(moveId: string | null): boolean {
+  return moveId === 'earthquake' || moveId === 'earthpower' || moveId === 'magnitude' || moveId === 'bulldoze';
+}
 
 function clamp(value: number): number { return Math.max(0, Math.min(1, value)); }
 function easeOut(value: number): number { return 1 - Math.pow(1 - value, 3); }

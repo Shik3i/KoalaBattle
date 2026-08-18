@@ -144,6 +144,15 @@ def test_native_transport_can_force_bounded_raw_fallback(tmp_path: Path) -> None
     assert exporter._native_transport() == "raw-rgba"
 
 
+def test_native_transport_uses_compressed_keyframes_on_linux(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("sys.platform", "linux")
+    settings = Settings(video_root=tmp_path, video_native_transport="auto")
+    exporter = OfflineRendererExporter(settings, VideoStorage(settings.video_root))
+    assert exporter._native_transport() == "mjpeg"
+
+
 def job_fixture(
     *,
     status: ExportStatus = ExportStatus.QUEUED,

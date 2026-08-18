@@ -66,6 +66,7 @@ export interface FormatDescriptor {
   name: string;
   display_name: string;
   generation: number;
+  banter_enabled?: boolean;
   mod: string;
   section: string;
   game_type: GameType;
@@ -198,6 +199,7 @@ export interface AgentContextSnapshot {
   history_policy_version: string;
   memory_policy: 'disabled' | 'strategy-note';
   memory_policy_version: string;
+  banter_enabled?: boolean;
   output_schema_version: string;
 }
 
@@ -274,6 +276,7 @@ export interface AgentRequest {
   prompt_schema_version: string;
   prompt_template_version: string;
   information_profile: 'standard';
+  banter_enabled?: boolean;
 }
 
 export interface TeamValidationResult {
@@ -321,6 +324,7 @@ export interface MatchArchive {
     name?: string | null;
     format: string;
     generation: number;
+    banter_enabled?: boolean;
     players: Array<{
       side: Side;
       display_name: string;
@@ -348,6 +352,7 @@ export interface MatchArchive {
       turn: number;
       action: string;
       commentary: string;
+      banter?: string;
       strategy_memory?: string | null;
       latency_ms?: number | null;
       provider?: string | null;
@@ -382,7 +387,12 @@ export interface ProductionProfile {
   wait_for_speech: boolean;
   commentary_max_characters: number;
   caption_max_characters: number;
+  turn_target_ms: number;
   event_gap_ms: number;
+  turn_gap_ms: number | null;
+  intro_duration_ms: number;
+  result_duration_ms: number;
+  outro_duration_ms: number;
   aspect_ratio: '16:9' | '9:16';
   interruption_policy: 'finish-current' | 'interrupt';
   ducking_db: number;

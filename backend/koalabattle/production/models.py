@@ -88,12 +88,25 @@ class ProductionProfile(FrozenModel):
     wait_for_speech: bool = True
     commentary_max_characters: int = Field(default=320, ge=40, le=1000)
     caption_max_characters: int = Field(default=42, ge=12, le=80)
+    #: Minimum presentation slot for one deterministic replay turn. Speech or animation may
+    #: extend it, but a short turn never creates an accidental variable-length pause.
+    turn_target_ms: int = Field(default=20_000, ge=1_000, le=120_000)
+    #: Kept for compatibility with persisted profiles. New timelines apply this only between
+    #: turns, never between individual event sequences.
     event_gap_ms: int = Field(default=120, ge=0, le=5000)
+    turn_gap_ms: int | None = Field(default=None, ge=0, le=5000)
+    intro_duration_ms: int = Field(default=2_200, ge=0, le=30_000)
+    result_duration_ms: int = Field(default=1_800, ge=0, le=30_000)
+    outro_duration_ms: int = Field(default=600, ge=0, le=30_000)
     aspect_ratio: str = Field(default="16:9", pattern=r"^(16:9|9:16)$")
     interruption_policy: str = Field(
         default="finish-current", pattern=r"^(finish-current|interrupt)$"
     )
     ducking_db: float = Field(default=-12.0, ge=-30, le=0)
+
+    @property
+    def turn_pause_ms(self) -> int:
+        return self.event_gap_ms if self.turn_gap_ms is None else self.turn_gap_ms
 
 
 class VoicePreset(FrozenModel):

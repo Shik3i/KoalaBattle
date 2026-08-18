@@ -61,6 +61,10 @@ _TERMINAL = {
     MatchStatus.FAILED,
     MatchStatus.INTERRUPTED,
 }
+# These events are useful for the live inspector, but they are not viewer-facing beats.
+# Keeping them in a production timeline made every internal stream update consume a visual
+# duration and an event gap in exported video.
+_OMITTED_FROM_PRODUCTION = frozenset({"agent_progress", "agent_state", "showdown_message"})
 
 
 def public_commentary(text: object, maximum: int) -> str:
@@ -104,9 +108,30 @@ def segment_caption(text: str, *, maximum: int, duration_ms: int) -> tuple[Capti
 
 
 def cues_for_event(
-    event: BattleEvent, profile: ProductionProfile, *, start_ms: int
+    event: BattleEvent,
+    profile: ProductionProfile,
+    *,
+    start_ms: int,
+    timeline_turn: int | None = None,
 ) -> tuple[tuple[ProductionCue, ...], int]:
     """Create only cues owned by one persisted event; IDs make retries idempotent."""
+    cue_turn = event.turn if timeline_turn is None else timeline_turn
+    if event.event_type in _OMITTED_FROM_PRODUCTION:
+        return (), 0
+    # Snapshots are state checkpoints for deterministic replay. They must be applied at the
+    # current clock position, but they must not create a visible beat or an inter-event pause.
+    if event.event_type == "state_snapshot":
+        return (
+            ProductionCue(
+                id=f"event-{event.sequence}-state",
+                track=Track.VISUAL,
+                kind=event.event_type,
+                start_ms=start_ms,
+                duration_ms=0,
+                event_sequence=event.sequence,
+                turn=cue_turn,
+            ),
+        ), 0
     duration = _EVENT_DURATIONS.get(event.event_type, 120)
     base = f"event-{event.sequence}"
     cues = [
@@ -117,7 +142,7 @@ def cues_for_event(
             start_ms=start_ms,
             duration_ms=duration,
             event_sequence=event.sequence,
-            turn=event.turn,
+            turn=cue_turn,
         )
     ]
     if profile.sfx_enabled and event.event_type in _SFX_EVENTS:
@@ -129,14 +154,24 @@ def cues_for_event(
                 start_ms=start_ms,
                 duration_ms=min(duration, 500),
                 event_sequence=event.sequence,
-                turn=event.turn,
+                turn=cue_turn,
                 payload={"sound_pack": "generic-default"},
             )
         )
     if event.event_type == "agent_decision":
         side = event.payload.get("side")
+        public_text = event.payload.get("public_text")
+        if not isinstance(public_text, str):
+            public_text = " ".join(
+                item
+                for item in (
+                    event.payload.get("commentary"),
+                    event.payload.get("banter"),
+                )
+                if isinstance(item, str) and item.strip()
+            )
         commentary = public_commentary(
-            event.payload.get("commentary"), profile.commentary_max_characters
+            public_text, profile.commentary_max_characters
         )
         if commentary and side in {"p1", "p2"}:
             estimated = max(650, min(12_000, len(commentary) * 55))
@@ -148,7 +183,7 @@ def cues_for_event(
                     start_ms=start_ms,
                     duration_ms=estimated,
                     event_sequence=event.sequence,
-                    turn=event.turn,
+                    turn=cue_turn,
                     side=side,
                     payload={"text": commentary},
                 )
@@ -162,7 +197,7 @@ def cues_for_event(
                         start_ms=start_ms,
                         duration_ms=estimated,
                         event_sequence=event.sequence,
-                        turn=event.turn,
+                        turn=cue_turn,
                         side=side,
                         payload={
                             "segments": [
@@ -181,14 +216,20 @@ def cues_for_event(
     return tuple(cues), duration
 
 
-def final_cues(archive: MatchArchive, *, start_ms: int) -> tuple[ProductionCue, ...]:
+def final_cues(
+    archive: MatchArchive,
+    *,
+    start_ms: int,
+    result_duration_ms: int = 1_800,
+    outro_duration_ms: int = 600,
+) -> tuple[ProductionCue, ...]:
     return (
         ProductionCue(
             id="director-result",
             track=Track.DIRECTOR,
             kind="result",
             start_ms=start_ms,
-            duration_ms=1800,
+            duration_ms=result_duration_ms,
             payload={
                 "winner": archive.winner.value if archive.winner else None,
                 "turns": archive.turns,
@@ -199,10 +240,24 @@ def final_cues(archive: MatchArchive, *, start_ms: int) -> tuple[ProductionCue, 
             id="director-outro",
             track=Track.DIRECTOR,
             kind="outro",
-            start_ms=start_ms + 1800,
-            duration_ms=600,
+            start_ms=start_ms + result_duration_ms,
+            duration_ms=outro_duration_ms,
         ),
     )
+
+
+def _group_turn(group: list[ProductionCue]) -> int | None:
+    turns = {cue.turn for cue in group if cue.turn is not None and cue.turn > 0}
+    return min(turns) if turns else None
+
+
+def _finish_turn(
+    cursor: int, turn_start: int | None, profile: ProductionProfile, *, gap: bool
+) -> int:
+    if turn_start is None:
+        return cursor
+    cursor = max(cursor, turn_start + profile.turn_target_ms)
+    return cursor + profile.turn_pause_ms if gap else cursor
 
 
 def retime_for_audio(
@@ -216,8 +271,21 @@ def retime_for_audio(
         result.append(intro.model_copy(update={"start_ms": 0}))
         cursor = intro.duration_ms
     sequences = sorted({cue.event_sequence for cue in cues if cue.event_sequence is not None})
+    active_turn: int | None = None
+    turn_start: int | None = None
     for sequence in sequences:
         group = [cue for cue in cues if cue.event_sequence == sequence]
+        event_turn = _group_turn(group)
+        if event_turn is not None and event_turn != active_turn:
+            if active_turn is not None:
+                cursor = _finish_turn(cursor, turn_start, profile, gap=True)
+            active_turn = event_turn
+            turn_start = cursor
+        if not any(cue.duration_ms > 0 for cue in group):
+            # State checkpoints are instantaneous and must not add a synthetic pause to the
+            # clock. They remain at the current cursor so the browser can apply their state.
+            result.extend(cue.model_copy(update={"start_ms": cursor}) for cue in group)
+            continue
         visual_duration = max(
             (cue.duration_ms for cue in group if cue.track is Track.VISUAL), default=0
         )
@@ -227,7 +295,9 @@ def retime_for_audio(
             else visual_duration
         )
         result.extend(cue.model_copy(update={"start_ms": cursor}) for cue in group)
-        cursor += duration + profile.event_gap_ms
+        cursor += duration
+    if active_turn is not None:
+        cursor = _finish_turn(cursor, turn_start, profile, gap=False)
     result_cue = next((cue for cue in cues if cue.id == "director-result"), None)
     outro = next((cue for cue in cues if cue.id == "director-outro"), None)
     if result_cue is not None:
@@ -259,22 +329,47 @@ def build_timeline(
                 track=Track.DIRECTOR,
                 kind="match-intro",
                 start_ms=0,
-                duration_ms=2200,
+                duration_ms=profile.intro_duration_ms,
                 payload={
                     "players": [player.display_name for player in archive.config.players],
                     "format": archive.config.format,
                 },
             )
         )
-        cursor = 2200
+        cursor = profile.intro_duration_ms
+    active_turn: int | None = None
+    turn_start: int | None = None
     for event in archive.events:
-        event_cues, duration = cues_for_event(event, profile, start_ms=cursor)
-        cues.extend(event_cues)
-        cursor += duration + profile.event_gap_ms
+        # Showdown can persist the next state snapshot before the remaining action events
+        # from the current turn. Only `turn_started` is a reliable forward clock boundary;
+        # using every event.turn made the timeline jump 1 -> 2 -> 1 and restart turn slots.
+        event_turn = (
+            event.turn if event.event_type == "turn_started" and event.turn > 0 else active_turn
+        )
+        if event_turn is not None and event_turn != active_turn:
+            if active_turn is not None:
+                cursor = _finish_turn(cursor, turn_start, profile, gap=True)
+            active_turn = event_turn
+            turn_start = cursor
+        event_cues, duration = cues_for_event(
+            event, profile, start_ms=cursor, timeline_turn=active_turn
+        )
+        if event_cues:
+            cues.extend(event_cues)
+            cursor += duration
+    if active_turn is not None:
+        cursor = _finish_turn(cursor, turn_start, profile, gap=False)
     terminal = archive.status in _TERMINAL
     if terminal:
-        cues.extend(final_cues(archive, start_ms=cursor))
-        cursor += 2400
+        cues.extend(
+            final_cues(
+                archive,
+                start_ms=cursor,
+                result_duration_ms=profile.result_duration_ms,
+                outro_duration_ms=profile.outro_duration_ms,
+            )
+        )
+        cursor += profile.result_duration_ms + profile.outro_duration_ms
     final_state = DirectorState.RESULT if archive.winner is not None else DirectorState.ENDED
     return ProductionTimeline(
         id=production_id or uuid4(),

@@ -29,6 +29,7 @@ const EVENT_DURATIONS: Record<string, number> = {
   pokemon_switched: 620,
   pokemon_fainted: 760,
   agent_decision: 340,
+  agent_progress: 20,
   turn_started: 240,
   state_snapshot: 100,
   battle_finished: 900
@@ -63,7 +64,9 @@ export class PresentationTimeline {
     this.match = match;
     this.clock = clock;
     this.follow = follow;
-    this.events = [...events];
+    // Token previews are a live-stream affordance. Keep them out of replay/video timing so
+    // a long model response does not turn into dozens of artificial historical frames.
+    this.events = follow ? [...events] : events.filter((event) => event.event_type !== 'agent_progress');
     this.state = createPresentationState(match);
   }
 
@@ -86,7 +89,9 @@ export class PresentationTimeline {
 
   replace(events: readonly BattleEvent[], index = 0): void {
     this.pause();
-    this.events = [...events];
+    this.events = this.follow
+      ? [...events]
+      : events.filter((event) => event.event_type !== 'agent_progress');
     this.seek(index);
   }
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Awaitable, Callable
 from typing import Any, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -16,6 +17,10 @@ class ProviderCapabilities(BaseModel):
     temperature: bool = False
     reasoning_control: bool = False
     usage_reporting: bool = False
+    streaming: bool = False
+
+
+TextDeltaCallback = Callable[[str], Awaitable[None]]
 
 
 class ProviderRequest(BaseModel):
@@ -63,7 +68,12 @@ class LLMProvider(Protocol):
     name: str
     capabilities: ProviderCapabilities
 
-    async def generate(self, request: ProviderRequest) -> ProviderResponse: ...
+    async def generate(
+        self,
+        request: ProviderRequest,
+        *,
+        on_text_delta: TextDeltaCallback | None = None,
+    ) -> ProviderResponse: ...
 
     async def list_models(self) -> tuple[ProviderModel, ...]: ...
 

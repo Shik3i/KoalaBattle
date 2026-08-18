@@ -51,8 +51,13 @@ export type ProductionEffectArchetype =
 export interface ProductionSceneEffect {
   kind: string;
   moveName: string | null;
+  moveId: string | null;
   type: PokemonType;
+  category: 'physical' | 'special' | 'status' | null;
+  condition: string | null;
   archetype: ProductionEffectArchetype;
+  /** True only while an authoritative move_used/move_missed cue is on screen. */
+  attack: boolean;
   progress: number;
   impactProgress: number;
   seed: number;
@@ -142,6 +147,7 @@ export function createProductionScene(
   const profile = presentation.currentMoveProfile;
   const visualKind = frame.visual?.kind || presentation.effect;
   const visibleEffect = isVisibleBattleEffect(visualKind);
+  const attackCue = visualKind === 'move_used' || visualKind === 'move_missed';
   return {
     version: '2.0',
     timeMs: frame.timeMs,
@@ -160,8 +166,12 @@ export function createProductionScene(
       moveName: visibleEffect && /move|damage|heal|critical|effective|resisted|immune/.test(visualKind)
         ? presentation.currentMove
         : null,
+      moveId: attackCue ? normalizeMoveId(presentation.currentMove) : null,
       type: profile?.type || 'normal',
+      category: profile?.archetype || null,
+      condition: eventCondition(frame),
       archetype: effectArchetype(frame, profile?.archetype, profile?.type),
+      attack: attackCue && Boolean(actor && profile),
       progress: visibleEffect ? frame.visualProgress : 0,
       impactProgress: visibleEffect
         ? clamp((frame.visualProgress - AUTHORITATIVE_IMPACT_PROGRESS) / (1 - AUTHORITATIVE_IMPACT_PROGRESS))
@@ -305,6 +315,11 @@ function isVisibleBattleEffect(kind: string): boolean {
   return /^(move_|damage$|healing$|critical_hit$|status_|super_effective$|resisted$|immune$|weather_|terrain_|side_condition_|pokemon_switched$|pokemon_fainted$|battle_finished$)/.test(kind);
 }
 
+function eventCondition(frame: ProductionFrameState): string | null {
+  const value = frame.event?.payload.status ?? frame.event?.payload.condition;
+  return typeof value === 'string' ? value.toLowerCase() : null;
+}
+
 function cueText(cue: ProductionCue | null): string | null {
   return cue && typeof cue.payload.text === 'string' ? cue.payload.text : null;
 }
@@ -360,9 +375,16 @@ function effectArchetype(
   if (kind.includes('boost') || kind.includes('buff')) return 'buff';
   if (kind.includes('status') || category === 'status') return 'status';
   if (category === 'physical' || kind === 'damage' || kind === 'critical_hit') return 'contact';
+  if (category === 'special') return 'beam';
   if (type === 'electric' || type === 'psychic' || type === 'dragon') return 'beam';
   if (type === 'ground' || type === 'flying' || type === 'ice') return 'pulse';
   return 'projectile';
+}
+
+function normalizeMoveId(value: string | null): string | null {
+  if (!value) return null;
+  const normalized = value.toLowerCase().replace(/[^a-z0-9]/g, '');
+  return normalized || null;
 }
 
 function opposite(side: Side): Side { return side === 'p1' ? 'p2' : 'p1'; }

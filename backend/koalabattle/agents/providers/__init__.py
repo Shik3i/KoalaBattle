@@ -6,6 +6,7 @@ from .base import (
     ProviderModel,
     ProviderRequest,
     ProviderResponse,
+    TextDeltaCallback,
 )
 from .fake import FakeProvider
 from .gemini import GeminiProvider
@@ -25,4 +26,5 @@ __all__ = [
     "ProviderModel",
     "ProviderRequest",
     "ProviderResponse",
+    "TextDeltaCallback",
 ]

@@ -7,7 +7,7 @@
     type RendererConfig,
     type SpectatorLogEntry
   } from './presentation/types';
-  import type { BattleSide, Side } from './types';
+  import type { BattleSide, PokemonState, Side } from './types';
 
   export let presentation: BattlePresentationState | null = null;
   export let config: RendererConfig = defaultRendererConfig();
@@ -26,6 +26,7 @@
    */
   const NATIVE_SPRITE_PX = 96;
   const MAX_UPSCALE = 3;
+  const TEAM_SIZE = 6;
   const RETRO_GENERATIONS = new Set([1, 2]);
 
   interface Slot {
@@ -33,6 +34,11 @@
     side: Side;
     data: BattleSide | null;
     perspective: 'front' | 'back';
+  }
+
+  interface RosterSlot {
+    index: number;
+    member: PokemonState | null;
   }
 
   let nearSide: Side = 'p1';
@@ -109,6 +115,16 @@
     return `${side.active?.species}:${perspective}:${config.animatedSprites}`;
   }
 
+  function renderablePokemon(active: PokemonState | null | undefined): active is PokemonState {
+    const species = active?.species?.toLocaleLowerCase().replace(/[^a-z0-9]/g, '') || '';
+    return Boolean(active && species && species !== 'unknown' && species !== 'egg');
+  }
+
+  function rosterSlots(side: BattleSide | null): RosterSlot[] {
+    const team = side?.team || [];
+    return Array.from({ length: TEAM_SIZE }, (_, index) => ({ index, member: team[index] || null }));
+  }
+
   function onAssetError(key: string) {
     failedAssets = new Set([...failedAssets, key]);
   }
@@ -140,7 +156,10 @@
     const team = side?.team || [];
     if (!team.length) return 'Team not revealed yet';
     const standing = team.filter((member) => !member.fainted).length;
-    return `${standing} of ${team.length} Pokémon still standing`;
+    const unrevealed = Math.max(0, TEAM_SIZE - team.length);
+    return unrevealed
+      ? `${standing} known Pokémon still standing · ${unrevealed} unrevealed team slots`
+      : `${standing} of ${TEAM_SIZE} Pokémon still standing`;
   }
 
   function previousHp(side: Side, fraction: number) {
@@ -295,23 +314,26 @@
                visible but greyed out, so the score of the match is readable at a glance. -->
           {#if config.showTeamRoster}
           <span class="team-strip" aria-label={rosterLabel(slot.data)}>
-            {#each slot.data?.team || [] as member (member.id || member.species)}
+            {#each rosterSlots(slot.data) as roster (roster.index)}
+              {@const member = roster.member}
               <i
-                class:active={member.active}
-                class:fainted={member.fainted}
-                title={`${member.name}${member.fainted ? ' · fainted' : ` · ${hpPercent(member)}%`}`}
+                class:active={Boolean(member?.active)}
+                class:fainted={Boolean(member?.fainted)}
+                class:unrevealed={!member}
+                title={member ? `${member.name}${member.fainted ? ' · fainted' : ` · ${hpPercent(member)}%`}` : 'Unrevealed Pokémon'}
               >
-                {#if !failedAssets.has(`roster:${member.species}`)}
+                {#if member && !failedAssets.has(`roster:${member.species}`)}
                   <img
                     src={spriteUrl(member.species, 'front')}
                     alt={member.name}
-                    loading="lazy"
                     on:error={() => onAssetError(`roster:${member.species}`)}
                   />
-                {:else}
+                {:else if member}
                   <b>{member.name.slice(0, 1)}</b>
+                {:else}
+                  <span class="pokeball" aria-hidden="true"><i></i></span>
                 {/if}
-                {#if !member.fainted}
+                {#if member && !member.fainted}
                   <u style={`width:${Math.max(member.hp_fraction, 0) * 100}%`} data-tone={hpTone(member.hp_fraction)}></u>
                 {/if}
               </i>
@@ -323,7 +345,7 @@
 
       <!-- Combatants. Far uses the front sprite, near the back sprite, as in a real battle. -->
       {#each slots as slot (slot.side)}
-        {#if slot.data?.active}
+        {#if slot.data?.active && renderablePokemon(slot.data.active)}
           <article
             class={`combatant combatant-${slot.place}`}
             data-side={slot.side}
@@ -345,7 +367,7 @@
                       on:error={() => slot.data && onAssetError(assetKey(slot.data, slot.perspective))}
                     />
                   {:else}
-                    <div class="placeholder"><span>{slot.data.active.name.slice(0, 1)}</span></div>
+                    <div class="sprite-missing"><span class="pokeball" aria-hidden="true"><i></i></span><small>SPRITE</small></div>
                   {/if}
                 </div>
               {/key}
@@ -437,7 +459,14 @@
           <div class={`intent intent-${slot.place}`} data-side={slot.side} aria-live="polite">
             <small>{player.commentaryPhase === 'thinking' ? 'THINKING' : 'INTENT'}</small>
             {#if player.commentaryPhase === 'thinking'}
-              <p class="thinking">Thinking…</p>
+              {#if player.streamPreview}
+                <p class="thinking live-response">{player.streamPreview}<span aria-hidden="true">▌</span></p>
+              {:else}
+                <p class="thinking">Thinking…</p>
+              {/if}
+              {#if player.contextMetrics}
+                <small class="context-meter">Context · {player.contextMetrics.estimatedTokens.toLocaleString()} tokens · {player.contextMetrics.renderedCharacters.toLocaleString()} chars</small>
+              {/if}
             {:else}
               <p>{player.currentCommentary?.commentary || `${player.currentCommentary?.actionName || player.currentCommentary?.action || 'Action'} selected.`}</p>
             {/if}
@@ -569,6 +598,9 @@
   .team-strip img{width:150%;height:150%;object-fit:contain;image-rendering:auto}
   [data-retro='true'] .team-strip img{image-rendering:pixelated}
   .team-strip i b{color:var(--r-dim);font:800 .62rem var(--display)}
+  .team-strip i.unrevealed{border-color:rgba(255,255,255,.16);background:rgba(0,0,0,.24)}
+  .pokeball{position:relative;display:block;width:58%;aspect-ratio:1;border:1.5px solid rgba(255,255,255,.72);border-radius:50%;background:linear-gradient(180deg,#e85d5d 0 46%,#1c2522 46% 54%,#f1f4ed 54%);box-shadow:0 1px 4px rgba(0,0,0,.5)}
+  .pokeball i{position:absolute;top:50%;left:50%;width:30%;aspect-ratio:1;transform:translate(-50%,-50%);border:1px solid rgba(0,0,0,.8);border-radius:50%;background:#f5faf5}
   /* Fainted members stay in the row: a gap would hide how the match actually stands. */
   .team-strip i.fainted{border-color:rgba(255,255,255,.12);background:rgba(0,0,0,.4);opacity:.38;filter:grayscale(1) brightness(.65)}
   .team-strip i.fainted::after{content:'';position:absolute;width:132%;height:1px;background:rgba(255,255,255,.5);transform:rotate(-45deg)}
@@ -596,8 +628,9 @@
      48px animated frame is never stretched as far as a 96px sheet. */
   .sprite img{display:block;width:auto;max-width:100%;height:min(100%,calc(var(--natural-h,96) * var(--max-upscale) * 1px));object-fit:contain;image-rendering:auto;filter:drop-shadow(0 10px 12px rgba(0,0,0,.5))}
   .battle-renderer[data-retro='true'] .sprite img{image-rendering:pixelated}
-  .placeholder{display:grid;place-items:center;width:70%;aspect-ratio:1;border:1px solid var(--r-line);border-radius:50%;background:rgba(10,26,20,.9)}
-  .placeholder span{font-size:calc(var(--hud-scale,1) * clamp(1.4rem,3.4vw,3rem));font-weight:800;opacity:.85}
+  .sprite-missing{display:grid;place-items:center;gap:.25rem;color:var(--r-dim);font:800 .55rem var(--mono);letter-spacing:.12em}
+  .sprite-missing .pokeball{width:clamp(28px,4vw,52px)}
+  .sprite-missing small{font:inherit}
   .hp-delta{position:absolute;top:4%;left:50%;z-index:4;transform:translateX(-50%);color:#ff9089;font:900 calc(var(--hud-scale,1) * clamp(1rem,2.3vw,2.1rem)) var(--mono);text-shadow:0 2px 10px #000,0 0 22px rgba(0,0,0,.7);animation:value-pop .6s both}
   .hp-delta.positive{color:#8ef3a9}
 
@@ -635,6 +668,10 @@
   .intent small{color:var(--side-color);font:900 calc(var(--hud-scale,1) * clamp(.58rem,.74vw,.74rem)) var(--mono);letter-spacing:.16em}
   .intent p{display:-webkit-box;overflow:hidden;margin:0;color:#dfeae3;font-size:calc(var(--hud-scale,1) * clamp(.8rem,1.02vw,1.02rem));line-height:1.45;line-clamp:3;-webkit-box-orient:vertical;-webkit-line-clamp:3}
   .intent .thinking{color:var(--r-dim);font-style:italic}
+  .intent .live-response{color:#f3fff6;font-style:normal}
+  .intent .live-response span{color:var(--side-color);animation:cursor-blink 1s steps(2,end) infinite}
+  .intent .context-meter{color:var(--r-dim);font:600 calc(var(--hud-scale,1) * clamp(.48rem,.62vw,.62rem)) var(--mono);letter-spacing:.04em;text-transform:none}
+  @keyframes cursor-blink{50%{opacity:0}}
 
   /* ── Effects ────────────────────────────────────────────────────────────── */
   .effect{position:absolute;z-index:9;inset:0;display:grid;place-items:center;pointer-events:none}

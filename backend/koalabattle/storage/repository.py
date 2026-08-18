@@ -226,6 +226,7 @@ class BattleRepository:
         parsed = {
             "action": decision.action,
             "commentary": decision.commentary,
+            "banter": decision.banter,
             "strategy_memory": decision.strategy_memory,
         }
         row = AgentDecisionRow(

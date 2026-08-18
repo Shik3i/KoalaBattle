@@ -29,7 +29,8 @@ synthesis. WAV is the only internal format; FFmpeg is not required.
 
 The SHA-256 cache key covers normalized text, provider, model, voice, speed, language,
 instructions, and format as canonical JSON. Identical concurrent requests share one task.
-Generation is bounded by `KOALABATTLE_SPEECH_MAX_CONCURRENCY`; cancellation does not expose a
+All missing replay cues are scheduled immediately when preparation starts. Generation is
+bounded by `KOALABATTLE_SPEECH_MAX_CONCURRENCY` (default `8`); cancellation does not expose a
 partial artifact. Text and payload size limits apply before publication.
 
 VoicePresets persist a provider-neutral participant assignment. The same `p1`/`p2` assignment

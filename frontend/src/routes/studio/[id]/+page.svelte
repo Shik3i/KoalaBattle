@@ -178,6 +178,11 @@
     style = { ...style, [section]: { ...(style[section] as object), ...value } } as ProductionStyle;
   }
 
+  function setStyleValue<K extends keyof ProductionStyle>(key: K, value: ProductionStyle[K]) {
+    if (!style) return;
+    style = { ...style, [key]: value };
+  }
+
   function patchBackground(value: Partial<ProductionStyle['stage']['background']>) {
     if (!style) return;
     patch('stage', { background: { ...style.stage.background, ...value } });
@@ -375,9 +380,9 @@
           </label>
           <p class="hint">{presets.find((item) => item.id === style?.id)?.description || 'Customized from a built-in preset.'}</p>
           <label>Video title <input type="text" maxlength="90" bind:value={title} placeholder="Optional — does not rename the match" /></label>
-          <label class="check"><input type="checkbox" checked={style.show_format} on:change={(event) => (style = { ...style, show_format: event.currentTarget.checked })} /> Show format</label>
-          <label class="check"><input type="checkbox" checked={style.show_generation} on:change={(event) => (style = { ...style, show_generation: event.currentTarget.checked })} /> Show generation</label>
-          <label class="check"><input type="checkbox" checked={style.show_koala_branding} on:change={(event) => (style = { ...style, show_koala_branding: event.currentTarget.checked })} /> Show KoalaBattle branding</label>
+          <label class="check"><input type="checkbox" checked={style.show_format} on:change={(event) => setStyleValue('show_format', event.currentTarget.checked)} /> Show format</label>
+          <label class="check"><input type="checkbox" checked={style.show_generation} on:change={(event) => setStyleValue('show_generation', event.currentTarget.checked)} /> Show generation</label>
+          <label class="check"><input type="checkbox" checked={style.show_koala_branding} on:change={(event) => setStyleValue('show_koala_branding', event.currentTarget.checked)} /> Show KoalaBattle branding</label>
           <div class="row">
             <button class="ghost" on:click={saveAsPreset}>Save as preset</button>
             {#if !presets.find((item) => item.id === style?.id)?.builtin}

@@ -12,6 +12,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from koalabattle.core.models import (
+    MAX_BANTER_CHARACTERS,
     MAX_COMMENTARY_CHARACTERS,
     MAX_STRATEGY_MEMORY_CHARACTERS,
     AgentContextSnapshot,
@@ -23,7 +24,7 @@ from koalabattle.core.models import (
 )
 from koalabattle.formats import FormatMechanics, ability_name, item_name
 
-PROMPT_RENDERER_VERSION = "battle-text-v1"
+PROMPT_RENDERER_VERSION = "battle-text-v2"
 
 _STATUS_LABELS = {
     "brn": "burned",
@@ -309,6 +310,8 @@ def _system_prompt(snapshot: AgentContextSnapshot) -> str:
         "- You may make probabilistic strategic predictions from public information, but never",
         "  present unrevealed opponent information as known fact.",
         "- Do not invent game state and never write a raw Showdown command.",
+        "- Make commentary sound like a concise broadcast thought: mention the matchup,",
+        "  pressure, risk, or the recent exchange instead of repeating a dry template.",
         "- Return one JSON object and no markdown.",
         "",
         "RETURN EXACTLY",
@@ -316,6 +319,12 @@ def _system_prompt(snapshot: AgentContextSnapshot) -> str:
         '  "action": "<one exact legal action id>",',
         f'  "commentary": "<one viewer-facing sentence, max '
         f'{MAX_COMMENTARY_CHARACTERS} characters>",',
+        (
+            f'  "banter": "<optional short message addressed to the opponent, max '
+            f'{MAX_BANTER_CHARACTERS} characters, or null>",'
+            if snapshot.banter_enabled
+            else '  "banter": null,'
+        ),
     ]
     if memory_enabled:
         lines.append(
@@ -333,6 +342,17 @@ def _system_prompt(snapshot: AgentContextSnapshot) -> str:
                 "and is never broadcast.",
             ]
         )
+    if snapshot.banter_enabled:
+        lines.extend(
+            [
+                "Banter is optional and is also shown/spoken publicly. Keep it to one short",
+                "sporting sentence addressed to the opponent. It may reference only visible",
+                "current or recent events, for example a clever read or a foolish last move.",
+                "Never claim hidden information, harass, threaten, or pad every turn with banter.",
+            ]
+        )
+    else:
+        lines.append("Banter is disabled for this match; always return null for banter.")
     return "\n".join(lines)
 
 
@@ -451,6 +471,18 @@ def _user_prompt(snapshot: AgentContextSnapshot, history: tuple[str, ...]) -> st
         line for line in (humanize_event(entry, snapshot.side.value) for entry in history) if line
     ]
     blocks.append(["RECENT EVENTS", *(readable or ["No relevant previous events."])])
+
+    blocks.append(
+        [
+            "BANTER MODE",
+            (
+                "Enabled. Optional: address the opponent in one brief, sporting sentence "
+                "based on the visible current situation or recent events."
+                if snapshot.banter_enabled
+                else "Disabled. Return banter as null."
+            ),
+        ]
+    )
 
     if snapshot.memory_policy is MemoryPolicyId.STRATEGY_NOTE:
         blocks.append(["YOUR STRATEGY NOTE", snapshot.strategy_memory or "None recorded yet."])

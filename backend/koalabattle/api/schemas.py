@@ -44,6 +44,7 @@ class CreateMatchRequest(BaseModel):
     prompt_profile: PromptProfileId = PromptProfileId.STANDARD_COMPETITIVE
     context_profile: ContextProfileId = ContextProfileId.STANDARD
     memory_policy: MemoryPolicyId = MemoryPolicyId.STRATEGY_NOTE
+    banter_enabled: bool = False
     team_policy: TeamPolicy = TeamPolicy.SHOWDOWN_RANDOM
     limits: MatchLimits = Field(default_factory=MatchLimits)
 
@@ -78,6 +79,7 @@ class CreateMatchRequest(BaseModel):
             prompt_profile=self.prompt_profile,
             context_profile=self.context_profile,
             memory_policy=self.memory_policy,
+            banter_enabled=self.banter_enabled,
             team_policy=self.team_policy,
             limits=self.limits,
         )

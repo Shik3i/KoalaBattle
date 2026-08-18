@@ -48,15 +48,22 @@ def main() -> None:
         productions = cast(
             list[dict[str, object]], call(args.api_url, f"/api/matches/{args.id}/productions")
         )
+        candidates = [
+            item
+            for item in productions
+            if cast(dict[str, object], item["profile"])["id"] == args.profile
+            and item["status"] in {"finalized", "ready", "partial"}
+        ]
         matching = next(
             (
                 item
-                for item in productions
-                if cast(dict[str, object], item["profile"])["id"] == args.profile
-                and item["status"] == "finalized"
+                for item in candidates
+                if (voices := item.get("voice_assignments"))
+                and isinstance(voices, dict)
+                and all(str(value).startswith("edge-neural-") for value in voices.values())
             ),
             None,
-        )
+        ) or (candidates[0] if candidates else None)
         if matching is None:
             matching = call(
                 args.api_url,

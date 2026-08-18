@@ -5,8 +5,9 @@ from uuid import uuid4
 
 from koalabattle.agents.context import render_prompt_messages
 from koalabattle.agents.prompt_renderer import humanize_event, render
-from koalabattle.agents.validation import parse_structured_decision, trim_commentary
+from koalabattle.agents.validation import parse_structured_decision, trim_banter, trim_commentary
 from koalabattle.core.models import (
+    MAX_BANTER_CHARACTERS,
     MAX_COMMENTARY_CHARACTERS,
     ActionType,
     AgentContextSnapshot,
@@ -248,7 +249,15 @@ def test_humanize_event_covers_the_common_protocol_commands() -> None:
 def test_prompt_requests_short_commentary_and_private_memory() -> None:
     prompt = render(_snapshot("gen9ou")).combined
     assert f"max {MAX_COMMENTARY_CHARACTERS} characters" in prompt
+    assert "Banter is disabled for this match" in prompt
     assert "Strategy memory is private" in prompt
+
+
+def test_enabled_banter_is_optional_and_situational() -> None:
+    prompt = render(_snapshot("gen9ou").model_copy(update={"banter_enabled": True})).combined
+    assert "BANTER MODE\nEnabled." in prompt
+    assert f"max {MAX_BANTER_CHARACTERS} characters" in prompt
+    assert "current or recent events" in prompt
 
 
 def test_commentary_is_trimmed_rather_than_rejected() -> None:
@@ -260,6 +269,17 @@ def test_commentary_is_trimmed_rather_than_rejected() -> None:
         json.dumps({"action": "move:1", "commentary": long_text}), {"move:1"}
     )
     assert len(parsed.commentary) <= MAX_COMMENTARY_CHARACTERS
+
+
+def test_banter_is_trimmed_to_a_short_spoken_line() -> None:
+    long_text = "That was clever, but " + ("you should have switched earlier " * 20)
+    trimmed = trim_banter(long_text)
+    assert len(trimmed) <= MAX_BANTER_CHARACTERS
+    parsed = parse_structured_decision(
+        json.dumps({"action": "move:1", "commentary": "A tactical line.", "banter": long_text}),
+        {"move:1"},
+    )
+    assert len(parsed.banter) <= MAX_BANTER_CHARACTERS
 
 
 def test_both_prompt_profiles_state_identical_rules_for_a_fair_benchmark() -> None:
