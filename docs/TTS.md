@@ -25,8 +25,10 @@ started on Windows or Intel macOS, `/healthz` reports `mlx_supported: false` and
 returns `503` with the alternative-provider instruction.
 
 LM Studio may show the MLX model in its library while rejecting it at load time with
-`Model type qwen3_tts not supported`. In that case run the repository's Apple-Silicon bridge
-instead of trying to load the model through LM Studio:
+`Model type qwen3_tts not supported`. That is not an LM Studio bug to route around — the
+`mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit` checkpoint only runs through MLX, which is
+Apple Silicon only. On an Apple Silicon Mac, run the repository's MLX bridge instead of
+loading the model through LM Studio:
 
 ```bash
 python -m pip install -r tools/requirements-qwen-tts.txt
@@ -36,6 +38,28 @@ python tools/qwen_tts_server.py
 The bridge uses the local `mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit` checkpoint and exposes
 `http://127.0.0.1:8890/v1/audio/speech`. Docker reaches it through
 `http://host.docker.internal:8890/v1`. LM Studio remains the LLM endpoint on port `1234`.
+
+#### Windows with an NVIDIA GPU
+
+`tools/qwen_tts_server_windows.py` is the CUDA equivalent: it loads the official
+`Qwen/Qwen3-TTS-12Hz-1.7B-Base` checkpoint (not the MLX quantization) through the `qwen-tts`
+PyPI package and exposes the identical `/healthz`, `/v1/models`, `/v1/audio/speech` contract, so
+`qwen-local`'s configuration does not change between platforms. Requires an NVIDIA GPU (bf16
+capable; any Ampere-or-newer card comfortably fits the 1.7B model) and a recent driver.
+
+```bash
+python -m venv tools/.venv-qwen-tts
+tools/.venv-qwen-tts/Scripts/python.exe -m pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
+tools/.venv-qwen-tts/Scripts/python.exe -m pip install -r tools/requirements-qwen-tts-windows.txt
+tools/.venv-qwen-tts/Scripts/python.exe tools/qwen_tts_server_windows.py
+```
+
+Set `KOALABATTLE_SPEECH_QWEN_MODEL=Qwen/Qwen3-TTS-12Hz-1.7B-Base` (the unquantized HF id, not
+the `mlx-community` one) so the payload's `model` field matches what the bridge actually loaded.
+The Base checkpoint has no built-in preset voices — it only clones from a reference WAV plus its
+transcript, so requests without `reference_audio` get a 422. `KOALABATTLE_QWEN_TTS_ATTN`
+defaults to `sdpa` (ships with PyTorch, no extra build step); set it to `flash_attention_2` only
+if `flash-attn` has been built separately, which is a non-trivial compile on Windows.
 - `system` (default): free Edge neural speech using `edge-tts`, with distinct Emma and Brian
   multilingual neural voices at a restrained 0.96× delivery rate plus a separate Guy narrator
   voice at 1.02×. It requires Internet access

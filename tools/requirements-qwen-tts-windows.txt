@@ -1,0 +1,7 @@
+# Windows + NVIDIA CUDA only. Install the CUDA build of torch first, from its own index:
+#   pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
+qwen-tts
+fastapi
+uvicorn
+soundfile
+numpy

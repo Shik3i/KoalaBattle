@@ -890,10 +890,12 @@ class ProductionService:
         if provider_status.paid and not allow_paid:
             raise PermissionError("paid speech generation requires allow_paid=true")
         reference_hash = self._reference_audio_hash(preset.reference_audio_path)
+        openai_kinds = (SpeechProviderKind.OPENAI, SpeechProviderKind.OPENAI_COMPATIBLE)
+        default_model = self.settings.speech_openai_model if preset.provider in openai_kinds else ""
         speech = SpeechRequest(
             text=text,
             provider=preset.provider,
-            model=preset.model or self.settings.speech_openai_model,
+            model=preset.model or default_model,
             voice=preset.voice,
             speed=preset.speed,
             language=preset.language,
