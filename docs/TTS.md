@@ -60,6 +60,20 @@ The Base checkpoint has no built-in preset voices — it only clones from a refe
 transcript, so requests without `reference_audio` get a 422. `KOALABATTLE_QWEN_TTS_ATTN`
 defaults to `sdpa` (ships with PyTorch, no extra build step); set it to `flash_attention_2` only
 if `flash-attn` has been built separately, which is a non-trivial compile on Windows.
+
+The bridge runs on the Windows host, not in Docker (Compose reaches it through
+`host.docker.internal:8890`), so it needs to start on its own rather than depending on someone
+remembering to launch it. Run once:
+
+```bash
+powershell -ExecutionPolicy Bypass -File tools/install_qwen_tts_task.ps1
+```
+
+It registers a Task Scheduler entry that starts the bridge at logon and restarts it if it
+crashes. If Task Scheduler refuses without admin rights (it does on some machines even for a
+task that only ever runs as your own account), it falls back automatically to a silent launcher
+in your per-user Startup folder — that one starts at logon too, just without the auto-restart.
+Either way, no admin rights are required and nothing needs to be run by hand afterward.
 - `system` (default): free Edge neural speech using `edge-tts`, with distinct Emma and Brian
   multilingual neural voices at a restrained 0.96× delivery rate plus a separate Guy narrator
   voice at 1.02×. It requires Internet access

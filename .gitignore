@@ -24,3 +24,4 @@ data/videos/
 data/vendor/
 backend/data/
 showdown/server/
+tools/logs/
