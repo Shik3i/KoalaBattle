@@ -10,6 +10,7 @@ from koalabattle.config import Settings
 from koalabattle.core.models import BattleEvent, MatchConfig, MatchStatus
 from koalabattle.production import CreateProduction, ProductionService
 from koalabattle.production.models import (
+    NarratorSettings,
     PrepareSpeechRequest,
     ProductionCue,
     ProductionStatus,
@@ -19,6 +20,7 @@ from koalabattle.production.models import (
     Track,
     VoicePreset,
 )
+from koalabattle.production.narrator import build_narrator_plan
 from koalabattle.production.profiles import PRODUCTION_PROFILES
 from koalabattle.production.speech import FakeSpeechProvider, SpeechCache, SpeechGenerationQueue
 from koalabattle.production.speech.cache import speech_cache_key
@@ -93,6 +95,61 @@ async def test_timeline_is_deterministic_and_only_uses_public_commentary(
         "captions",
         "director",
     }
+    await database.close()
+
+
+@pytest.mark.asyncio
+async def test_narrator_uses_separate_voice_channel_and_prepares_with_agent_speech(
+    tmp_path: Path, match_config: MatchConfig
+) -> None:
+    database, archive = await _archive(tmp_path, match_config)
+    repository = BattleRepository(database)
+    for event_type, payload in (
+        ("critical_hit", {"target": "p2a: Pikachu"}),
+        ("super_effective", {"target": "p2a: Pikachu"}),
+    ):
+        await repository.append_event(
+            BattleEvent(
+                match_id=archive.id,
+                sequence=0,
+                turn=1,
+                event_type=event_type,
+                payload=payload,
+            )
+        )
+    refreshed = await repository.get_match(archive.id)
+    assert refreshed is not None
+    settings = Settings(
+        database_url=f"sqlite+aiosqlite:///{tmp_path / 'production.db'}",
+        speech_audio_root=tmp_path / "audio",
+        video_root=tmp_path / "videos",
+    )
+    service = ProductionService(database, repository, settings)
+    await service.start()
+    service.providers[SpeechProviderKind.SYSTEM] = FakeSpeechProvider()
+    production = await service.create(
+        refreshed.id,
+        CreateProduction(
+            profile_id="youtube",
+            voice_assignments={"p1": "edge-neural-p1", "p2": "edge-neural-p2"},
+            narrator=NarratorSettings(enabled=True),
+        ),
+    )
+    prepared = await service.prepare(production.id, PrepareSpeechRequest())
+
+    narrator_comments = [
+        cue
+        for cue in prepared.cues
+        if cue.track is Track.COMMENTARY and cue.speaker == "narrator"
+    ]
+    narrator_voice = [
+        cue for cue in prepared.cues if cue.track is Track.VOICE and cue.speaker == "narrator"
+    ]
+    assert prepared.voice_assignments["narrator"] == "edge-neural-narrator"
+    assert narrator_comments
+    assert len(narrator_comments) == len(narrator_voice)
+    assert all(cue.payload.get("cache_key") for cue in narrator_voice)
+    await service.close()
     await database.close()
 
 
@@ -307,6 +364,41 @@ def test_caption_segments_are_bounded_contiguous_and_independent() -> None:
     assert all(
         left.end_ms == right.start_ms for left, right in zip(segments, segments[1:], strict=False)
     )
+
+
+def test_narrator_plan_is_deterministic_and_prioritizes_highlights(
+    match_config: MatchConfig,
+) -> None:
+    match_id = uuid4()
+    events = tuple(
+        BattleEvent(
+            match_id=match_id,
+            sequence=sequence,
+            turn=turn,
+            event_type=event_type,
+            payload=payload,
+        )
+        for sequence, turn, event_type, payload in (
+            (1, 0, "battle_started", {}),
+            (2, 1, "turn_started", {}),
+            (3, 1, "move_used", {"move": "Earthquake"}),
+            (4, 1, "critical_hit", {"target": "p2a: Pikachu"}),
+            (5, 1, "super_effective", {"target": "p2a: Pikachu"}),
+            (6, 1, "damage", {"target": "p2a: Pikachu", "hp": "1/100"}),
+            (7, 1, "pokemon_fainted", {"target": "p2a: Pikachu"}),
+        )
+    )
+    settings = NarratorSettings(enabled=True, cooldown_ms=2_000, max_lines_per_match=10)
+
+    first = build_narrator_plan(events, settings)
+    second = build_narrator_plan(events, settings)
+
+    assert first == second
+    assert first[1].rule_id == "battle-start"
+    assert first[4].rule_id == "critical-hit-super-effective"
+    assert first[4].priority == 110
+    assert 5 not in first
+    assert 7 not in first
 
 
 @pytest.mark.asyncio

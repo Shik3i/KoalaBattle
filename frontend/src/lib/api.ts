@@ -1,6 +1,6 @@
 import { env } from '$env/dynamic/public';
 import { errorMessage } from './errors';
-import type { BrandAsset, BrandAssetKind, BrandAssetLibrary, ExportBackend, ExportPreflight, FormatCatalog, FormatDescriptor, FormatGroup, MatchArchive, ProductionProfile, ProductionStyle, ProductionTimeline, RenderEngine, RendererCapabilities, StylePreset, VideoExportJob, VideoExportPreset, VoicePreset } from './types';
+import type { BrandAsset, BrandAssetKind, BrandAssetLibrary, ExportBackend, ExportPreflight, FormatCatalog, FormatDescriptor, FormatGroup, MatchArchive, NarratorProfile, NarratorSettings, ProductionProfile, ProductionStyle, ProductionTimeline, RenderEngine, RendererCapabilities, StylePreset, VideoExportJob, VideoExportPreset, VoicePreset } from './types';
 
 export const apiBase = () => {
   const fallback = env.PUBLIC_API_URL || 'http://localhost:8001';
@@ -68,22 +68,23 @@ export const createProduction = (
   matchId: string,
   profileId: string,
   voiceAssignments: Record<string, string>,
-  options: { styleId?: string; title?: string | null } = {}
+  options: { styleId?: string; title?: string | null; narrator?: NarratorSettings | null } = {}
 ) =>
   api<ProductionTimeline>(`/api/matches/${matchId}/productions`, {
     method: 'POST',
     body: JSON.stringify({
       profile_id: profileId,
       voice_assignments: voiceAssignments,
+      narrator: options.narrator || null,
       style_id: options.styleId || null,
       title: options.title || null
     })
   });
 /** Saves presentation settings only; the recorded battle is never modified. */
-export const updateProduction = (id: string, patch: { style?: ProductionStyle; title?: string | null; clearTitle?: boolean }) =>
+export const updateProduction = (id: string, patch: { style?: ProductionStyle; title?: string | null; clearTitle?: boolean; narrator?: NarratorSettings | null }) =>
   api<ProductionTimeline>(`/api/productions/${id}/update`, {
     method: 'POST',
-    body: JSON.stringify({ style: patch.style ?? null, title: patch.title ?? null, clear_title: patch.clearTitle ?? false })
+    body: JSON.stringify({ style: patch.style ?? null, title: patch.title ?? null, clear_title: patch.clearTitle ?? false, narrator: patch.narrator ?? null })
   });
 export const duplicateProduction = (id: string, options: { title?: string | null; styleId?: string | null } = {}) =>
   api<ProductionTimeline>(`/api/productions/${id}/duplicate`, {
@@ -125,11 +126,12 @@ export const directProduction = (id: string, command: string, clientId?: string)
     body: JSON.stringify({ command, client_id: clientId || null })
   });
 export const getProductionSetup = async () => {
-  const [profiles, voices] = await Promise.all([
+  const [profiles, voices, narratorProfiles] = await Promise.all([
     api<{ profiles: ProductionProfile[] }>('/api/production/profiles'),
-    api<VoicePreset[]>('/api/production/voices')
+    api<VoicePreset[]>('/api/production/voices'),
+    api<{ profiles: NarratorProfile[] }>('/api/production/narrator-profiles')
   ]);
-  return { profiles: profiles.profiles, voices };
+  return { profiles: profiles.profiles, voices, narratorProfiles: narratorProfiles.profiles };
 };
 export const getVideoSetup = async (matchId: string) => {
   const [presets, capabilities, jobs] = await Promise.all([

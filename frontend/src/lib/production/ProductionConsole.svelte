@@ -6,11 +6,12 @@
     getProductions,
     getProductionSetup,
     prepareProduction,
-    previewVoice
+    previewVoice,
+    updateProduction
   } from '../api';
   import { apiBase } from '../api';
   import { createClientId } from '../client-id';
-  import type { ProductionProfile, ProductionTimeline, VoicePreset } from '../types';
+  import type { NarratorMode, NarratorProfile, NarratorSettings, ProductionProfile, ProductionTimeline, VoicePreset } from '../types';
   import CaptionOverlay from './CaptionOverlay.svelte';
   import ExportDashboard from './ExportDashboard.svelte';
   import { ProductionAudioEngine, type MixerSettings, type ProductionPlaybackState } from './audio-engine';
@@ -22,15 +23,20 @@
   let profiles: ProductionProfile[] = [];
   let productions: ProductionTimeline[] = [];
   let voices: VoicePreset[] = [];
+  let narratorProfiles: NarratorProfile[] = [];
   let selectedProfile = 'live-stream';
   let selectedP1 = 'edge-neural-p1';
   let selectedP2 = 'edge-neural-p2';
+  let selectedNarrator = 'edge-neural-narrator';
+  let selectedNarratorProfile = 'stadium-broadcast-v1';
+  let narratorEnabled = false;
+  let narratorMode: NarratorMode = 'highlights';
   let production: ProductionTimeline | null = null;
   let engine: ProductionAudioEngine | null = null;
   let playback: ProductionPlaybackState | null = null;
   let error = '';
   let busy = false;
-  $: mixer = playback?.settings || { master: 1, voice: 1, sfx: 0.65, music: 0.35 };
+  $: mixer = playback?.settings || { master: 1, voice: 1, narrator: 1, sfx: 0.65, music: 0.35 };
   const clientId = createClientId();
 
   onMount(() => {
@@ -48,6 +54,7 @@
       const [setup, existing] = await Promise.all([getProductionSetup(), getProductions(matchId)]);
       profiles = setup.profiles;
       voices = setup.voices.filter((voice) => voice.enabled);
+      narratorProfiles = setup.narratorProfiles;
       productions = existing;
       if (existing[0]) select(existing[0]);
     } catch (caught) {
@@ -60,6 +67,10 @@
     selectedProfile = value.profile.id;
     selectedP1 = value.voice_assignments.p1 || selectedP1;
     selectedP2 = value.voice_assignments.p2 || selectedP2;
+    selectedNarrator = value.voice_assignments.narrator || selectedNarrator;
+    selectedNarratorProfile = value.narrator?.profile_id || selectedNarratorProfile;
+    narratorEnabled = value.narrator?.enabled || false;
+    narratorMode = value.narrator?.mode || 'highlights';
     engine?.load(value);
     if (compact) engine?.play();
   }
@@ -68,8 +79,46 @@
     busy = true;
     error = '';
     try {
-      const value = await createProduction(matchId, selectedProfile, { p1: selectedP1, p2: selectedP2 });
+      const value = await createProduction(matchId, selectedProfile, {
+        p1: selectedP1,
+        p2: selectedP2,
+        ...(narratorEnabled ? { narrator: selectedNarrator } : {})
+      }, { narrator: narratorSettings() });
       productions = [value, ...productions];
+      select(value);
+    } catch (caught) {
+      error = caught instanceof Error ? caught.message : String(caught);
+    } finally {
+      busy = false;
+    }
+  }
+
+  function narratorSettings(): NarratorSettings {
+    return {
+      enabled: narratorEnabled,
+      profile_id: selectedNarratorProfile,
+      mode: narratorEnabled ? narratorMode : 'off',
+      voice_preset_id: selectedNarrator,
+      cooldown_ms: 2800,
+      max_lines_per_turn: 1,
+      max_lines_per_match: 24,
+      minimum_priority: 45,
+      repeat_window_ms: 12000,
+      overlap_policy: 'duck',
+      captions_enabled: true,
+      include_pokemon_names: true,
+      include_move_names: true,
+      language: 'en-US'
+    };
+  }
+
+  async function saveNarrator() {
+    if (!production) return;
+    busy = true;
+    error = '';
+    try {
+      const value = await updateProduction(production.id, { narrator: narratorSettings() });
+      productions = productions.map((item) => (item.id === value.id ? value : item));
       select(value);
     } catch (caught) {
       error = caught instanceof Error ? caught.message : String(caught);
@@ -172,7 +221,13 @@
       <button on:click={() => preview(selectedP1)}><i class="ph ph-waveform" aria-hidden="true"></i>Preview P1</button>
       <label>Player 2 voice<select bind:value={selectedP2}>{#each voices as voice}<option value={voice.id}>{voice.display_name}</option>{/each}</select></label>
       <button on:click={() => preview(selectedP2)}><i class="ph ph-waveform" aria-hidden="true"></i>Preview P2</button>
+      <label class="narrator-toggle"><input type="checkbox" bind:checked={narratorEnabled} /> Narrator</label>
+      <label>Narrator profile<select bind:value={selectedNarratorProfile} disabled={!narratorEnabled}>{#each narratorProfiles as profile}<option value={profile.id}>{profile.display_name}</option>{/each}</select></label>
+      <label>Narrator mode<select bind:value={narratorMode} disabled={!narratorEnabled}><option value="highlights">Highlights</option><option value="broadcast">Broadcast</option><option value="full">Full</option></select></label>
+      <label>Narrator voice<select bind:value={selectedNarrator} disabled={!narratorEnabled}>{#each voices.filter((voice) => voice.id.includes('narrator')) as voice}<option value={voice.id}>{voice.display_name}</option>{/each}</select></label>
+      <button on:click={() => preview(selectedNarrator)} disabled={!narratorEnabled}><i class="ph ph-waveform" aria-hidden="true"></i>Preview Narrator</button>
       <button on:click={create} disabled={busy}><i class="ph ph-plus" aria-hidden="true"></i>Create separate production</button>
+      {#if production}<button on:click={saveNarrator} disabled={busy}><i class="ph ph-megaphone" aria-hidden="true"></i>Save narrator</button>{/if}
       {#if production}<button on:click={prepare} disabled={busy || production.status === 'preparing'}><i class="ph ph-sparkle" aria-hidden="true"></i>Prepare speech audio</button>{/if}
       <button class="enable" on:click={() => engine?.enable()} disabled={playback?.enabled}><i class={`ph ${playback?.enabled ? 'ph-check' : 'ph-waveform'}`} aria-hidden="true"></i>{playback?.enabled ? 'Audio enabled' : 'Enable audio'}</button>
     </div>
@@ -184,7 +239,7 @@
         <output>{(playback.elapsedMs / 1000).toFixed(1)}s / {(playback.durationMs / 1000).toFixed(1)}s</output>
       </div>
       <div class="mixer">
-        {#each ['master', 'voice', 'sfx', 'music'] as track}
+        {#each ['master', 'voice', 'narrator', 'sfx', 'music'] as track}
           <label>{track}<input type="range" min="0" max="1" step="0.05" value={mixer[track as keyof MixerSettings]} on:input={(event) => engine?.setVolume(track as keyof MixerSettings, Number(event.currentTarget.value))} /></label>
         {/each}
       </div>
@@ -198,7 +253,7 @@
         <summary>Timeline inspector · {production.cues.length} cues · revision {production.revision}</summary>
         <div class="cue-list">
           {#each production.cues as cue}
-            <button on:click={() => engine?.seek(cue.start_ms)}><span>{(cue.start_ms / 1000).toFixed(2)}s</span><strong>{cue.track}</strong><span>{cue.kind}</span><span>{cue.side || '—'}</span></button>
+            <button on:click={() => engine?.seek(cue.start_ms)}><span>{(cue.start_ms / 1000).toFixed(2)}s</span><strong>{cue.track}</strong><span>{cue.kind}</span><span>{cue.speaker || cue.side || '—'}</span></button>
           {/each}
         </div>
       </details>
@@ -209,5 +264,5 @@
 
 <style>
   .setup-row button,.transport-row button,.director button,.compact-audio button{display:inline-flex;align-items:center;justify-content:center;gap:.38rem;min-height:40px;padding:.55rem .72rem;border:1px solid var(--border);border-radius:.58rem;background:var(--panel-strong);color:var(--text);font-size:.76rem;font-weight:700;cursor:pointer;transition:transform .16s ease,border-color .16s ease,background .16s ease,box-shadow .16s ease}.setup-row button:hover:not(:disabled),.transport-row button:hover:not(:disabled),.director button:hover:not(:disabled){transform:translateY(-1px);border-color:color-mix(in srgb,var(--accent) 42%,var(--border));background:var(--surface);box-shadow:var(--shadow-sm)}.setup-row button:active:not(:disabled),.transport-row button:active:not(:disabled),.director button:active:not(:disabled){transform:scale(.985)}.setup-row button:disabled,.transport-row button:disabled,.director button:disabled{opacity:.5;cursor:not-allowed}.setup-row button .ph,.transport-row button .ph,.director button .ph{color:var(--accent);font-size:1rem}.enable{border-color:var(--accent)!important}
-  .production{position:relative;display:grid;gap:1rem;margin-top:1rem;padding:1rem}.production-head,.setup-row,.transport-row,.director{display:flex;align-items:center;justify-content:space-between;gap:.7rem;flex-wrap:wrap}.production-head h2{margin:.2rem 0 0}.setup-row label{min-width:160px}.setup-row select,.setup-row button,.transport-row button,.director button{min-height:40px}.enable{border-color:var(--accent)!important}.transport-row input{flex:1;min-width:180px}.transport-row output{font:.7rem var(--mono)}.mixer{display:grid;grid-template-columns:repeat(4,1fr);gap:.8rem}.mixer label{display:grid;gap:.35rem;text-transform:capitalize}.mixer input{padding:0}.director{justify-content:flex-start}.director strong{margin-right:auto}.cue-list{display:grid;max-height:320px;overflow:auto;margin-top:.7rem}.cue-list button{display:grid;grid-template-columns:70px 100px 1fr 30px;gap:.6rem;text-align:left;border:0;border-bottom:1px solid var(--border);border-radius:0;background:transparent;color:var(--text);font:.68rem var(--mono)}.compact-audio{position:fixed;z-index:40;left:1rem;bottom:1rem;display:flex;align-items:center;gap:.6rem;padding:.45rem .6rem;border:1px solid rgba(255,255,255,.18);border-radius:.55rem;background:rgba(8,16,11,.86);color:white;font:.65rem var(--mono)}.compact-audio button{min-height:34px}.compact-audio.overlay{right:auto;bottom:calc(10.5% + .7rem);left:1rem;top:auto}@media(max-width:700px){.mixer{grid-template-columns:repeat(2,1fr)}.cue-list button{grid-template-columns:60px 80px 1fr}.cue-list button span:last-child{display:none}}
+  .production{position:relative;display:grid;gap:1rem;margin-top:1rem;padding:1rem}.production-head,.setup-row,.transport-row,.director{display:flex;align-items:center;justify-content:space-between;gap:.7rem;flex-wrap:wrap}.production-head h2{margin:.2rem 0 0}.setup-row label{min-width:160px}.setup-row select,.setup-row button,.transport-row button,.director button{min-height:40px}.narrator-toggle{display:inline-flex!important;align-items:center;gap:.4rem;min-width:auto!important;padding:.6rem .7rem;border:1px solid var(--border);border-radius:.58rem}.enable{border-color:var(--accent)!important}.transport-row input{flex:1;min-width:180px}.transport-row output{font:.7rem var(--mono)}.mixer{display:grid;grid-template-columns:repeat(5,1fr);gap:.8rem}.mixer label{display:grid;gap:.35rem;text-transform:capitalize}.mixer input{padding:0}.director{justify-content:flex-start}.director strong{margin-right:auto}.cue-list{display:grid;max-height:320px;overflow:auto;margin-top:.7rem}.cue-list button{display:grid;grid-template-columns:70px 100px 1fr 60px;gap:.6rem;text-align:left;border:0;border-bottom:1px solid var(--border);border-radius:0;background:transparent;color:var(--text);font:.68rem var(--mono)}.compact-audio{position:fixed;z-index:40;left:1rem;bottom:1rem;display:flex;align-items:center;gap:.6rem;padding:.45rem .6rem;border:1px solid rgba(255,255,255,.18);border-radius:.55rem;background:rgba(8,16,11,.86);color:white;font:.65rem var(--mono)}.compact-audio button{min-height:34px}.compact-audio.overlay{right:auto;bottom:calc(10.5% + .7rem);left:1rem;top:auto}@media(max-width:700px){.mixer{grid-template-columns:repeat(2,1fr)}.cue-list button{grid-template-columns:60px 80px 1fr}.cue-list button span:last-child{display:none}}
 </style>

@@ -2,15 +2,15 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .style import ProductionStyle
 
-PRODUCTION_SCHEMA_VERSION = "2.0"
-TIMELINE_VERSION = "2.0"
+PRODUCTION_SCHEMA_VERSION = "2.1"
+TIMELINE_VERSION = "2.1"
 
 
 class FrozenModel(BaseModel):
@@ -51,6 +51,41 @@ class ProductionStatus(StrEnum):
     FAILED = "failed"
 
 
+class NarratorMode(StrEnum):
+    OFF = "off"
+    HIGHLIGHTS = "highlights"
+    BROADCAST = "broadcast"
+    FULL = "full"
+
+
+class NarratorSettings(FrozenModel):
+    """Deterministic, replay-derived third-speaker configuration."""
+
+    enabled: bool = False
+    profile_id: str = Field(default="stadium-broadcast-v1", min_length=1, max_length=80)
+    mode: NarratorMode = NarratorMode.HIGHLIGHTS
+    voice_preset_id: str = Field(default="edge-neural-narrator", min_length=1, max_length=80)
+    cooldown_ms: int = Field(default=2_800, ge=500, le=20_000)
+    max_lines_per_turn: int = Field(default=1, ge=0, le=4)
+    max_lines_per_match: int = Field(default=24, ge=0, le=200)
+    minimum_priority: int = Field(default=45, ge=0, le=120)
+    repeat_window_ms: int = Field(default=12_000, ge=0, le=120_000)
+    overlap_policy: Literal["duck", "queue", "suppress"] = "duck"
+    captions_enabled: bool = True
+    include_pokemon_names: bool = True
+    include_move_names: bool = True
+    language: str = Field(default="en-US", min_length=2, max_length=20)
+
+
+class NarratorProfile(FrozenModel):
+    id: str = Field(min_length=1, max_length=80)
+    display_name: str = Field(min_length=1, max_length=120)
+    description: str = Field(min_length=1, max_length=400)
+    recommended_mode: NarratorMode = NarratorMode.HIGHLIGHTS
+    recommended_cooldown_ms: int = Field(ge=500, le=20_000)
+    recommended_max_lines_per_match: int = Field(ge=0, le=200)
+
+
 class SpeechProviderKind(StrEnum):
     SYSTEM = "system"
     OPENAI = "openai"
@@ -73,6 +108,7 @@ class ProductionCue(FrozenModel):
     event_sequence: int | None = Field(default=None, ge=1)
     turn: int | None = Field(default=None, ge=0)
     side: str | None = Field(default=None, pattern=r"^p[12]$")
+    speaker: Literal["p1", "p2", "narrator"] | None = None
     payload: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -167,6 +203,7 @@ class ProductionTimeline(FrozenModel):
     director_state: DirectorState = DirectorState.PRE_SHOW
     cues: tuple[ProductionCue, ...] = ()
     voice_assignments: dict[str, str] = Field(default_factory=dict)
+    narrator: NarratorSettings = Field(default_factory=NarratorSettings)
     #: Presentation only. Productions saved before styles existed validate with the
     #: built-in Koala Broadcast defaults, so old archives keep rendering unchanged.
     style: ProductionStyle = Field(default_factory=ProductionStyle)
@@ -184,6 +221,7 @@ class ProductionTimeline(FrozenModel):
 class CreateProduction(FrozenModel):
     profile_id: str = "live-stream"
     voice_assignments: dict[str, str] = Field(default_factory=dict)
+    narrator: NarratorSettings | None = None
     #: A built-in or saved style preset id. Player branding is filled in from the match's
     #: agents afterwards, so a new production already looks right before any editing.
     style_id: str | None = Field(default=None, max_length=60)
@@ -197,6 +235,7 @@ class UpdateProduction(FrozenModel):
     style: ProductionStyle | None = None
     title: str | None = Field(default=None, min_length=1, max_length=90)
     clear_title: bool = False
+    narrator: NarratorSettings | None = None
 
 
 class DuplicateProduction(FrozenModel):

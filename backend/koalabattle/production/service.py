@@ -19,6 +19,7 @@ from .models import (
     DirectorCommand,
     DirectorState,
     DuplicateProduction,
+    NarratorSettings,
     PrepareSpeechRequest,
     ProductionCue,
     ProductionProfile,
@@ -32,6 +33,7 @@ from .models import (
     UpdateProduction,
     VoicePreset,
 )
+from .narrator import build_narrator_plan
 from .profiles import PRODUCTION_PROFILES
 from .repository import ProductionRepository
 from .speech import (
@@ -97,7 +99,11 @@ class ProductionService:
         self.queue = SpeechGenerationQueue(settings.speech_max_concurrency)
         self._timeline_locks: defaultdict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
         self._finalization_tasks: set[asyncio.Task[None]] = set()
-        edge_voices = (settings.speech_edge_voice_p1, settings.speech_edge_voice_p2)
+        edge_voices = (
+            settings.speech_edge_voice_p1,
+            settings.speech_edge_voice_p2,
+            settings.speech_edge_voice_narrator,
+        )
         self.providers: dict[SpeechProviderKind, SpeechProvider] = {
             SpeechProviderKind.SYSTEM: SystemSpeechProvider(
                 edge_enabled=settings.speech_edge_enabled,
@@ -115,6 +121,9 @@ class ProductionService:
             {"p1": "edge-neural-p1", "p2": "edge-neural-p2"}
             if settings.speech_edge_enabled
             else {"p1": "system-p1", "p2": "system-p2"}
+        )
+        self.default_narrator_assignment = (
+            {"narrator": "edge-neural-narrator"} if settings.speech_edge_enabled else {}
         )
 
     async def start(self) -> None:
@@ -137,6 +146,19 @@ class ProductionService:
                 model="edge-tts-7.2.8",
                 language="en-US",
                 speed=0.96,
+                enabled=self.settings.speech_edge_enabled,
+            ),
+            VoicePreset(
+                id="edge-neural-narrator",
+                display_name="Edge Neural · Guy (stadium narrator, online, free)",
+                provider=SpeechProviderKind.SYSTEM,
+                voice=self.settings.speech_edge_voice_narrator,
+                model="edge-tts-7.2.8",
+                language="en-US",
+                speed=1.02,
+                instructions=(
+                    "Energetic sports commentator. Clear, concise, and never conversational."
+                ),
                 enabled=self.settings.speech_edge_enabled,
             ),
             VoicePreset(
@@ -190,7 +212,12 @@ class ProductionService:
             profile = PRODUCTION_PROFILES[request.profile_id]
         except KeyError as error:
             raise ValueError(f"Unknown production profile: {request.profile_id}") from error
+        narrator = request.narrator or NarratorSettings()
         voices = {**self.default_voice_assignments, **request.voice_assignments}
+        if narrator.enabled:
+            voices.update(self.default_narrator_assignment)
+            if "narrator" in request.voice_assignments:
+                voices["narrator"] = request.voice_assignments["narrator"]
         available = {preset.id for preset in await self.repository.list_voices() if preset.enabled}
         if not set(voices.values()).issubset(available):
             raise ValueError("voice assignment references an unknown or disabled VoicePreset")
@@ -201,7 +228,7 @@ class ProductionService:
                 vertical=profile.aspect_ratio == "9:16",
             )
         )
-        production = build_timeline(archive, profile, voices=voices).model_copy(
+        production = build_timeline(archive, profile, voices=voices, narrator=narrator).model_copy(
             update={
                 "style": apply_default_branding(style, archive),
                 "title": request.title,
@@ -242,15 +269,20 @@ class ProductionService:
         )
 
     def _needs_speech_preparation(self, production: ProductionTimeline) -> bool:
-        voice_by_event = {
-            cue.event_sequence: cue
-            for cue in production.cues
-            if cue.track is Track.VOICE and cue.event_sequence is not None
-        }
+        voice_cues = tuple(cue for cue in production.cues if cue.track is Track.VOICE)
         for commentary in production.cues:
             if commentary.track is not Track.COMMENTARY or commentary.event_sequence is None:
                 continue
-            voice = voice_by_event.get(commentary.event_sequence)
+            speaker = commentary.speaker or commentary.side
+            voice = next(
+                (
+                    cue
+                    for cue in voice_cues
+                    if cue.event_sequence == commentary.event_sequence
+                    and (cue.speaker or cue.side) == speaker
+                ),
+                None,
+            )
             cache_key = voice.payload.get("cache_key") if voice else None
             if not isinstance(cache_key, str) or self.cache.validate(cache_key) is None:
                 return True
@@ -277,6 +309,7 @@ class ProductionService:
             production_id=production.id,
             revision=production.revision + 1,
             voices=production.voice_assignments,
+            narrator=production.narrator,
         ).model_copy(
             update={
                 "style": production.style,
@@ -299,6 +332,7 @@ class ProductionService:
             production_id=previous.id,
             revision=previous.revision + 1,
             voices=previous.voice_assignments,
+            narrator=previous.narrator,
         ).model_copy(
             update={
                 "overrides": previous.overrides,
@@ -365,6 +399,37 @@ class ProductionService:
     async def update(self, production_id: UUID, request: UpdateProduction) -> ProductionTimeline:
         """Apply a presentation edit. Cues, events and results are left exactly as they are."""
         production = await self.require(production_id)
+        if request.narrator is not None:
+            archive = await self.battles.get_match(production.match_id)
+            if archive is None:
+                raise KeyError(str(production.match_id))
+            voices = dict(production.voice_assignments)
+            if request.narrator.enabled:
+                voices["narrator"] = request.narrator.voice_preset_id
+            else:
+                voices.pop("narrator", None)
+            available = {
+                preset.id
+                for preset in await self.repository.list_voices()
+                if preset.enabled
+            }
+            if not set(voices.values()).issubset(available):
+                raise ValueError(
+                    "narrator voice assignment references an unknown or disabled VoicePreset"
+                )
+            profile = PRODUCTION_PROFILES.get(production.profile.id, production.profile)
+            rebuilt = build_timeline(
+                archive,
+                profile,
+                production_id=production.id,
+                revision=production.revision + 1,
+                voices=voices,
+                narrator=request.narrator,
+            ).model_copy(update={"style": production.style, "title": production.title})
+            if rebuilt.status is ProductionStatus.FINALIZED:
+                rebuilt = self._seal(rebuilt)
+                return await self.ensure_prepared((await self.repository.save(rebuilt)).id)
+            return await self.repository.save(rebuilt)
         update: dict[str, object] = {"updated_at": datetime.now(UTC)}
         if request.style is not None:
             update["style"] = request.style
@@ -405,6 +470,7 @@ class ProductionService:
         """Incrementally extend every live production after the event transaction commits."""
         async with self._timeline_locks[str(event.match_id)]:
             productions = await self.repository.list_live_for_match(event.match_id)
+            archive = await self.battles.get_match(event.match_id)
             if not productions and event.event_type == "battle_started":
                 archive = await self.battles.get_match(event.match_id)
                 if archive is None:
@@ -413,6 +479,7 @@ class ProductionService:
                     archive,
                     PRODUCTION_PROFILES["live-stream"],
                     voices=self.default_voice_assignments,
+                    narrator=NarratorSettings(),
                 )
                 await self.repository.save(production)
                 return
@@ -433,6 +500,12 @@ class ProductionService:
                     production.profile,
                     start_ms=production.duration_ms,
                     timeline_turn=event_turn,
+                    narrator_candidate=(
+                        build_narrator_plan(archive.events, production.narrator).get(event.sequence)
+                        if archive is not None
+                        else None
+                    ),
+                    narrator_settings=production.narrator,
                 )
                 turn_gap = (
                     production.profile.turn_pause_ms
@@ -595,9 +668,13 @@ class ProductionService:
         failures: list[str] = []
         pending: list[tuple[ProductionCue, VoicePreset]] = []
         for cue in production.cues:
-            if cue.track is not Track.COMMENTARY or not cue.side:
+            if cue.track is not Track.COMMENTARY:
                 continue
-            preset = voices.get(production.voice_assignments.get(cue.side, ""))
+            speaker = cue.speaker or cue.side
+            if not speaker:
+                failures.append(f"{cue.id}: missing speaker")
+                continue
+            preset = voices.get(production.voice_assignments.get(speaker, ""))
             if preset is None:
                 failures.append(f"{cue.id}: missing VoicePreset")
                 continue
@@ -758,11 +835,11 @@ class ProductionService:
         production: ProductionTimeline,
     ) -> tuple[ProductionCue, ...]:
         result: list[ProductionCue] = []
-        by_event: dict[int, SpeechArtifact] = {}
+        artifacts_by_commentary: dict[str, SpeechArtifact] = {}
         for cue in cues:
             artifact = generated.get(cue.id)
-            if artifact and cue.event_sequence:
-                by_event[cue.event_sequence] = artifact
+            if artifact and cue.track is Track.COMMENTARY:
+                artifacts_by_commentary[cue.id] = artifact
                 result.append(cue.model_copy(update={"duration_ms": artifact.duration_ms}))
                 result.append(
                     ProductionCue(
@@ -774,6 +851,7 @@ class ProductionService:
                         event_sequence=cue.event_sequence,
                         turn=cue.turn,
                         side=cue.side,
+                        speaker=cue.speaker,
                         payload=artifact.model_dump(mode="json"),
                     )
                 )
@@ -781,34 +859,36 @@ class ProductionService:
                 result.append(cue)
         normalized: list[ProductionCue] = []
         for cue in result:
-            artifact = by_event.get(cue.event_sequence or -1)
-            if cue.track is Track.CAPTIONS and artifact:
+            if cue.track is Track.CAPTIONS:
                 commentary = next(
                     (
-                        str(item.payload["text"])
+                        item
                         for item in result
                         if item.track is Track.COMMENTARY
                         and item.event_sequence == cue.event_sequence
+                        and (item.speaker or item.side) == (cue.speaker or cue.side)
                     ),
-                    "",
+                    None,
                 )
-                normalized.append(
-                    cue.model_copy(
-                        update={
-                            "duration_ms": artifact.duration_ms,
-                            "payload": {
-                                "segments": [
-                                    segment.model_dump(mode="json")
-                                    for segment in segment_caption(
-                                        commentary,
-                                        maximum=production.profile.caption_max_characters,
-                                        duration_ms=artifact.duration_ms,
-                                    )
-                                ]
-                            },
-                        }
+                artifact = artifacts_by_commentary.get(commentary.id) if commentary else None
+                if artifact and commentary:
+                    normalized.append(
+                        cue.model_copy(
+                            update={
+                                "duration_ms": artifact.duration_ms,
+                                "payload": {
+                                    "segments": [
+                                        segment.model_dump(mode="json")
+                                        for segment in segment_caption(
+                                            str(commentary.payload["text"]),
+                                            maximum=production.profile.caption_max_characters,
+                                            duration_ms=artifact.duration_ms,
+                                        )
+                                    ]
+                                },
+                            }
+                        )
                     )
-                )
-            else:
-                normalized.append(cue)
+                    continue
+            normalized.append(cue)
         return tuple(sorted(normalized, key=lambda cue: (cue.start_ms, cue.track.value, cue.id)))

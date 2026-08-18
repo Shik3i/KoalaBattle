@@ -52,6 +52,19 @@ def test_plan_returns_question_when_no_format_is_given() -> None:
     assert plan.questions[0].field == "settings.format"
 
 
+def test_plan_can_enable_custom_narrator_profile_from_instruction() -> None:
+    plan = orchestrator().plan(
+        OrchestratorRequest(
+            instruction="Gen 1 OU Bo1 with minimal highlights narrator and video export."
+        )
+    )
+
+    assert plan.ready is True
+    assert plan.settings.narrator_enabled is True
+    assert plan.settings.narrator_profile_id == "minimal-highlights-v1"
+    assert plan.settings.narrator_mode == "highlights"
+
+
 def test_orchestrator_run_status_is_terminal_only_with_completion_time() -> None:
     assert OrchestratorStatus.COMPLETED.value == "completed"
     assert OrchestratorSettings().best_of == 1

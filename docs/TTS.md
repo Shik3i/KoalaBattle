@@ -7,7 +7,8 @@ Strategy Memory, provider metadata, and hidden state are outside the speech requ
 ## Providers
 
 - `system` (default): free Edge neural speech using `edge-tts`, with distinct Emma and Brian
-  multilingual neural voices at a restrained 0.96× delivery rate. It requires Internet access
+  multilingual neural voices at a restrained 0.96× delivery rate plus a separate Guy narrator
+  voice at 1.02×. It requires Internet access
   and sends only normalized public commentary to Microsoft's
   online speech service. No API key is required. It is an unofficial service integration, not an
   Azure Speech SLA.
@@ -33,8 +34,11 @@ All missing replay cues are scheduled immediately when preparation starts. Gener
 bounded by `KOALABATTLE_SPEECH_MAX_CONCURRENCY` (default `8`); cancellation does not expose a
 partial artifact. Text and payload size limits apply before publication.
 
-VoicePresets persist a provider-neutral participant assignment. The same `p1`/`p2` assignment
-is reused across replay and rebuild until an operator creates a different production.
+VoicePresets persist a provider-neutral participant assignment. The same `p1`/`p2`/`narrator`
+assignment is reused across replay and rebuild until an operator creates a different production.
+The narrator is event-driven and deterministic; it never calls an LLM. Configure its Edge voice
+with `KOALABATTLE_SPEECH_EDGE_VOICE_NARRATOR` or disable narrator speech by leaving narrator
+disabled in the production settings.
 
 Set `KOALABATTLE_SPEECH_EDGE_ENABLED=false` for strictly offline operation. Offline quality then
 depends on installed host voices and is intentionally labeled basic. Sherpa-ONNX remains a future

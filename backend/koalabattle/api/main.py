@@ -53,6 +53,7 @@ from koalabattle.production import (
     StylePreset,
     UpdateProduction,
     VoicePreset,
+    narrator_profiles,
 )
 from koalabattle.production.models import VoicePreviewRequest
 from koalabattle.service import BattleService
@@ -321,6 +322,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 profile.model_dump(mode="json") for profile in _production(request).profiles()
             ]
         }
+
+    @app.get("/api/production/narrator-profiles")
+    async def production_narrator_profiles() -> dict[str, object]:
+        return {"profiles": [profile.model_dump(mode="json") for profile in narrator_profiles()]}
 
     @app.get("/api/production/providers")
     async def speech_providers(request: Request) -> dict[str, object]:

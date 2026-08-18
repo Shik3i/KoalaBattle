@@ -9,12 +9,14 @@ from koalabattle.core.models import BattleEvent, MatchArchive, MatchStatus
 from .models import (
     CaptionSegment,
     DirectorState,
+    NarratorSettings,
     ProductionCue,
     ProductionProfile,
     ProductionStatus,
     ProductionTimeline,
     Track,
 )
+from .narrator import NarratorCandidate, build_narrator_plan
 
 _EVENT_DURATIONS = {
     "move_used": 520,
@@ -113,6 +115,8 @@ def cues_for_event(
     *,
     start_ms: int,
     timeline_turn: int | None = None,
+    narrator_candidate: NarratorCandidate | None = None,
+    narrator_settings: NarratorSettings | None = None,
 ) -> tuple[tuple[ProductionCue, ...], int]:
     """Create only cues owned by one persisted event; IDs make retries idempotent."""
     cue_turn = event.turn if timeline_turn is None else timeline_turn
@@ -185,6 +189,7 @@ def cues_for_event(
                     event_sequence=event.sequence,
                     turn=cue_turn,
                     side=side,
+                    speaker=side,
                     payload={"text": commentary},
                 )
             )
@@ -199,6 +204,7 @@ def cues_for_event(
                         event_sequence=event.sequence,
                         turn=cue_turn,
                         side=side,
+                        speaker=side,
                         payload={
                             "segments": [
                                 segment.model_dump(mode="json")
@@ -213,6 +219,52 @@ def cues_for_event(
                 )
             if profile.wait_for_speech:
                 duration = max(duration, estimated)
+    if narrator_candidate is not None:
+        narrator_duration = narrator_candidate.duration_ms
+        cues.append(
+            ProductionCue(
+                id=f"{base}-narrator-commentary",
+                track=Track.COMMENTARY,
+                kind="narrator-highlight",
+                start_ms=start_ms,
+                duration_ms=narrator_duration,
+                event_sequence=event.sequence,
+                turn=cue_turn,
+                speaker="narrator",
+                payload={
+                    "text": narrator_candidate.text,
+                    "rule_id": narrator_candidate.rule_id,
+                    "priority": narrator_candidate.priority,
+                },
+            )
+        )
+        if profile.captions_enabled and (
+            narrator_settings is None or narrator_settings.captions_enabled
+        ):
+            cues.append(
+                ProductionCue(
+                    id=f"{base}-narrator-captions",
+                    track=Track.CAPTIONS,
+                    kind="narrator-commentary",
+                    start_ms=start_ms,
+                    duration_ms=narrator_duration,
+                    event_sequence=event.sequence,
+                    turn=cue_turn,
+                    speaker="narrator",
+                    payload={
+                        "segments": [
+                            segment.model_dump(mode="json")
+                            for segment in segment_caption(
+                                narrator_candidate.text,
+                                maximum=profile.caption_max_characters,
+                                duration_ms=narrator_duration,
+                            )
+                        ]
+                    },
+                )
+            )
+        if profile.wait_for_speech:
+            duration = max(duration, narrator_duration)
     return tuple(cues), duration
 
 
@@ -318,6 +370,7 @@ def build_timeline(
     production_id: UUID | None = None,
     revision: int = 1,
     voices: dict[str, str] | None = None,
+    narrator: NarratorSettings | None = None,
 ) -> ProductionTimeline:
     now = datetime.now(UTC)
     cues: list[ProductionCue] = []
@@ -339,6 +392,8 @@ def build_timeline(
         cursor = profile.intro_duration_ms
     active_turn: int | None = None
     turn_start: int | None = None
+    narrator_settings = narrator or NarratorSettings()
+    narrator_plan = build_narrator_plan(archive.events, narrator_settings)
     for event in archive.events:
         # Showdown can persist the next state snapshot before the remaining action events
         # from the current turn. Only `turn_started` is a reliable forward clock boundary;
@@ -352,7 +407,12 @@ def build_timeline(
             active_turn = event_turn
             turn_start = cursor
         event_cues, duration = cues_for_event(
-            event, profile, start_ms=cursor, timeline_turn=active_turn
+            event,
+            profile,
+            start_ms=cursor,
+            timeline_turn=active_turn,
+            narrator_candidate=narrator_plan.get(event.sequence),
+            narrator_settings=narrator_settings,
         )
         if event_cues:
             cues.extend(event_cues)
@@ -371,6 +431,9 @@ def build_timeline(
         )
         cursor += profile.result_duration_ms + profile.outro_duration_ms
     final_state = DirectorState.RESULT if archive.winner is not None else DirectorState.ENDED
+    voice_assignments = dict(voices or {"p1": "edge-neural-p1", "p2": "edge-neural-p2"})
+    if narrator_settings.enabled:
+        voice_assignments.setdefault("narrator", narrator_settings.voice_preset_id)
     return ProductionTimeline(
         id=production_id or uuid4(),
         match_id=archive.id,
@@ -379,7 +442,8 @@ def build_timeline(
         status=ProductionStatus.FINALIZED if terminal else ProductionStatus.LIVE,
         director_state=DirectorState.PRE_SHOW if profile.intro_enabled else final_state,
         cues=tuple(sorted(cues, key=lambda cue: (cue.start_ms, cue.track.value, cue.id))),
-        voice_assignments=voices or {"p1": "edge-neural-p1", "p2": "edge-neural-p2"},
+        voice_assignments=voice_assignments,
+        narrator=narrator_settings,
         duration_ms=cursor,
         finalized_at=now if terminal else None,
         created_at=now,

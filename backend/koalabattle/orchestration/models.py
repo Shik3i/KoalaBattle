@@ -56,6 +56,12 @@ class OrchestratorSettings(OrchestratorFrozenModel):
     render_engine: RenderEngine = RenderEngine.NATIVE
     encoder: Literal["auto", "software", "videotoolbox", "nvenc", "vaapi", "qsv"] = "software"
     production_profile_id: str = Field(default="live-stream", min_length=1, max_length=60)
+    narrator_enabled: bool = False
+    narrator_profile_id: str = Field(default="stadium-broadcast-v1", min_length=1, max_length=80)
+    narrator_mode: Literal["off", "highlights", "broadcast", "full"] = "highlights"
+    narrator_voice_preset_id: str = Field(
+        default="edge-neural-narrator", min_length=1, max_length=80
+    )
 
 
 class OrchestratorRequest(OrchestratorFrozenModel):
@@ -131,4 +137,11 @@ class OrchestratorCapabilities(OrchestratorFrozenModel):
     supports_team_building: bool = True
     supports_banter: bool = True
     supports_video_render: bool = True
+    supports_narrator: bool = True
+    narrator_modes: tuple[str, ...] = ("off", "highlights", "broadcast", "full")
+    narrator_profiles: tuple[str, ...] = (
+        "stadium-broadcast-v1",
+        "battle-revolution-v1",
+        "minimal-highlights-v1",
+    )
     supported_best_of: tuple[int, ...] = (1,)

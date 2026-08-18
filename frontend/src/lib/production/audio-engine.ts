@@ -4,6 +4,7 @@ import { ProductionScheduler } from './scheduler.ts';
 export interface MixerSettings {
   master: number;
   voice: number;
+  narrator: number;
   sfx: number;
   music: number;
 }
@@ -18,7 +19,8 @@ export interface ProductionPlaybackState {
   settings: MixerSettings;
 }
 
-const defaults: MixerSettings = { master: 1, voice: 1, sfx: 0.65, music: 0.35 };
+const defaults: MixerSettings = { master: 1, voice: 1, narrator: 1, sfx: 0.65, music: 0.35 };
+type VoiceChannel = 'p1' | 'p2' | 'narrator';
 
 export class ProductionAudioEngine {
   private readonly scheduler = new ProductionScheduler();
@@ -28,7 +30,7 @@ export class ProductionAudioEngine {
   private lastTick = 0;
   private enabled = false;
   private playing = false;
-  private activeVoice: HTMLAudioElement | null = null;
+  private readonly activeVoices = new Map<VoiceChannel, HTMLAudioElement>();
   private activeMusic: HTMLAudioElement | null = null;
   private caption: ProductionCue | null = null;
   private director: ProductionCue | null = null;
@@ -79,7 +81,7 @@ export class ProductionAudioEngine {
     this.playing = false;
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
-    this.activeVoice?.pause();
+    this.pauseVoices();
     this.activeMusic?.pause();
     this.emit();
   }
@@ -103,7 +105,7 @@ export class ProductionAudioEngine {
 
   setVolume(track: keyof MixerSettings, value: number): void {
     this.settings = { ...this.settings, [track]: Math.max(0, Math.min(1, value)) };
-    if (this.activeVoice) this.activeVoice.volume = this.volume('voice');
+    this.updateVoiceVolumes();
     if (this.activeMusic) this.activeMusic.volume = this.musicVolume();
     localStorage.setItem('koalabattle-mixer-v1', JSON.stringify(this.settings));
     this.emit();
@@ -111,13 +113,12 @@ export class ProductionAudioEngine {
 
   preview(mediaUrl: string): void {
     if (!this.enabled) return;
-    this.activeVoice?.pause();
+    this.pauseVoices();
     const audio = new Audio(`${this.mediaBase}${mediaUrl}`);
     audio.volume = this.volume('voice');
     audio.onended = () => {
-      if (this.activeVoice === audio) this.activeVoice = null;
+      audio.src = '';
     };
-    this.activeVoice = audio;
     void audio.play().catch(() => undefined);
   }
 
@@ -144,14 +145,18 @@ export class ProductionAudioEngine {
   private handle(cue: ProductionCue): void {
     if (!this.enabled) return;
     if (cue.track === 'voice' && typeof cue.payload.media_url === 'string') {
-      if (this.timeline?.profile.interruption_policy === 'interrupt') this.activeVoice?.pause();
+      const channel = cue.speaker || cue.side || 'p1';
+      const previous = this.activeVoices.get(channel);
+      if (this.timeline?.profile.interruption_policy === 'interrupt') previous?.pause();
       const audio = new Audio(`${this.mediaBase}${cue.payload.media_url}`);
-      audio.volume = this.volume('voice');
+      audio.volume = this.channelVolume(channel);
       audio.onended = () => {
-        if (this.activeVoice === audio) this.activeVoice = null;
+        if (this.activeVoices.get(channel) === audio) this.activeVoices.delete(channel);
+        this.updateVoiceVolumes();
         if (this.activeMusic) this.activeMusic.volume = this.musicVolume();
       };
-      this.activeVoice = audio;
+      this.activeVoices.set(channel, audio);
+      this.updateVoiceVolumes();
       if (this.activeMusic) this.activeMusic.volume = this.musicVolume();
       void audio.play().catch(() => undefined);
     }
@@ -186,26 +191,40 @@ export class ProductionAudioEngine {
       .find((cue) => cue.track === track && cue.start_ms <= time && cue.start_ms + cue.duration_ms > time) || null;
   }
 
-  private volume(track: 'voice' | 'sfx' | 'music'): number {
+  private volume(track: 'voice' | 'narrator' | 'sfx' | 'music'): number {
     return this.settings.master * this.settings[track];
   }
 
   private musicVolume(): number {
-    const ducking = this.activeVoice ? Math.pow(10, (this.timeline?.profile.ducking_db || -12) / 20) : 1;
+    const ducking = this.activeVoices.size ? Math.pow(10, (this.timeline?.profile.ducking_db || -12) / 20) : 1;
     return this.volume('music') * ducking;
   }
 
   private stopMedia(): void {
-    if (this.activeVoice) {
-      this.activeVoice.pause();
-      this.activeVoice.src = '';
-      this.activeVoice = null;
-    }
+    this.pauseVoices();
     if (this.activeMusic) {
       this.activeMusic.pause();
       this.activeMusic.src = '';
       this.activeMusic = null;
     }
+  }
+
+  private pauseVoices(): void {
+    for (const audio of this.activeVoices.values()) {
+      audio.pause();
+      audio.src = '';
+    }
+    this.activeVoices.clear();
+  }
+
+  private channelVolume(channel: VoiceChannel): number {
+    if (channel === 'narrator') return this.volume('narrator');
+    const ducking = this.activeVoices.has('narrator') ? Math.pow(10, -5 / 20) : 1;
+    return this.volume('voice') * ducking;
+  }
+
+  private updateVoiceVolumes(): void {
+    for (const [channel, audio] of this.activeVoices) audio.volume = this.channelVolume(channel);
   }
 
   private snapshot(): ProductionPlaybackState {

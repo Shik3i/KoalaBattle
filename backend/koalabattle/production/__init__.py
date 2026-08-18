@@ -2,6 +2,9 @@ from .models import (
     CreateProduction,
     DirectorCommand,
     DuplicateProduction,
+    NarratorMode,
+    NarratorProfile,
+    NarratorSettings,
     PrepareSpeechRequest,
     ProductionProfile,
     ProductionTimeline,
@@ -9,6 +12,7 @@ from .models import (
     UpdateProduction,
     VoicePreset,
 )
+from .narrator import narrator_profiles
 from .service import ProductionService
 from .style import ProductionStyle, SaveStylePreset, StylePreset
 from .style_presets import BUILTIN_STYLES, builtin_presets, suggest_style
@@ -18,6 +22,9 @@ __all__ = [
     "CreateProduction",
     "DirectorCommand",
     "DuplicateProduction",
+    "NarratorMode",
+    "NarratorProfile",
+    "NarratorSettings",
     "PrepareSpeechRequest",
     "ProductionProfile",
     "ProductionService",
@@ -30,4 +37,5 @@ __all__ = [
     "VoicePreset",
     "builtin_presets",
     "suggest_style",
+    "narrator_profiles",
 ]

@@ -634,10 +634,11 @@ class LegacyScreenshotRendererExporter(VideoExporter):
         disabled = set(production.overrides.get("disabled_cues", ()))
         custom = production.overrides.get("custom_audio", {})
         custom_audio = custom if isinstance(custom, dict) else {}
-        voices: list[tuple[Path, int, int]] = []
+        voices: list[tuple[Path, int, int, str]] = []
         sfx: list[tuple[int, int, int]] = []
         music: list[tuple[Path, int, int, bool]] = []
         voice_ranges: list[tuple[int, int]] = []
+        narrator_ranges: list[tuple[int, int]] = []
         frequencies = {"impact": 120, "critical": 720, "heal": 520, "miss": 180, "result": 660}
         for cue in production.cues:
             if (
@@ -651,8 +652,11 @@ class LegacyScreenshotRendererExporter(VideoExporter):
             key = custom_audio.get(cue.id, cue.payload.get("cache_key"))
             valid = self.speech.validate(key) if isinstance(key, str) else None
             if cue.track is Track.VOICE and valid is not None:
-                voices.append((valid.path, delay, duration))
+                speaker = cue.speaker or cue.side or "p1"
+                voices.append((valid.path, delay, duration, speaker))
                 voice_ranges.append((delay, delay + duration))
+                if speaker == "narrator":
+                    narrator_ranges.append((delay, delay + duration))
             elif cue.track is Track.SFX:
                 sfx.append((frequencies.get(cue.kind, 260), delay, min(duration, 120)))
             elif cue.track is Track.MUSIC and valid is not None:
@@ -671,7 +675,7 @@ class LegacyScreenshotRendererExporter(VideoExporter):
             "-i",
             "anullsrc=r=48000:cl=stereo",
         ]
-        for path, _, _ in voices:
+        for path, _, _, _ in voices:
             command.extend(["-i", str(path)])
         for frequency, _, duration in sfx:
             command.extend(
@@ -691,11 +695,20 @@ class LegacyScreenshotRendererExporter(VideoExporter):
         filters: list[str] = []
         labels = ["[0:a]"]
         index = 1
-        for _, delay, duration in voices:
+        narrator_ducking = 10 ** (-5 / 20)
+        for _, delay, duration, speaker in voices:
             label = f"v{index}"
+            overlap = "+".join(
+                f"between(t,{max(0, start) / 1000:.6f},{end / 1000:.6f})"
+                for start, end in narrator_ranges
+                if end > delay and start < delay + duration and speaker != "narrator"
+            )
+            voice_volume = (
+                f"if({overlap},{narrator_ducking:.6f},1)" if overlap else "1"
+            )
             filters.append(
                 f"[{index}:a]atrim=0:{duration / 1000:.6f},"
-                f"adelay={delay}|{delay},volume=1.0[{label}]"
+                f"adelay={delay}|{delay},volume='{voice_volume}'[{label}]"
             )
             labels.append(f"[{label}]")
             index += 1

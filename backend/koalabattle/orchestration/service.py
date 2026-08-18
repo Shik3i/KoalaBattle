@@ -9,6 +9,7 @@ from uuid import UUID, uuid4
 from koalabattle.config import Settings
 from koalabattle.core.models import (
     AgentType,
+    MatchArchive,
     MatchConfig,
     MatchStatus,
     PlayerConfig,
@@ -17,7 +18,12 @@ from koalabattle.core.models import (
     TeamSource,
 )
 from koalabattle.formats.models import FormatDescriptor
-from koalabattle.production import ProductionService
+from koalabattle.production import (
+    CreateProduction,
+    NarratorMode,
+    NarratorSettings,
+    ProductionService,
+)
 from koalabattle.production.models import ProductionStatus, ProductionTimeline
 from koalabattle.service import BattleService
 from koalabattle.video import CreateVideoExport, ExportStatus, VideoExportService
@@ -285,6 +291,29 @@ class OrchestratorService:
         updates: dict[str, Any] = {"format": format_id}
         if "banter" in text or "trash talk" in text or "taunt" in text:
             updates["banter_enabled"] = True
+        if any(
+            token in text
+            for token in ("narrator", "commentator", "stadium commentary", "stadium narrator")
+        ):
+            updates["narrator_enabled"] = True
+        if any(token in text for token in ("without narrator", "no narrator", "ohne narrator")):
+            updates["narrator_enabled"] = False
+        if "broadcast commentary" in text:
+            updates.update(narrator_enabled=True, narrator_mode="broadcast")
+        if "full commentary" in text or "vollständiger kommentar" in text:
+            updates.update(narrator_enabled=True, narrator_mode="full")
+        if "minimal highlights" in text or "nur highlights" in text:
+            updates.update(
+                narrator_enabled=True,
+                narrator_profile_id="minimal-highlights-v1",
+                narrator_mode="highlights",
+            )
+        if "battle revolution" in text or "colosseum broadcast" in text:
+            updates.update(
+                narrator_enabled=True,
+                narrator_profile_id="battle-revolution-v1",
+                narrator_mode="broadcast",
+            )
         if any(token in text for token in ("video", "render", "export")):
             updates["auto_render"] = True
         model_match = _MODEL_RE.search(instruction)
@@ -351,6 +380,18 @@ class OrchestratorService:
                 status=OrchestratorStatus.PREPARING_PRODUCTION,
                 stage="Preparing replay production",
                 progress=65,
+            )
+            await self.production.create(
+                match.id,
+                CreateProduction(
+                    profile_id=run.settings.production_profile_id,
+                    narrator=NarratorSettings(
+                        enabled=run.settings.narrator_enabled,
+                        profile_id=run.settings.narrator_profile_id,
+                        mode=NarratorMode(run.settings.narrator_mode),
+                        voice_preset_id=run.settings.narrator_voice_preset_id,
+                    ),
+                ),
             )
             production = await self._wait_for_production(
                 match.id, run.settings.production_profile_id
@@ -469,14 +510,14 @@ class OrchestratorService:
                     errors=(f"{type(error).__name__}: {error}",),
                 )
 
-        return await asyncio.gather(*(build(player) for player in settings.players))
+        return tuple(await asyncio.gather(*(build(player) for player in settings.players)))
 
     async def _create_match(
         self,
         settings: OrchestratorSettings,
         descriptor: FormatDescriptor,
         teams: tuple[OrchestratorTeamResult, ...],
-    ):
+    ) -> MatchArchive:
         players: list[PlayerConfig] = []
         for side, player, team in zip((Side.P1, Side.P2), settings.players, teams, strict=True):
             custom = not descriptor.random_team

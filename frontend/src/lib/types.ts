@@ -374,6 +374,33 @@ export interface MatchArchive {
 
 export type ProductionTrack = 'visual' | 'commentary' | 'voice' | 'captions' | 'sfx' | 'music' | 'director';
 export type DirectorState = 'pre-show' | 'match-intro' | 'team-reveal' | 'battle' | 'between-games' | 'result' | 'champion' | 'paused' | 'ended';
+export type NarratorMode = 'off' | 'highlights' | 'broadcast' | 'full';
+
+export interface NarratorSettings {
+  enabled: boolean;
+  profile_id: string;
+  mode: NarratorMode;
+  voice_preset_id: string;
+  cooldown_ms: number;
+  max_lines_per_turn: number;
+  max_lines_per_match: number;
+  minimum_priority: number;
+  repeat_window_ms: number;
+  overlap_policy: 'duck' | 'queue' | 'suppress';
+  captions_enabled: boolean;
+  include_pokemon_names: boolean;
+  include_move_names: boolean;
+  language: string;
+}
+
+export interface NarratorProfile {
+  id: string;
+  display_name: string;
+  description: string;
+  recommended_mode: NarratorMode;
+  recommended_cooldown_ms: number;
+  recommended_max_lines_per_match: number;
+}
 
 export interface ProductionProfile {
   id: string;
@@ -407,6 +434,7 @@ export interface ProductionCue {
   event_sequence: number | null;
   turn: number | null;
   side: Side | null;
+  speaker: 'p1' | 'p2' | 'narrator' | null;
   payload: Record<string, unknown>;
 }
 
@@ -631,6 +659,7 @@ export interface ProductionTimeline {
   director_state: DirectorState;
   cues: ProductionCue[];
   voice_assignments: Record<string, string>;
+  narrator: NarratorSettings;
   style: ProductionStyle;
   title: string | null;
   overrides: Record<string, unknown>;
