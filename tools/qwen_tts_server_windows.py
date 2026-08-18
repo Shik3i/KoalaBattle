@@ -26,6 +26,8 @@ import binascii
 import io
 import os
 import tempfile
+import time
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
@@ -38,11 +40,55 @@ DEVICE = os.getenv("KOALABATTLE_QWEN_TTS_DEVICE", "cuda:0")
 ATTN_IMPLEMENTATION = os.getenv("KOALABATTLE_QWEN_TTS_ATTN", "sdpa")
 HOST = os.getenv("KOALABATTLE_QWEN_TTS_HOST", "127.0.0.1")
 PORT = int(os.getenv("KOALABATTLE_QWEN_TTS_PORT", "8890"))
+# The server process itself is near-free to leave running (no GPU use until first request);
+# it's the loaded model that costs ~3-4GB of VRAM, so that's what gets a TTL, not the process.
+# 0 or negative disables idle unloading and keeps the model resident once loaded.
+IDLE_TTL_SECONDS = float(os.getenv("KOALABATTLE_QWEN_TTS_IDLE_TTL_SECONDS", "600"))
+_IDLE_CHECK_INTERVAL_SECONDS = 30
 
-app = FastAPI(title="KoalaBattle Qwen3-TTS Windows bridge", version="1.0")
 _model: Any = None
 _model_lock = asyncio.Lock()
 _generation_lock = asyncio.Lock()
+_last_used = 0.0
+
+
+async def _idle_watchdog() -> None:
+    if IDLE_TTL_SECONDS <= 0:
+        return
+    while True:
+        await asyncio.sleep(_IDLE_CHECK_INTERVAL_SECONDS)
+        async with _model_lock:
+            if _model is not None and time.monotonic() - _last_used >= IDLE_TTL_SECONDS:
+                _unload_model()
+
+
+def _unload_model() -> None:
+    global _model
+    if _model is None:
+        return
+    _model = None
+    try:
+        import gc
+
+        import torch
+
+        gc.collect()
+        torch.cuda.empty_cache()
+    except ModuleNotFoundError:
+        pass
+    print(f"Qwen3-TTS idle for {IDLE_TTL_SECONDS:.0f}s, unloaded model and freed VRAM.")
+
+
+@asynccontextmanager
+async def _lifespan(_: FastAPI):
+    watchdog = asyncio.create_task(_idle_watchdog())
+    try:
+        yield
+    finally:
+        watchdog.cancel()
+
+
+app = FastAPI(title="KoalaBattle Qwen3-TTS Windows bridge", version="1.0", lifespan=_lifespan)
 
 
 def _cuda_supported() -> bool:
@@ -93,6 +139,8 @@ def _load_model() -> Any:
             dtype=torch.bfloat16,
             attn_implementation=ATTN_IMPLEMENTATION,
         )
+    global _last_used
+    _last_used = time.monotonic()
     return _model
 
 
@@ -153,6 +201,8 @@ async def _generate(payload: SpeechRequest) -> bytes:
                     ref_text=payload.reference_text or "",
                 )
             )
+        global _last_used
+        _last_used = time.monotonic()
         if not wavs:
             raise HTTPException(status_code=502, detail="Qwen3-TTS produced no audio")
         return _audio_bytes(wavs[0], sample_rate)
@@ -167,6 +217,8 @@ async def healthz() -> dict[str, object]:
         "model": MODEL_ID,
         "loaded": _model is not None,
         "cuda_supported": _cuda_supported(),
+        "idle_ttl_seconds": IDLE_TTL_SECONDS if IDLE_TTL_SECONDS > 0 else None,
+        "idle_seconds": round(time.monotonic() - _last_used) if _model is not None else None,
     }
 
 

@@ -74,6 +74,13 @@ crashes. If Task Scheduler refuses without admin rights (it does on some machine
 task that only ever runs as your own account), it falls back automatically to a silent launcher
 in your per-user Startup folder — that one starts at logon too, just without the auto-restart.
 Either way, no admin rights are required and nothing needs to be run by hand afterward.
+
+Leaving the bridge process itself running costs almost nothing (no GPU use until the first
+request); the actual cost is the ~3-4GB of VRAM the loaded model occupies once used. The bridge
+unloads the model after `KOALABATTLE_QWEN_TTS_IDLE_TTL_SECONDS` (default `600`, i.e. 10 minutes)
+of inactivity and frees the VRAM, reloading lazily on the next request. Set it to `0` to keep the
+model resident once loaded. `/healthz` reports `loaded` and `idle_seconds` so you can see the
+current state.
 - `system` (default): free Edge neural speech using `edge-tts`, with distinct Emma and Brian
   multilingual neural voices at a restrained 0.96× delivery rate plus a separate Guy narrator
   voice at 1.02×. It requires Internet access
