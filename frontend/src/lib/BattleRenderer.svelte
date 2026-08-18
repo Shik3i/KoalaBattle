@@ -595,8 +595,7 @@
   /* Roster: six slots that stay in place all match, so a glance reads the score. */
   .team-strip{display:flex;gap:clamp(2px,.28cqw,5px);margin-top:.3rem}
   .team-strip i{position:relative;display:grid;place-items:center;width:calc(var(--hud-scale,1) * clamp(20px,2.1cqw,34px));aspect-ratio:1;overflow:hidden;border:1px solid color-mix(in srgb,var(--side-color) 45%,transparent);border-radius:5px;background:rgba(255,255,255,.05);transition:border-color .18s ease,background .18s ease,opacity .25s ease,filter .25s ease}
-  .team-strip img{width:150%;height:150%;object-fit:contain;image-rendering:auto}
-  [data-retro='true'] .team-strip img{image-rendering:pixelated}
+  .team-strip img{width:150%;height:150%;object-fit:contain;image-rendering:pixelated}
   .team-strip i b{color:var(--r-dim);font:800 .62rem var(--display)}
   .team-strip i.unrevealed{border-color:rgba(255,255,255,.16);background:rgba(0,0,0,.24)}
   .pokeball{position:relative;display:block;width:58%;aspect-ratio:1;border:1.5px solid rgba(255,255,255,.72);border-radius:50%;background:linear-gradient(180deg,#e85d5d 0 46%,#1c2522 46% 54%,#f1f4ed 54%);box-shadow:0 1px 4px rgba(0,0,0,.5)}
@@ -626,8 +625,10 @@
   /* Never scale a 96px sprite past MAX_UPSCALE; cap the footprint instead of stretching. */
   /* Height is the smaller of the slot and this asset's own size times the upscale cap, so a
      48px animated frame is never stretched as far as a 96px sheet. */
-  .sprite img{display:block;width:auto;max-width:100%;height:min(100%,calc(var(--natural-h,96) * var(--max-upscale) * 1px));object-fit:contain;image-rendering:auto;filter:drop-shadow(0 10px 12px rgba(0,0,0,.5))}
-  .battle-renderer[data-retro='true'] .sprite img{image-rendering:pixelated}
+  /* Installed sprites are 96px indexed-color art with hard edges at every generation, not
+     just gen 1-2 (mixed-gen packs use the same flat classic set throughout). Smoothing that
+     upscale blurs and fringes every edge; nearest-neighbor keeps it crisp at MAX_UPSCALE. */
+  .sprite img{display:block;width:auto;max-width:100%;height:min(100%,calc(var(--natural-h,96) * var(--max-upscale) * 1px));object-fit:contain;image-rendering:pixelated;filter:drop-shadow(0 10px 12px rgba(0,0,0,.5))}
   .sprite-missing{display:grid;place-items:center;gap:.25rem;color:var(--r-dim);font:800 .55rem var(--mono);letter-spacing:.12em}
   .sprite-missing .pokeball{width:clamp(28px,4cqw,52px)}
   .sprite-missing small{font:inherit}
@@ -655,27 +656,29 @@
 
   /* ── Headline action and intent ─────────────────────────────────────────── */
   .action-banner{position:absolute;z-index:13;top:44%;left:50%;display:grid;justify-items:center;gap:.15rem;padding:.5rem 1.8rem;transform:translate(-50%,-50%);border-radius:8px;background:rgba(4,9,7,.92);border:1px solid var(--r-line);text-align:center}
-  .action-banner small{color:var(--r-accent);font:900 calc(var(--hud-scale,1) * clamp(.6rem,.78vw,.78rem)) var(--mono);letter-spacing:.18em}
+  .action-banner small{color:var(--r-accent);font:900 calc(var(--hud-scale,1) * clamp(.6rem,.78cqw,.78rem)) var(--mono);letter-spacing:.18em}
   .action-banner[data-phase='resolved'] small{color:var(--r-dim)}
-  .action-banner b{font:800 calc(var(--hud-scale,1) * clamp(1.1rem,1.9vw,1.9rem))/1.1 var(--display);letter-spacing:-.02em;text-transform:uppercase}
-  .action-banner em{color:var(--r-dim);font:600 calc(var(--hud-scale,1) * clamp(.58rem,.74vw,.74rem)) var(--mono);font-style:normal;letter-spacing:.1em}
+  .action-banner b{font:800 calc(var(--hud-scale,1) * clamp(1.1rem,1.9cqw,1.9rem))/1.1 var(--display);letter-spacing:-.02em;text-transform:uppercase}
+  .action-banner em{color:var(--r-dim);font:600 calc(var(--hud-scale,1) * clamp(.58rem,.74cqw,.74rem)) var(--mono);font-style:normal;letter-spacing:.1em}
   .action-banner[data-phase='resolved']{opacity:.62}
   .intent{position:absolute;z-index:11;display:grid;gap:.15rem;width:min(30%,340px);padding:.42rem .6rem;border-radius:7px;background:rgba(4,9,7,.86);border-left:3px solid var(--side-color)}
   .intent[data-side='p1']{--side-color:var(--r-p1)}
   .intent[data-side='p2']{--side-color:var(--r-p2)}
-  .intent-far{top:16%;left:2.5%}
-  .intent-near{right:2.5%;bottom:17%;justify-items:end;text-align:right;border-right:3px solid var(--side-color);border-left:0}
-  .intent small{color:var(--side-color);font:900 calc(var(--hud-scale,1) * clamp(.58rem,.74vw,.74rem)) var(--mono);letter-spacing:.16em}
-  .intent p{display:-webkit-box;overflow:hidden;margin:0;color:#dfeae3;font-size:calc(var(--hud-scale,1) * clamp(.8rem,1.02vw,1.02rem));line-height:1.45;line-clamp:3;-webkit-box-orient:vertical;-webkit-line-clamp:3}
+  /* The HUD plate above/below grows with its own content and hud-scale; give the intent panel
+     enough clearance that it can't collide with it even at a tall name/roster wrap. */
+  .intent-far{top:23%;left:2.5%}
+  .intent-near{right:2.5%;bottom:23%;justify-items:end;text-align:right;border-right:3px solid var(--side-color);border-left:0}
+  .intent small{color:var(--side-color);font:900 calc(var(--hud-scale,1) * clamp(.58rem,.74cqw,.74rem)) var(--mono);letter-spacing:.16em}
+  .intent p{display:-webkit-box;overflow:hidden;margin:0;color:#dfeae3;font-size:calc(var(--hud-scale,1) * clamp(.8rem,1.02cqw,1.02rem));line-height:1.45;line-clamp:3;-webkit-box-orient:vertical;-webkit-line-clamp:3}
   .intent .thinking{color:var(--r-dim);font-style:italic}
   .intent .live-response{color:#f3fff6;font-style:normal}
   .intent .live-response span{color:var(--side-color);animation:cursor-blink 1s steps(2,end) infinite}
-  .intent .context-meter{color:var(--r-dim);font:600 calc(var(--hud-scale,1) * clamp(.48rem,.62vw,.62rem)) var(--mono);letter-spacing:.04em;text-transform:none}
+  .intent .context-meter{color:var(--r-dim);font:600 calc(var(--hud-scale,1) * clamp(.48rem,.62cqw,.62rem)) var(--mono);letter-spacing:.04em;text-transform:none}
   @keyframes cursor-blink{50%{opacity:0}}
 
   /* ── Effects ────────────────────────────────────────────────────────────── */
   .effect{position:absolute;z-index:9;inset:0;display:grid;place-items:center;pointer-events:none}
-  .effect span{padding:.4rem 1.1rem;border-radius:4px;background:#f7fff9;color:#05100b;font:900 calc(var(--hud-scale,1) * clamp(.7rem,1.3vw,1.35rem)) var(--mono);letter-spacing:.08em;animation:effect-pop .6s both}
+  .effect span{padding:.4rem 1.1rem;border-radius:4px;background:#f7fff9;color:#05100b;font:900 calc(var(--hud-scale,1) * clamp(.7rem,1.3cqw,1.35rem)) var(--mono);letter-spacing:.08em;animation:effect-pop .6s both}
   .effect-critical-hit span{background:#ffd262}
   .effect-healing span{background:#8ef3a9}
   .effect-miss span,.effect-immune span,.effect-resisted span{background:#c6d0c8}
@@ -686,7 +689,7 @@
   .move-visual{--type-color:#e9f2ea;position:absolute;z-index:7;inset:0;pointer-events:none}
   .move-visual[data-direction='near-to-far']{--origin-x:30%;--origin-y:74%;--target-x:70%;--target-y:40%;--beam-angle:-38deg}
   .move-visual[data-direction='far-to-near']{--origin-x:70%;--origin-y:40%;--target-x:30%;--target-y:74%;--beam-angle:142deg}
-  .move-projectile{position:absolute;top:var(--origin-y);left:var(--origin-x);width:clamp(16px,2.6vw,38px);aspect-ratio:1;border:2px solid color-mix(in srgb,var(--type-color) 80%,white);border-radius:50%;background:radial-gradient(circle at 35% 30%,#fff,var(--type-color) 28%,transparent 70%);box-shadow:0 0 18px var(--type-color);animation:projectile-flight .5s cubic-bezier(.22,.7,.2,1) both}
+  .move-projectile{position:absolute;top:var(--origin-y);left:var(--origin-x);width:clamp(16px,2.6cqw,38px);aspect-ratio:1;border:2px solid color-mix(in srgb,var(--type-color) 80%,white);border-radius:50%;background:radial-gradient(circle at 35% 30%,#fff,var(--type-color) 28%,transparent 70%);box-shadow:0 0 18px var(--type-color);animation:projectile-flight .5s cubic-bezier(.22,.7,.2,1) both}
   .move-beam{position:absolute;top:var(--origin-y);left:var(--origin-x);width:52%;height:6px;transform-origin:left center;transform:rotate(var(--beam-angle)) scaleX(0);border-radius:999px;background:linear-gradient(90deg,#fff,var(--type-color),transparent);box-shadow:0 0 14px var(--type-color);opacity:0;animation:beam-fire .46s ease-out both}
   .charge-ring{position:absolute;top:var(--origin-y);left:var(--origin-x);width:70px;aspect-ratio:1;transform:translate(-50%,-50%);border:2px solid var(--type-color);border-radius:50%;opacity:0;animation:charge-ring .5s ease-out both}
   .move-visual[data-archetype='physical'] .move-projectile,.move-visual[data-archetype='physical'] .move-beam{display:none}
@@ -716,8 +719,8 @@
   /* ── Spectator feed ─────────────────────────────────────────────────────── */
   .battle-feed{display:flex;gap:1px;height:clamp(84px,12.5%,140px);overflow:hidden;background:var(--r-line);border-top:1px solid var(--r-line)}
   .feed-turn{flex:1;min-width:0;overflow:hidden;padding:.55rem 1rem;background:rgba(5,11,9,.95)}
-  .feed-label{display:block;margin-bottom:.28rem;color:var(--r-accent);font:900 calc(var(--hud-scale,1) * clamp(.6rem,.76vw,.76rem)) var(--mono);letter-spacing:.12em;text-transform:uppercase}
-  .battle-feed p{overflow:hidden;margin:.12rem 0;color:#c6d6cc;font-size:calc(var(--hud-scale,1) * clamp(.76rem,.94vw,.94rem));line-height:1.45;text-overflow:ellipsis;white-space:nowrap}
+  .feed-label{display:block;margin-bottom:.28rem;color:var(--r-accent);font:900 calc(var(--hud-scale,1) * clamp(.6rem,.76cqw,.76rem)) var(--mono);letter-spacing:.12em;text-transform:uppercase}
+  .battle-feed p{overflow:hidden;margin:.12rem 0;color:#c6d6cc;font-size:calc(var(--hud-scale,1) * clamp(.76rem,.94cqw,.94rem));line-height:1.45;text-overflow:ellipsis;white-space:nowrap}
   .battle-feed p[data-emphasis='critical']{color:#ffd262}
   .battle-feed p[data-emphasis='positive']{color:#8cf2a7}
   .battle-feed p[data-emphasis='negative']{color:#ff9d98}
@@ -729,23 +732,23 @@
   .winner-banner{--champion:var(--r-accent)}
   .winner-banner[data-side='p1']{--champion:var(--r-p1)}
   .winner-banner[data-side='p2']{--champion:var(--r-p2)}
-  .winner-banner small{display:flex;align-items:center;gap:.7rem;color:var(--champion);font:900 calc(var(--hud-scale,1) * clamp(.7rem,.95vw,.98rem)) var(--mono);letter-spacing:.34em}
-  .winner-banner small::before,.winner-banner small::after{content:'';width:clamp(24px,4vw,72px);height:1px;background:linear-gradient(90deg,transparent,var(--champion))}
+  .winner-banner small{display:flex;align-items:center;gap:.7rem;color:var(--champion);font:900 calc(var(--hud-scale,1) * clamp(.7rem,.95cqw,.98rem)) var(--mono);letter-spacing:.34em}
+  .winner-banner small::before,.winner-banner small::after{content:'';width:clamp(24px,4cqw,72px);height:1px;background:linear-gradient(90deg,transparent,var(--champion))}
   .winner-banner small::after{background:linear-gradient(90deg,var(--champion),transparent)}
   .winner-banner strong{
     margin:.1rem 0 .2rem;
     background:linear-gradient(180deg,#fff 26%,color-mix(in srgb,var(--champion) 82%,#fff));
     -webkit-background-clip:text;background-clip:text;color:transparent;
-    font-size:calc(var(--hud-scale,1) * clamp(2.6rem,8.4vw,7.5rem));font-weight:900;line-height:.9;
+    font-size:calc(var(--hud-scale,1) * clamp(2.6rem,8.4cqw,7.5rem));font-weight:900;line-height:.9;
     letter-spacing:-.055em;text-transform:uppercase;
     filter:drop-shadow(0 6px 26px color-mix(in srgb,var(--champion) 55%,transparent))
   }
   .winner-meta{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:.55rem}
-  .winner-side{padding:.22rem .7rem;border-radius:999px;background:var(--champion);color:#04100a;font:900 calc(var(--hud-scale,1) * clamp(.82rem,1.05vw,1.1rem)) var(--mono);letter-spacing:.1em}
-  .winner-meta em{color:#e6f2ea;font:700 calc(var(--hud-scale,1) * clamp(.82rem,1.05vw,1.1rem)) var(--display);font-style:normal;letter-spacing:.02em;text-transform:uppercase}
-  .winner-score{color:var(--r-dim);font:600 calc(var(--hud-scale,1) * clamp(.72rem,.9vw,.95rem)) var(--mono);font-style:normal}
+  .winner-side{padding:.22rem .7rem;border-radius:999px;background:var(--champion);color:#04100a;font:900 calc(var(--hud-scale,1) * clamp(.82rem,1.05cqw,1.1rem)) var(--mono);letter-spacing:.1em}
+  .winner-meta em{color:#e6f2ea;font:700 calc(var(--hud-scale,1) * clamp(.82rem,1.05cqw,1.1rem)) var(--display);font-style:normal;letter-spacing:.02em;text-transform:uppercase}
+  .winner-score{color:var(--r-dim);font:600 calc(var(--hud-scale,1) * clamp(.72rem,.9cqw,.95rem)) var(--mono);font-style:normal}
   .winner-team{display:flex;flex-wrap:wrap;justify-content:center;gap:.45rem;margin-top:.9rem}
-  .winner-team i{display:grid;place-items:center;width:calc(var(--hud-scale,1) * clamp(38px,4.2vw,66px));aspect-ratio:1;overflow:hidden;border:1px solid color-mix(in srgb,var(--champion) 55%,transparent);border-radius:9px;background:rgba(255,255,255,.06)}
+  .winner-team i{display:grid;place-items:center;width:calc(var(--hud-scale,1) * clamp(38px,4.2cqw,66px));aspect-ratio:1;overflow:hidden;border:1px solid color-mix(in srgb,var(--champion) 55%,transparent);border-radius:9px;background:rgba(255,255,255,.06)}
   .winner-team img{width:145%;height:145%;object-fit:contain}
   [data-retro='true'] .winner-team img{image-rendering:pixelated}
   .winner-team i b{color:var(--r-dim);font:800 1rem var(--display)}
