@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import BattleRenderer from '$lib/BattleRenderer.svelte';
-  import { api, broadcastRendererConfig, getMatch, rematch, wsBase } from '$lib/api';
+  import { api, broadcastRendererConfig, getMatch, rematch, resumeMatch, wsBase } from '$lib/api';
   import { loadRendererConfig, saveRendererConfig } from '$lib/presentation/config';
   import { PresentationTimeline } from '$lib/presentation/timeline';
   import { connectLiveSocket } from '$lib/presentation/live-socket';
@@ -270,6 +270,20 @@
       rematching = false;
     }
   }
+
+  let resuming = false;
+  async function handleResume() {
+    error = '';
+    resuming = true;
+    try {
+      const updated = await resumeMatch(data.id);
+      match = updated;
+    } catch (caught) {
+      error = caught instanceof Error ? caught.message : String(caught);
+    } finally {
+      resuming = false;
+    }
+  }
 </script>
 
 <div class="live-head">
@@ -305,7 +319,7 @@
     <div class="tool-group">
       <span class="tool-label">Frame</span>
       <label>Layout<select value={config.layout} on:change={(event) => updateConfig({ layout: event.currentTarget.value as RendererLayout })}><option value="standard-landscape">Landscape</option><option value="standard-vertical">Vertical</option><option value="overlay-landscape">Overlay</option></select></label>
-      <label>Theme<select value={config.theme} on:change={(event) => updateConfig({ theme: event.currentTarget.value as RendererTheme })}><option value="koala-dark">Koala Dark</option><option value="koala-light">Koala Light</option></select></label>
+      <label>Theme<select value={config.theme} on:change={(event) => updateConfig({ theme: event.currentTarget.value as RendererTheme })}><option value="pokemon-route">Pokémon Route</option><option value="pokemon-stadium">Pokémon Stadium</option><option value="koala-dark">Koala Dark</option><option value="koala-light">Koala Light</option></select></label>
       <label>Your side<select value={config.nearSide} on:change={(event) => updateConfig({ nearSide: event.currentTarget.value as Side })}><option value="p1">P1 in front</option><option value="p2">P2 in front</option></select></label>
     </div>
 
@@ -437,7 +451,7 @@
   {#if match.config.players.some((player) => player.team_export)}
     <section class="team-inspector panel"><div><span class="eyebrow">Private control data</span><h2>Fixed team snapshots</h2><p>Available only in the local control archive; spectator and OBS payloads exclude these exports.</p></div>{#each match.config.players as player}{#if player.team_export}<details><summary>{player.side.toUpperCase()} · {player.display_name}</summary><textarea readonly value={player.team_export}></textarea></details>{/if}{/each}</section>
   {/if}
-  <section class="audit-head"><div><span class="eyebrow">Audit trail</span><h2>Decisions and events</h2></div><div class="audit-stats"><span><strong>{snapshot?.eventCount || match.events.length}</strong> events</span><span><strong>{match.decisions.length}</strong> decisions</span><span><strong>{match.turns}</strong> turns</span></div><div class="audit-actions"><a class="button secondary" href={`/replay/${match.id}`}>Replay</a>{#if ['running','waiting'].includes(match.status)}<button class="button secondary" on:click={() => lifecycleAction('pause')}>Pause</button>{:else if match.status === 'paused'}<button class="button secondary" on:click={() => lifecycleAction('resume')}>Resume</button>{/if}{#if ['failed','cancelled','interrupted'].includes(match.status)}<button class="button" disabled={rematching} on:click={handleRematch}>{rematching ? 'Rematching…' : 'Rematch'}</button>{/if}{#if !['completed','failed','cancelled','interrupted'].includes(match.status)}<button class="button danger" on:click={cancel}>Cancel</button>{/if}</div></section>
+  <section class="audit-head"><div><span class="eyebrow">Audit trail</span><h2>Decisions and events</h2></div><div class="audit-stats"><span><strong>{snapshot?.eventCount || match.events.length}</strong> events</span><span><strong>{match.decisions.length}</strong> decisions</span><span><strong>{match.turns}</strong> turns</span></div><div class="audit-actions"><a class="button secondary" href={`/replay/${match.id}`}>Replay</a>{#if ['running','waiting'].includes(match.status)}<button class="button secondary" on:click={() => lifecycleAction('pause')}>Pause</button>{:else if match.status === 'paused'}<button class="button secondary" on:click={() => lifecycleAction('resume')}>Resume</button>{/if}{#if ['failed','cancelled','interrupted'].includes(match.status)}<button class="button" disabled={resuming || rematching} on:click={handleResume}>{resuming ? 'Continuing…' : 'Continue'}</button><button class="button secondary" disabled={resuming || rematching} on:click={handleRematch}>{rematching ? 'Rematching…' : 'Rematch'}</button>{/if}{#if !['completed','failed','cancelled','interrupted'].includes(match.status)}<button class="button danger" on:click={cancel}>Cancel</button>{/if}</div></section>
   <div class="decision-list">
     {#each [...match.decisions].reverse() as record}
       <details class="decision panel">

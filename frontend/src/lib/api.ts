@@ -66,6 +66,8 @@ export const getPresentationMatch = (id: string) =>
  * resume path (no seed replay, no room reconnect), so this is the one-click alternative. */
 export const rematch = (matchId: string) =>
   api<MatchArchive>(`/api/matches/${matchId}/rematch`, { method: 'POST' });
+export const resumeMatch = (matchId: string) =>
+  api<MatchArchive>(`/api/matches/${matchId}/resume`, { method: 'POST' });
 /** Pushes the tuned renderer config to every connected viewer (OBS source, battle-view tab). */
 export const broadcastRendererConfig = (matchId: string, config: RendererConfig) =>
   api<{ status: string }>(`/api/matches/${matchId}/renderer-config`, {

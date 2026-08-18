@@ -293,3 +293,34 @@ def test_rematch_creates_new_match_with_same_config(tmp_path: Path) -> None:
         not_found = client.post("/api/matches/00000000-0000-0000-0000-000000000000/rematch")
         assert not_found.status_code == 404
 
+
+def test_resume_re_enqueues_interrupted_match(tmp_path: Path) -> None:
+    database_url = f"sqlite+aiosqlite:///{tmp_path / 'resume.db'}"
+    settings = Settings(
+        _env_file=None,
+        database_url=database_url,
+    )
+    create_test_schema(settings.database_url)
+    with TestClient(create_app(settings)) as client:
+        created = client.post(
+            "/api/matches",
+            json={
+                "player1": {"display_name": "P1", "agent_type": "random"},
+                "player2": {"display_name": "P2", "agent_type": "random"},
+            },
+        )
+        assert created.status_code == 202
+        match_id = created.json()["id"]
+
+        cancel = client.post(f"/api/matches/{match_id}/cancel")
+        assert cancel.status_code == 202
+
+        resumed = client.post(f"/api/matches/{match_id}/resume")
+        assert resumed.status_code == 202
+        resumed_data = resumed.json()
+        assert resumed_data["id"] == match_id
+        assert resumed_data["status"] in ("queued", "starting", "running")
+
+        not_found = client.post("/api/matches/00000000-0000-0000-0000-000000000000/resume")
+        assert not_found.status_code == 404
+

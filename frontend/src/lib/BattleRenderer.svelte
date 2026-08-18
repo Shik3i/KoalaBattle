@@ -162,6 +162,14 @@
       : `${standing} of ${TEAM_SIZE} Pokémon still standing`;
   }
 
+  function pokemonGender(active: PokemonState | null | undefined): 'male' | 'female' | null {
+    if (!active) return null;
+    const text = `${active.id} ${active.name}`;
+    if (text.includes('♂') || text.endsWith(', M') || text.includes(' M ')) return 'male';
+    if (text.includes('♀') || text.endsWith(', F') || text.includes(' F ')) return 'female';
+    return null;
+  }
+
   function previousHp(side: Side, fraction: number) {
     const impact = presentation?.impacts[side];
     if (!impact) return fraction;
@@ -343,16 +351,72 @@
         </div>
       {/each}
 
-      <!-- Combatants. Far uses the front sprite, near the back sprite, as in a real battle. -->
+      <!-- Authentic Pokémon Gen 5 HUD: HP Plates in the classic corners -->
+      {#each slots as slot (slot.side)}
+        {#if slot.data?.active && renderablePokemon(slot.data.active)}
+          {@const gender = pokemonGender(slot.data.active)}
+          <div
+            class={`hp-plate plate-${slot.place}`}
+            data-side={slot.side}
+            aria-label={`${slot.data.active.name}, ${hpPercent(slot.data.active)} percent health`}
+          >
+            <div class="plate-inner">
+              <div class="plate-head">
+                <div class="name-box">
+                  <b class="species">{slot.data.active.name}</b>
+                  {#if gender}
+                    <span class={`gender-badge ${gender}`}>{gender === 'male' ? '♂' : '♀'}</span>
+                  {/if}
+                </div>
+                <div class="level-box">
+                  <span class="level-tag">Lv.</span>
+                  <b class="level-val">{slot.data.active.level ?? 50}</b>
+                  {#if slot.data.active.status}
+                    <span class="status-badge">{readableStatus(slot.data.active.status)}</span>
+                  {/if}
+                </div>
+              </div>
+
+              <div class="hp-row">
+                <span class="hp-title" data-tone={hpTone(slot.data.active.hp_fraction)}>HP</span>
+                <div class="hp-track" data-tone={hpTone(slot.data.active.hp_fraction)}>
+                  <b style={`width:${previousHp(slot.side, slot.data.active.hp_fraction) * 100}%`}></b>
+                  <i style={`width:${slot.data.active.hp_fraction * 100}%`}></i>
+                </div>
+              </div>
+
+              <div class="plate-foot">
+                <span class="types">
+                  {#each slot.data.active.types as type}
+                    <i class="type-badge" style={`--type-color:${typeColor(type)}`}>{type}</i>
+                  {/each}
+                </span>
+                <span class="hp-val">
+                  {#if slot.place === 'near' && exactHp(slot.data.active)}
+                    <b>{exactHp(slot.data.active)}</b>
+                  {:else}
+                    <b>{hpPercent(slot.data.active)}%</b>
+                  {/if}
+                </span>
+              </div>
+
+              {#if slot.place === 'near'}
+                <div class="exp-bar" aria-hidden="true"><i></i></div>
+              {/if}
+            </div>
+          </div>
+        {/if}
+      {/each}
+
+      <!-- Combatants: Grounded sprites positioned in classic perspective -->
       {#each slots as slot (slot.side)}
         {#if slot.data?.active && renderablePokemon(slot.data.active)}
           <article
             class={`combatant combatant-${slot.place}`}
             data-side={slot.side}
-            aria-label={`${slot.data.active.name}, ${hpPercent(slot.data.active)} percent health`}
           >
             <div class="sprite-slot">
-              <div class="platform" aria-hidden="true"><i></i></div>
+              <div class="platform" aria-hidden="true"><i class="pedestal-surface"></i><i class="pedestal-rim"></i></div>
               <div class="contact-shadow" aria-hidden="true"></div>
               <div
                 style={spriteStyle(presentation.players[slot.side].motion, slot.place === 'near')}
@@ -378,32 +442,6 @@
                   >{(presentation.impacts[slot.side]?.value ?? 0) > 0 ? '+' : ''}{presentation.impacts[slot.side]?.value}%</strong>
                 {/key}
               {/if}
-            </div>
-
-            <!-- Both sides get an identical HP plate: species, level, types, bar, percent. -->
-            <div class="hp-plate">
-              <div class="plate-head">
-                <b class="species">{slot.data.active.name}</b>
-                {#if slot.data.active.level}<span class="level">Lv{slot.data.active.level}</span>{/if}
-                {#if slot.data.active.status}<span class="status">{readableStatus(slot.data.active.status)}</span>{/if}
-              </div>
-              <div class="hp-track" data-tone={hpTone(slot.data.active.hp_fraction)}>
-                <b style={`width:${previousHp(slot.side, slot.data.active.hp_fraction) * 100}%`}></b>
-                <i style={`width:${slot.data.active.hp_fraction * 100}%`}></i>
-              </div>
-              <div class="plate-foot">
-                <span class="types">
-                  {#each slot.data.active.types as type}
-                    <i class="type-badge" style={`--type-color:${typeColor(type)}`}>{type}</i>
-                  {/each}
-                </span>
-                <span class="hp-value">
-                  {hpPercent(slot.data.active)}%
-                  {#if config.commentaryMode === 'full' && exactHp(slot.data.active)}
-                    <small>{exactHp(slot.data.active)}</small>
-                  {/if}
-                </span>
-              </div>
             </div>
           </article>
         {/if}
@@ -548,7 +586,7 @@
   .stage{position:relative;overflow:hidden;background:#060d0b;container-type:size}
   .stage-sky{position:absolute;inset:0;background:radial-gradient(120% 80% at 50% 6%,#1a4a54 0,#0d2733 42%,#060d0b 78%)}
   .stage-sky::after{content:'';position:absolute;inset:0;background:radial-gradient(70% 48% at 50% 34%,rgba(122,255,183,.13),transparent 70%)}
-  /* Stadium bowl with a procedural crowd. No copyrighted artwork is used. */
+  /* Stadium bowl with a procedural crowd. */
   .stage-bowl{position:absolute;inset:4% 0 38%;overflow:hidden}
   .stage-bowl .crowd{position:absolute;inset:12% -8% 18%;border-radius:50% 50% 42% 42%/70% 70% 30% 30%;background:
     radial-gradient(circle at 50% 50%,rgba(255,255,255,.055) 0 1.1px,transparent 1.6px) 0 0/13px 11px,
@@ -561,7 +599,7 @@
   .stage-lights i:nth-child(3){right:29%;transform:rotate(-3deg)}
   .stage-lights i:nth-child(4){right:6%;transform:rotate(-9deg)}
   /* Ground plane: a real perspective floor so Pokémon stand on something. */
-  .stage-floor{position:absolute;inset:58% 0 0;background:linear-gradient(180deg,#154238 0,#0b241f 38%,#050c0a)}
+  .stage-floor{position:absolute;inset:52% 0 0;background:linear-gradient(180deg,#154238 0,#0b241f 38%,#050c0a)}
   .stage-floor::after{content:'';position:absolute;inset:0;background:radial-gradient(120% 90% at 50% 0,transparent 40%,rgba(3,8,6,.72))}
   .floor-grid{position:absolute;inset:0;background-image:
     linear-gradient(rgba(126,255,175,.13) 1px,transparent 1px),
@@ -576,47 +614,96 @@
   .weather-layer[data-weather*='snow'],.weather-layer[data-weather*='hail']{background-image:radial-gradient(circle,#fff 0 2px,transparent 3px);background-size:36px 36px;animation:weather-fall 2s linear infinite}
   .terrain-layer{position:absolute;z-index:2;inset:60% 8% 6%;border-radius:50%;background:radial-gradient(ellipse,rgba(122,255,183,.2),transparent 66%);opacity:.8}
 
+  /* ── Pokemon Route Theme ────────────────────────────────────────────────── */
+  [data-renderer-theme='pokemon-route'] .stage-sky{background:linear-gradient(180deg,#6da3c7 0%,#9cc2db 45%,#c8e0ec 75%,#dff0f6 100%)}
+  [data-renderer-theme='pokemon-route'] .stage-sky::after{background:radial-gradient(75% 35% at 75% 25%,rgba(255,255,255,.65),transparent 60%)}
+  [data-renderer-theme='pokemon-route'] .stage-bowl{inset:14% 0 36%}
+  [data-renderer-theme='pokemon-route'] .stage-bowl .crowd{border-radius:0;background:linear-gradient(180deg,transparent 0%,rgba(45,95,60,.4) 35%,#26593a 70%,#1a4028 100%);opacity:.95;mask-image:linear-gradient(180deg,transparent 0%,black 35%)}
+  [data-renderer-theme='pokemon-route'] .stage-bowl .rail{display:none}
+  [data-renderer-theme='pokemon-route'] .stage-lights{display:none}
+  [data-renderer-theme='pokemon-route'] .stage-floor{inset:46% 0 0;background:linear-gradient(128deg,#5a9c43 0%,#4e8939 20%,#d8c89c 24%,#c7b47f 46%,#bea971 54%,#d2bf91 68%,#4e8939 72%,#5a9c43 100%)}
+  [data-renderer-theme='pokemon-route'] .floor-grid{background-image:radial-gradient(circle,rgba(0,0,0,.05) 1px,transparent 1px);background-size:14px 14px;transform:none;mask-image:none}
+  [data-renderer-theme='pokemon-route'] .floor-glow{display:none}
+
+  /* ── Pokemon Stadium Theme ──────────────────────────────────────────────── */
+  [data-renderer-theme='pokemon-stadium'] .stage-sky{background:linear-gradient(180deg,#1c3342 0%,#112530 50%,#09151c 100%)}
+  [data-renderer-theme='pokemon-stadium'] .stage-floor{inset:48% 0 0;background:linear-gradient(180deg,#1d4036 0%,#112b24 50%,#091713 100%)}
+  [data-renderer-theme='pokemon-stadium'] .stage-bowl .rail{background:linear-gradient(180deg,rgba(90,200,255,.4),rgba(5,15,20,.9));box-shadow:0 0 30px rgba(70,180,255,.25)}
+
   /* ── Compact player HUD ─────────────────────────────────────────────────── */
-  .player-hud{position:absolute;z-index:12;display:grid;gap:.2rem;max-width:34%;padding:.55rem .9rem;border-radius:8px;background:linear-gradient(90deg,rgba(4,9,7,.94),rgba(4,9,7,.6));border-left:4px solid var(--side-color)}
+  .player-hud{position:absolute;z-index:12;display:grid;gap:.15rem;max-width:30%;padding:.45rem .75rem;border-radius:8px;background:rgba(4,9,7,.88);border-left:4px solid var(--side-color);backdrop-filter:blur(6px)}
   .player-hud[data-side='p1']{--side-color:var(--r-p1)}
   .player-hud[data-side='p2']{--side-color:var(--r-p2)}
-  .hud-far{top:2.5%;left:2.5%}
-  .hud-near{right:2.5%;bottom:2.5%;justify-items:end;text-align:right;border-right:3px solid var(--side-color);border-left:0;background:linear-gradient(270deg,rgba(4,9,7,.92),rgba(4,9,7,.55))}
-  .player-name{overflow:hidden;font:800 calc(var(--hud-scale,1) * clamp(1rem,1.5cqw,1.55rem))/1.05 var(--display);letter-spacing:-.02em;text-overflow:ellipsis;text-transform:uppercase;white-space:nowrap}
-  .player-meta{display:flex;align-items:center;gap:.5rem;color:var(--r-dim);font:600 calc(var(--hud-scale,1) * clamp(.6rem,.78cqw,.78rem)) var(--mono);letter-spacing:.08em;text-transform:uppercase}
+  .hud-far{top:2%;right:2%;justify-items:end;text-align:right;border-right:4px solid var(--side-color);border-left:0}
+  .hud-near{bottom:2%;left:2%}
+  .player-name{overflow:hidden;font:800 calc(var(--hud-scale,1) * clamp(.85rem,1.25cqw,1.3rem))/1.1 var(--display);letter-spacing:-.01em;text-overflow:ellipsis;text-transform:uppercase;white-space:nowrap}
+  .player-meta{display:flex;align-items:center;gap:.4rem;color:var(--r-dim);font:600 calc(var(--hud-scale,1) * clamp(.55rem,.72cqw,.72rem)) var(--mono);letter-spacing:.08em;text-transform:uppercase}
   .player-meta b{color:var(--side-color)}
   .player-meta span{overflow:hidden;max-width:11ch;text-overflow:ellipsis;white-space:nowrap}
-  .agent-state{padding:.08rem .3rem;border-radius:3px;background:rgba(255,255,255,.08);font-style:normal}
+  .agent-state{padding:.06rem .28rem;border-radius:3px;background:rgba(255,255,255,.08);font-style:normal}
   .agent-state.thinking{background:rgba(242,193,95,.2);color:#ffd679}
   .agent-state.decided,.agent-state.executing{background:rgba(120,255,169,.16);color:var(--r-accent)}
   .agent-state.error{background:rgba(255,139,135,.18);color:#ff9d98}
-  /* Roster: six slots that stay in place all match, so a glance reads the score. */
-  .team-strip{display:flex;gap:clamp(2px,.28cqw,5px);margin-top:.3rem}
-  .team-strip i{position:relative;display:grid;place-items:center;width:calc(var(--hud-scale,1) * clamp(20px,2.1cqw,34px));aspect-ratio:1;overflow:hidden;border:1px solid color-mix(in srgb,var(--side-color) 45%,transparent);border-radius:5px;background:rgba(255,255,255,.05);transition:border-color .18s ease,background .18s ease,opacity .25s ease,filter .25s ease}
-  .team-strip img{width:150%;height:150%;object-fit:contain;image-rendering:pixelated}
-  .team-strip i b{color:var(--r-dim);font:800 .62rem var(--display)}
+  /* Roster: six slots that stay in place all match. */
+  .team-strip{display:flex;gap:clamp(2px,.24cqw,4px);margin-top:.2rem}
+  .team-strip i{position:relative;display:grid;place-items:center;width:calc(var(--hud-scale,1) * clamp(18px,1.9cqw,30px));aspect-ratio:1;overflow:hidden;border:1px solid color-mix(in srgb,var(--side-color) 45%,transparent);border-radius:5px;background:rgba(255,255,255,.05);transition:border-color .18s ease,background .18s ease,opacity .25s ease,filter .25s ease}
+  .team-strip img{width:145%;height:145%;object-fit:contain;image-rendering:pixelated}
+  .team-strip i b{color:var(--r-dim);font:800 .58rem var(--display)}
   .team-strip i.unrevealed{border-color:rgba(255,255,255,.16);background:rgba(0,0,0,.24)}
   .pokeball{position:relative;display:block;width:58%;aspect-ratio:1;border:1.5px solid rgba(255,255,255,.72);border-radius:50%;background:linear-gradient(180deg,#e85d5d 0 46%,#1c2522 46% 54%,#f1f4ed 54%);box-shadow:0 1px 4px rgba(0,0,0,.5)}
   .pokeball i{position:absolute;top:50%;left:50%;width:30%;aspect-ratio:1;transform:translate(-50%,-50%);border:1px solid rgba(0,0,0,.8);border-radius:50%;background:#f5faf5}
-  /* Fainted members stay in the row: a gap would hide how the match actually stands. */
   .team-strip i.fainted{border-color:rgba(255,255,255,.12);background:rgba(0,0,0,.4);opacity:.38;filter:grayscale(1) brightness(.65)}
   .team-strip i.fainted::after{content:'';position:absolute;width:132%;height:1px;background:rgba(255,255,255,.5);transform:rotate(-45deg)}
   .team-strip i.active{border-color:#fff;background:color-mix(in srgb,var(--side-color) 26%,transparent);box-shadow:0 0 0 1px rgba(255,255,255,.5),0 0 10px color-mix(in srgb,var(--side-color) 55%,transparent)}
   .team-strip u{position:absolute;bottom:0;left:0;height:2px;border-radius:0 2px 0 0;background:var(--r-hp-high);text-decoration:none;transition:width var(--hp-duration,420ms) cubic-bezier(.2,.8,.2,1)}
   .team-strip u[data-tone='mid']{background:var(--r-hp-mid)}
   .team-strip u[data-tone='low']{background:var(--r-hp-low)}
-  .hud-near .team-strip{justify-content:flex-end}
+  .hud-far .team-strip{justify-content:flex-end}
 
-  /* ── Combatants ─────────────────────────────────────────────────────────── */
-  .combatant{position:absolute;z-index:8;display:flex;flex-direction:column;align-items:center;gap:.35rem;width:min(34%,380px)}
-  .combatant-far{top:11%;right:12%;flex-direction:column-reverse;--fighter-color:var(--r-p2)}
-  .combatant-near{bottom:8%;left:10%;--fighter-color:var(--r-p1)}
-  .platform{position:absolute;bottom:0;left:50%;width:84%;aspect-ratio:3.4/1;transform:translate(-50%,36%);pointer-events:none}
-  .platform i{position:absolute;inset:0;border-radius:50%;background:radial-gradient(ellipse at 50% 46%,rgba(140,255,190,.32),rgba(20,74,62,.44) 56%,transparent 74%);box-shadow:0 0 32px rgba(122,255,183,.16)}
-  .combatant-far .platform{width:72%}
-  .sprite-slot{position:relative;display:flex;align-items:flex-end;justify-content:center;width:100%;height:min(30cqh,calc(var(--sprite-native) * var(--max-upscale) * var(--depth,1)))}
-  .combatant-far .sprite-slot{--depth:.78}
-  .contact-shadow{position:absolute;bottom:0;left:50%;z-index:1;width:48%;height:14%;transform:translate(-50%,30%);border-radius:50%;background:radial-gradient(ellipse,rgba(0,0,0,.65),transparent 70%);filter:blur(3px);pointer-events:none}
+  /* ── Authentic Gen 5 Pokemon HP Plates ──────────────────────────────────── */
+  .hp-plate{position:absolute;z-index:20;width:clamp(250px,33cqw,390px);filter:drop-shadow(0 8px 22px rgba(0,0,0,.6));font-family:var(--display);pointer-events:none}
+  .plate-far{top:4.5%;left:2.5%}
+  .plate-near{bottom:7.5%;right:2.5%}
+  .plate-inner{position:relative;padding:clamp(7px,1cqw,13px) clamp(10px,1.3cqw,17px);border:2px solid #233332;border-radius:8px;background:linear-gradient(180deg,#1f2d2c 0%,#131d1e 55%,#0b1214 100%);color:#f1f8f6;box-shadow:inset 0 1px 1px rgba(255,255,255,.15)}
+  .plate-far .plate-inner{border-left:6px solid #4da6ff;border-radius:4px 14px 14px 4px;clip-path:polygon(0 0,100% 0,calc(100% - 14px) 100%,0 100%)}
+  .plate-near .plate-inner{border-right:6px solid #4da6ff;border-radius:14px 4px 4px 14px;clip-path:polygon(14px 0,100% 0,100% 100%,0 100%)}
+  .plate-head{display:flex;align-items:center;justify-content:space-between;gap:.5rem;margin-bottom:.25rem}
+  .name-box{display:flex;align-items:center;gap:.35rem}
+  .name-box .species{font-size:calc(var(--hud-scale,1) * clamp(.92rem,1.35cqw,1.35rem));font-weight:900;letter-spacing:-.01em;text-transform:capitalize;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.8)}
+  .gender-badge{display:inline-flex;align-items:center;justify-content:center;font-size:1em;font-weight:900;margin-left:2px}
+  .gender-badge.male{color:#4da6ff}
+  .gender-badge.female{color:#ff66b2}
+  .level-box{display:flex;align-items:center;gap:.2rem;font-family:var(--mono)}
+  .level-tag{color:#e8c459;font-weight:900;font-size:calc(var(--hud-scale,1) * clamp(.62rem,.82cqw,.82rem))}
+  .level-val{color:#fff;font-weight:800;font-size:calc(var(--hud-scale,1) * clamp(.78rem,1.02cqw,1.02rem))}
+  .status-badge{padding:.08rem .32rem;border-radius:3px;background:#e69d24;color:#1a0f00;font-size:.65rem;font-weight:900;letter-spacing:.05em;text-transform:uppercase;margin-left:.25rem}
+  .hp-row{display:flex;align-items:center;gap:.45rem;margin:.22rem 0}
+  .hp-title{font-family:var(--mono);font-weight:900;font-size:.62rem;color:#ffcc00;background:#382c06;padding:.04rem .25rem;border-radius:3px;border:1px solid #73590c}
+  .hp-track{flex:1;position:relative;height:calc(var(--hud-scale,1) * clamp(9px,1.15cqh,13px));border-radius:999px;background:#080e10;border:1px solid rgba(255,255,255,.14);overflow:hidden;box-shadow:inset 0 2px 4px rgba(0,0,0,.8)}
+  .hp-track b,.hp-track i{position:absolute;inset:0 auto 0 0;height:100%;border-radius:inherit}
+  .hp-track b{background:#fff3a8;opacity:.6;transition:width calc(var(--hp-duration) * 1.4) ease-out}
+  .hp-track i{z-index:1;background:linear-gradient(180deg,#74ea8a 0%,#2ec04b 60%,#18882e 100%);transition:width var(--hp-duration) cubic-bezier(.2,.8,.2,1)}
+  .hp-track[data-tone='mid'] i{background:linear-gradient(180deg,#ffd756 0%,#e6a817 60%,#a87405 100%)}
+  .hp-track[data-tone='low'] i{background:linear-gradient(180deg,#ff7268 0%,#e62c20 60%,#9e140b 100%)}
+  .plate-foot{display:flex;align-items:center;justify-content:space-between;gap:.4rem;margin-top:.15rem}
+  .types{display:flex;gap:.22rem}
+  .type-badge{padding:.1rem .38rem;border-radius:999px;background:var(--type-color);color:#0b140e;font-size:calc(var(--hud-scale,1) * clamp(.5rem,.66cqw,.66rem));font-weight:900;text-transform:uppercase;letter-spacing:.04em;font-family:var(--mono);font-style:normal}
+  .hp-val{font-family:var(--mono);font-weight:800;font-size:calc(var(--hud-scale,1) * clamp(.75rem,.98cqw,.98rem));color:#e2f5ee}
+  .exp-bar{position:absolute;bottom:2px;left:14px;right:14px;height:3px;background:#0d1a22;border-radius:2px;overflow:hidden}
+  .exp-bar i{display:block;height:100%;width:72%;background:#4da6ff}
+
+  /* ── Combatants & Sprites ───────────────────────────────────────────────── */
+  .combatant{position:absolute;z-index:10;display:flex;align-items:center;justify-content:center;pointer-events:none}
+  .combatant-far{top:13%;right:18%;width:min(30%,340px)}
+  .combatant-near{bottom:5%;left:10%;width:min(36%,420px)}
+  .platform{position:absolute;bottom:0;left:50%;width:88%;aspect-ratio:3.4/1;transform:translate(-50%,36%);pointer-events:none}
+  .platform .pedestal-surface{position:absolute;inset:0;border-radius:50%;background:radial-gradient(ellipse at 50% 46%,rgba(140,255,190,.32),rgba(20,74,62,.44) 56%,transparent 74%);box-shadow:0 0 32px rgba(122,255,183,.16)}
+  [data-renderer-theme='pokemon-route'] .combatant-far .platform .pedestal-surface{background:radial-gradient(ellipse at 50% 45%,#9ddc6c 0%,#76ad48 55%,#598c30 80%,#3e6820 100%);border:2.5px solid #bde894;box-shadow:0 12px 28px rgba(30,60,20,.5),inset 0 2px 8px rgba(255,255,255,.4)}
+  [data-renderer-theme='pokemon-route'] .combatant-near .platform .pedestal-surface{background:radial-gradient(ellipse at 50% 50%,rgba(180,160,110,.6) 0%,rgba(140,120,80,.3) 60%,transparent 80%);border:none;box-shadow:0 8px 24px rgba(60,50,30,.35)}
+  .contact-shadow{position:absolute;bottom:0;left:50%;z-index:1;width:50%;height:15%;transform:translate(-50%,30%);border-radius:50%;background:radial-gradient(ellipse,rgba(0,0,0,.7),transparent 70%);filter:blur(3px)}
+  .sprite-slot{position:relative;display:flex;align-items:flex-end;justify-content:center;width:100%;height:min(32cqh,calc(var(--sprite-native) * var(--max-upscale) * var(--depth,1)))}
+  .combatant-far .sprite-slot{--depth:.76}
+  .combatant-near .sprite-slot{--depth:1.05}
   .sprite{position:relative;z-index:2;display:flex;align-items:flex-end;justify-content:center;width:100%;height:100%;transform-origin:center bottom}
   .sprite img{display:block;width:auto;max-width:100%;height:min(100%,calc(var(--natural-h,96) * var(--max-upscale) * var(--depth,1) * 1px));object-fit:contain;image-rendering:pixelated;filter:drop-shadow(0 8px 14px rgba(0,0,0,.45))}
   .sprite-missing{display:grid;place-items:center;gap:.25rem;color:var(--r-dim);font:800 .55rem var(--mono);letter-spacing:.12em}
@@ -624,25 +711,6 @@
   .sprite-missing small{font:inherit}
   .hp-delta{position:absolute;top:4%;left:50%;z-index:4;transform:translateX(-50%);color:#ff9089;font:900 calc(var(--hud-scale,1) * clamp(1rem,2.3cqw,2.1rem)) var(--mono);text-shadow:0 2px 10px #000,0 0 22px rgba(0,0,0,.7);animation:value-pop .6s both}
   .hp-delta.positive{color:#8ef3a9}
-
-  /* ── HP plate: identical hierarchy on both sides ────────────────────────── */
-  .hp-plate{z-index:3;display:grid;gap:.35rem;width:min(100%,420px);padding:.6rem .8rem;border:1px solid rgba(240,250,244,.26);border-radius:11px;background:rgba(5,12,10,.94);box-shadow:0 10px 26px rgba(0,0,0,.45)}
-  .plate-head{display:flex;align-items:baseline;gap:.5rem}
-  .species{flex:1;overflow:hidden;font:800 calc(var(--hud-scale,1) * clamp(1rem,1.6cqw,1.6rem))/1.1 var(--display);letter-spacing:-.02em;text-overflow:ellipsis;white-space:nowrap}
-  .level{color:var(--r-dim);font:700 calc(var(--hud-scale,1) * clamp(.66rem,.92cqw,.9rem)) var(--mono)}
-  .status{padding:.14rem .42rem;border-radius:4px;background:#f0bf3f;color:#20180a;font:900 calc(var(--hud-scale,1) * clamp(.6rem,.82cqw,.8rem)) var(--mono);letter-spacing:.06em}
-  .hp-track{position:relative;height:calc(var(--hud-scale,1) * clamp(11px,1.25cqh,16px));overflow:hidden;border-radius:999px;background:#12201a;box-shadow:inset 0 1px 2px rgba(0,0,0,.7)}
-  .hp-track b,.hp-track i{position:absolute;inset:0 auto 0 0;display:block;height:100%;border-radius:inherit}
-  .hp-track b{background:#fff1a8;opacity:.7;transition:width calc(var(--hp-duration) * 1.5) ease-out}
-  .hp-track i{z-index:1;background:linear-gradient(180deg,color-mix(in srgb,var(--hp-color) 78%,white),var(--hp-color));transition:width var(--hp-duration) cubic-bezier(.2,.8,.2,1),background var(--hp-duration)}
-  .hp-track[data-tone='high']{--hp-color:var(--r-hp-high)}
-  .hp-track[data-tone='mid']{--hp-color:var(--r-hp-mid)}
-  .hp-track[data-tone='low']{--hp-color:var(--r-hp-low)}
-  .plate-foot{display:flex;align-items:center;justify-content:space-between;gap:.5rem}
-  .types{display:flex;gap:.3rem}
-  .type-badge{padding:.16rem .52rem;border-radius:999px;background:var(--type-color);color:#0a140d;font:900 calc(var(--hud-scale,1) * clamp(.58rem,.8cqw,.78rem)) var(--mono);font-style:normal;letter-spacing:.04em;text-transform:uppercase}
-  .hp-value{display:flex;align-items:baseline;gap:.35rem;font:800 calc(var(--hud-scale,1) * clamp(.92rem,1.25cqw,1.25rem)) var(--mono)}
-  .hp-value small{color:var(--r-dim);font-size:.66em;font-weight:500}
 
   /* ── Headline action and intent ─────────────────────────────────────────── */
   .action-banner{position:absolute;z-index:13;top:44%;left:50%;display:grid;justify-items:center;gap:.15rem;padding:.5rem 1.8rem;transform:translate(-50%,-50%);border-radius:8px;background:rgba(4,9,7,.92);border:1px solid var(--r-line);text-align:center}

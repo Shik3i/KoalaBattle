@@ -7,7 +7,7 @@ export type RendererLayout =
   | 'standard-landscape'
   | 'standard-vertical'
   | 'overlay-landscape';
-export type RendererTheme = 'koala-dark' | 'koala-light';
+export type RendererTheme = 'pokemon-route' | 'pokemon-stadium' | 'koala-dark' | 'koala-light';
 export type PresentationPreset = 'live' | 'video' | 'fast' | 'instant';
 export type PlaybackSpeed = 0.5 | 1 | 2 | 4 | 'instant';
 export type CommentaryMode = 'latest' | 'last-3' | 'full' | 'hidden';
@@ -173,7 +173,7 @@ export const defaultRendererConfig = (
 ): RendererConfig => ({
   version: RENDERER_CONFIG_VERSION,
   layout: 'standard-landscape',
-  theme: 'koala-dark',
+  theme: 'pokemon-route',
   preset: 'live',
   playbackSpeed: 1,
   commentaryMode: 'latest',

@@ -165,6 +165,9 @@ class MatchSession:
     async def run(self) -> None:
         config = self.archive.config
         try:
+            current = await self.repository.get_match(self.archive.id)
+            if current is not None and current.status in TERMINAL_MATCH_STATUSES:
+                return
             await self.repository.set_status(self.archive.id, MatchStatus.RUNNING)
             await self.sink.emit(
                 "battle_started",
@@ -204,6 +207,9 @@ class MatchSession:
         except asyncio.CancelledError:
             raise
         except Exception as error:
+            current = await self.repository.get_match(self.archive.id)
+            if current is not None and current.status in TERMINAL_MATCH_STATUSES:
+                return
             LOGGER.exception("Match %s failed", self.archive.id)
             message = f"{type(error).__name__}: {error}"
             try:
@@ -460,9 +466,21 @@ class MatchSupervisor:
 
     async def resume_match(self, match_id: UUID) -> None:
         session = self.sessions.get(match_id)
-        if session is None:
-            raise ValueError("match has no active runtime session")
-        await session.resume()
+        if session is not None:
+            await session.resume()
+            await self.hub.publish_overview({"kind": "match_resumed", "match_id": str(match_id)})
+            return
+        archive = await self.repository.get_match(match_id)
+        if archive is None:
+            raise KeyError(str(match_id))
+        if archive.status not in (
+            MatchStatus.INTERRUPTED,
+            MatchStatus.FAILED,
+            MatchStatus.CANCELLED,
+        ):
+            raise ValueError(f"cannot resume match with status {archive.status.value}")
+        await self.repository.enqueue_match(match_id)
+        self._wake.set()
         await self.hub.publish_overview({"kind": "match_resumed", "match_id": str(match_id)})
 
     async def cancel_match(self, match_id: UUID) -> None:

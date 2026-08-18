@@ -45,9 +45,9 @@ _TRANSITIONS: dict[MatchStatus, frozenset[MatchStatus]] = {
         }
     ),
     MatchStatus.COMPLETED: frozenset(),
-    MatchStatus.CANCELLED: frozenset(),
-    MatchStatus.FAILED: frozenset(),
-    MatchStatus.INTERRUPTED: frozenset(),
+    MatchStatus.CANCELLED: frozenset({MatchStatus.QUEUED}),
+    MatchStatus.FAILED: frozenset({MatchStatus.QUEUED}),
+    MatchStatus.INTERRUPTED: frozenset({MatchStatus.QUEUED}),
 }
 
 

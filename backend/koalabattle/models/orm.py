@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -79,6 +79,7 @@ class BattleEventRow(Base):
     __tablename__ = "battle_events"
     __table_args__ = (
         UniqueConstraint("match_id", "sequence", name="uq_battle_events_match_sequence"),
+        Index("ix_battle_events_match_turn", "match_id", "turn"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -102,6 +103,7 @@ class AgentDecisionRow(Base):
         UniqueConstraint(
             "match_id", "side", "decision_sequence", name="uq_decisions_match_side_sequence"
         ),
+        Index("ix_agent_decisions_match_turn", "match_id", "turn"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

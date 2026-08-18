@@ -143,6 +143,7 @@ class BattleRepository:
             position = int(current or 0) + 1
             row.status = MatchStatus.QUEUED.value
             row.queue_position = position
+            row.error = None
             row.updated_at = datetime.now(UTC)
             await session.commit()
             return position

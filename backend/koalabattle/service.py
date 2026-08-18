@@ -316,8 +316,14 @@ class BattleService:
     async def pause_match(self, match_id: UUID) -> None:
         await self.supervisor.pause_match(match_id)
 
-    async def resume_match(self, match_id: UUID) -> None:
+    async def resume_match(self, match_id: UUID) -> MatchArchive:
+        archive = await self.repository.get_match(match_id)
+        if archive is None:
+            raise KeyError(str(match_id))
         await self.supervisor.resume_match(match_id)
+        updated = await self.repository.get_match(match_id)
+        assert updated is not None
+        return updated
 
     async def cancel_match(self, match_id: UUID) -> None:
         await self.supervisor.cancel_match(match_id)

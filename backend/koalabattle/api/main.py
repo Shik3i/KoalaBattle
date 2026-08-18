@@ -581,6 +581,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
 
+    @app.post(
+        "/api/matches/{match_id}/resume", response_model=MatchArchive, status_code=status.HTTP_202_ACCEPTED
+    )
+    async def resume_match(match_id: UUID, request: Request) -> MatchArchive:
+        """Resumes an interrupted or failed match by re-enqueueing it into the supervisor."""
+        try:
+            return await _service(request).resume_match(match_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="match not found") from error
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+
     @app.get("/api/matches", response_model=tuple[MatchSummary, ...])
     async def list_matches(
         request: Request,
@@ -630,16 +642,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except ValueError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
         return {"status": "paused"}
-
-    @app.post("/api/matches/{match_id}/resume", status_code=status.HTTP_202_ACCEPTED)
-    async def resume_match(match_id: UUID, request: Request) -> dict[str, str]:
-        try:
-            await _service(request).resume_match(match_id)
-        except KeyError as error:
-            raise HTTPException(status_code=404, detail="match not found") from error
-        except ValueError as error:
-            raise HTTPException(status_code=409, detail=str(error)) from error
-        return {"status": "running"}
 
     @app.post("/api/matches/{match_id}/cancel", status_code=status.HTTP_202_ACCEPTED)
     async def cancel_match(match_id: UUID, request: Request) -> dict[str, str]:

@@ -12,7 +12,7 @@ import {
 
 const STORAGE_KEY = 'koalabattle-renderer-config-v1';
 const layouts: RendererLayout[] = ['standard-landscape', 'standard-vertical', 'overlay-landscape'];
-const themes: RendererTheme[] = ['koala-dark', 'koala-light'];
+const themes: RendererTheme[] = ['pokemon-route', 'pokemon-stadium', 'koala-dark', 'koala-light'];
 const presets: PresentationPreset[] = ['live', 'video', 'fast', 'instant'];
 const commentaryModes: CommentaryMode[] = ['latest', 'last-3', 'full', 'hidden'];
 const effectQualities: EffectQuality[] = ['off', 'low', 'standard', 'high'];
