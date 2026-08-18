@@ -199,6 +199,7 @@ class BattleRepository:
                 if match is None:
                     raise KeyError(match_key)
                 match.updated_at = datetime.now(UTC)
+                match.turns = max(match.turns, stored.turn)
                 await session.flush()
                 stored = stored.model_copy(update={"id": row.id})
                 await session.commit()
