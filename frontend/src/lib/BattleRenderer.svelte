@@ -363,7 +363,7 @@
             aria-label={`${slot.data.active.name}, ${slot.place === 'near' ? `${formatExactHp(slot.data.active)} (${hpPercent(slot.data.active)}%)` : `${hpPercent(slot.data.active)}%`} health`}
           >
             {#if slot.place === 'far'}
-              <!-- Far (Opponent) Plate: Lv | Name | Gender | HP Bar | Subtle % -->
+              <!-- Far (Opponent) Plate: Lv | Name | Gender | HP Bar | Subtle % | Types -->
               <div class="gen5-far-box">
                 <div class="gen5-top-row">
                   <div class="gen5-lv-badge" aria-label={`Level ${slot.data.active.level ?? 50}`}>
@@ -397,9 +397,14 @@
                     <i style={`width:${slot.data.active.hp_fraction * 100}%`}></i>
                   </div>
                 </div>
+                <div class="gen5-types-row">
+                  {#each slot.data.active.types as type}
+                    <span class="gen5-type-badge" style={`--type-bg:${typeColor(type)}`}>{type}</span>
+                  {/each}
+                </div>
               </div>
             {:else}
-              <!-- Near (Player) Plate: Gender | Name | Lv | HP Bar | "150 / 150 (100%)" | EXP -->
+              <!-- Near (Player) Plate: Gender | Name | Lv | HP Bar | "150 / 150 (100%)" | Types | EXP -->
               <div class="gen5-near-box">
                 <div class="gen5-top-row">
                   {#if gender}
@@ -435,6 +440,11 @@
                 <div class="gen5-num-row">
                   <span class="gen5-exact-hp">{formatExactHp(slot.data.active)}</span>
                   <span class="gen5-hp-pct" aria-label={`${hpPercent(slot.data.active)} percent`}>({hpPercent(slot.data.active)}%)</span>
+                </div>
+                <div class="gen5-types-row">
+                  {#each slot.data.active.types as type}
+                    <span class="gen5-type-badge" style={`--type-bg:${typeColor(type)}`}>{type}</span>
+                  {/each}
                 </div>
                 <div class="gen5-exp-bar" aria-hidden="true">
                   <i style="width: 78%"></i>
@@ -525,12 +535,15 @@
         </div>
       {/if}
 
-      <!-- Intent panels only exist while their action is pending or executing. -->
+      <!-- Intent panels separated by side: P1 on bottom-left, P2 on top-right -->
       {#each slots as slot (slot.side)}
         {@const player = currentIntent(presentation, slot.side)}
         {#if player}
           <div class={`intent intent-${slot.place}`} data-side={slot.side} aria-live="polite">
-            <small>{player.commentaryPhase === 'thinking' ? 'THINKING' : 'INTENT'}</small>
+            <header class="intent-header">
+              <b class="intent-name">{presentation.players[slot.side].displayName}</b>
+              <small class="intent-phase">{player.commentaryPhase === 'thinking' ? 'THINKING' : player.currentCommentary?.banter ? 'BANTER' : 'COMMENTARY'}</small>
+            </header>
             {#if player.commentaryPhase === 'thinking'}
               {#if player.streamPreview}
                 <p class="thinking live-response">{player.streamPreview}<span aria-hidden="true">▌</span></p>
@@ -538,10 +551,15 @@
                 <p class="thinking">Thinking…</p>
               {/if}
               {#if player.contextMetrics}
-                <small class="context-meter">Context · {player.contextMetrics.estimatedTokens.toLocaleString()} tokens · {player.contextMetrics.renderedCharacters.toLocaleString()} chars</small>
+                <small class="context-meter">Context · {player.contextMetrics.estimatedTokens.toLocaleString()} tokens</small>
               {/if}
             {:else}
-              <p>{player.currentCommentary?.commentary || `${player.currentCommentary?.actionName || player.currentCommentary?.action || 'Action'} selected.`}</p>
+              <p class="intent-text">
+                {#if player.currentCommentary?.banter}
+                  <span class="banter-quote">"{player.currentCommentary.banter}"</span>
+                {/if}
+                {player.currentCommentary?.commentary || `${player.currentCommentary?.actionName || player.currentCommentary?.action || 'Action'} selected.`}
+              </p>
             {/if}
           </div>
         {/if}
@@ -758,22 +776,31 @@
   .hp-delta{position:absolute;top:4%;left:50%;z-index:4;transform:translateX(-50%);color:#ff9089;font:900 calc(var(--hud-scale,1) * clamp(1rem,2.3cqw,2.1rem)) var(--mono);text-shadow:0 2px 10px #000,0 0 22px rgba(0,0,0,.7);animation:value-pop .6s both}
   .hp-delta.positive{color:#8ef3a9}
 
-  /* ── Headline action and intent: Positioned cleanly at bottom center ─────── */
+  .gen5-types-row{display:flex;gap:4px;margin-top:3px}
+  .plate-near .gen5-types-row{justify-content:flex-end}
+  .gen5-type-badge{display:inline-flex;align-items:center;padding:1px 7px;border-radius:999px;background:var(--type-bg,#788a80);color:#05120a;font-family:var(--mono);font-size:calc(var(--hud-scale,1) * clamp(.52rem,.7cqw,.7rem));font-weight:900;text-transform:uppercase;letter-spacing:.04em;box-shadow:0 1px 2px rgba(0,0,0,.5)}
+
+  /* ── Headline action and intent: Separated P1 Left, P2 Right ─────────────── */
   .action-banner{position:absolute;z-index:13;top:44%;left:50%;display:grid;justify-items:center;gap:.15rem;padding:.5rem 1.8rem;transform:translate(-50%,-50%);border-radius:8px;background:rgba(4,9,7,.92);border:1px solid var(--r-line);text-align:center}
   .action-banner small{color:var(--r-accent);font:900 calc(var(--hud-scale,1) * clamp(.6rem,.78cqw,.78rem)) var(--mono);letter-spacing:.18em}
   .action-banner[data-phase='resolved'] small{color:var(--r-dim)}
   .action-banner b{font:800 calc(var(--hud-scale,1) * clamp(1.1rem,1.9cqw,1.9rem))/1.1 var(--display);letter-spacing:-.02em;text-transform:uppercase}
   .action-banner em{color:var(--r-dim);font:600 calc(var(--hud-scale,1) * clamp(.58rem,.74cqw,.74rem)) var(--mono);font-style:normal;letter-spacing:.1em}
   .action-banner[data-phase='resolved']{opacity:.62}
-  .intent{position:absolute;z-index:30;bottom:3%;left:50%;transform:translateX(-50%);display:grid;gap:.15rem;width:min(60%,540px);padding:.4rem .8rem;border-radius:7px;background:rgba(4,9,7,.9);border:1.5px solid var(--side-color);box-shadow:0 4px 18px rgba(0,0,0,.6)}
+  .intent{position:absolute;z-index:22;display:grid;gap:.2rem;width:clamp(250px,30cqw,360px);padding:.45rem .75rem;border-radius:8px;background:rgba(8,16,14,.92);border:1.5px solid var(--side-color);box-shadow:0 8px 24px rgba(0,0,0,.75);backdrop-filter:blur(8px)}
   .intent[data-side='p1']{--side-color:var(--r-p1)}
   .intent[data-side='p2']{--side-color:var(--r-p2)}
-  .intent small{color:var(--side-color);font:900 calc(var(--hud-scale,1) * clamp(.58rem,.74cqw,.74rem)) var(--mono);letter-spacing:.16em}
-  .intent p{display:-webkit-box;overflow:hidden;margin:0;color:#dfeae3;font-size:calc(var(--hud-scale,1) * clamp(.8rem,1.02cqw,1.02rem));line-height:1.45;line-clamp:2;-webkit-box-orient:vertical;-webkit-line-clamp:2}
+  .intent-far{top:13%;right:2.5%}
+  .intent-near{bottom:11%;left:2.5%}
+  .intent-header{display:flex;align-items:center;justify-content:space-between;gap:.4rem;padding-bottom:.15rem;border-bottom:1px solid rgba(255,255,255,.08)}
+  .intent-name{font-family:var(--display);font-size:calc(var(--hud-scale,1) * clamp(.68rem,.86cqw,.86rem));font-weight:800;color:#fff;letter-spacing:.02em;text-transform:uppercase}
+  .intent-phase{color:var(--side-color);font:900 calc(var(--hud-scale,1) * clamp(.55rem,.7cqw,.7rem)) var(--mono);letter-spacing:.14em}
+  .intent p{display:-webkit-box;overflow:hidden;margin:.15rem 0 0;color:#dfeae3;font-size:calc(var(--hud-scale,1) * clamp(.76rem,.96cqw,.96rem));line-height:1.42;line-clamp:3;-webkit-box-orient:vertical;-webkit-line-clamp:3}
+  .intent .banter-quote{display:block;color:#ffd679;font-style:italic;font-weight:700;margin-bottom:.1rem}
   .intent .thinking{color:var(--r-dim);font-style:italic}
   .intent .live-response{color:#f3fff6;font-style:normal}
   .intent .live-response span{color:var(--side-color);animation:cursor-blink 1s steps(2,end) infinite}
-  .intent .context-meter{color:var(--r-dim);font:600 calc(var(--hud-scale,1) * clamp(.48rem,.62cqw,.62rem)) var(--mono);letter-spacing:.04em;text-transform:none}
+  .intent .context-meter{color:var(--r-dim);font:600 calc(var(--hud-scale,1) * clamp(.46rem,.58cqw,.58rem)) var(--mono);letter-spacing:.04em;text-transform:none}
   @keyframes cursor-blink{50%{opacity:0}}
 
   /* ── Effects ────────────────────────────────────────────────────────────── */

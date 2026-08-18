@@ -94,6 +94,7 @@ export interface CommentaryPresentationState {
   action: string;
   actionName: string;
   commentary: string;
+  banter?: string | null;
   latencyMs: number | null;
 }
 

@@ -206,6 +206,7 @@ export function reducePresentation(
         action: stringValue(payload.action),
         actionName: stringValue(payload.action_name),
         commentary: stringValue(payload.public_text) || stringValue(payload.commentary),
+        banter: stringValue(payload.banter) || null,
         latencyMs: numberValue(payload.latency_ms)
       };
       players = {
