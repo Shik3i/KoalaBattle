@@ -168,6 +168,23 @@ class VoicePresetRow(Base):
     language: Mapped[str | None] = mapped_column(String(20))
     speed: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
     instructions: Mapped[str | None] = mapped_column(String(500))
+    tags_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    reference_audio_path: Mapped[str | None] = mapped_column(String(260))
+    reference_text: Mapped[str | None] = mapped_column(String(1000))
+    x_vector_only_mode: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    schema_version: Mapped[str] = mapped_column(String(20), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class VoicePoolRow(Base):
+    __tablename__ = "voice_pools"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    display_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    description: Mapped[str] = mapped_column(String(400), nullable=False, default="")
+    voice_ids_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     schema_version: Mapped[str] = mapped_column(String(20), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

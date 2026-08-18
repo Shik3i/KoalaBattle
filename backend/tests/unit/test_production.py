@@ -18,7 +18,9 @@ from koalabattle.production.models import (
     SpeechProviderKind,
     SpeechRequest,
     Track,
+    VoicePool,
     VoicePreset,
+    VoiceSelectionMode,
 )
 from koalabattle.production.narrator import build_narrator_plan
 from koalabattle.production.profiles import PRODUCTION_PROFILES
@@ -95,6 +97,56 @@ async def test_timeline_is_deterministic_and_only_uses_public_commentary(
         "captions",
         "director",
     }
+    await database.close()
+
+
+@pytest.mark.asyncio
+async def test_voice_pool_selection_is_distinct_and_deterministic(
+    tmp_path: Path, match_config: MatchConfig
+) -> None:
+    database, archive = await _archive(tmp_path, match_config)
+    repository = BattleRepository(database)
+    settings = Settings(
+        database_url=f"sqlite+aiosqlite:///{tmp_path / 'production.db'}",
+        speech_audio_root=tmp_path / "audio",
+        speech_qwen_reference_root=tmp_path / "audio" / "voices",
+    )
+    service = ProductionService(database, repository, settings)
+    await service.start()
+    presets = tuple(
+        VoicePreset(
+            id=f"pool-{index}",
+            display_name=f"Pool {index}",
+            provider=SpeechProviderKind.FAKE,
+            voice=f"test-{index}",
+            model="fake-v1",
+            tags=("local", "broadcast"),
+        )
+        for index in range(3)
+    )
+    for preset in presets:
+        await service.repository.upsert_voice(preset)
+    await service.save_voice_pool(
+        VoicePool(
+            id="broadcast-pool",
+            display_name="Broadcast pool",
+            voice_ids=tuple(preset.id for preset in presets),
+        )
+    )
+    request = CreateProduction(
+        profile_id="live-stream",
+        voice_pool_id="broadcast-pool",
+        voice_selection_mode=VoiceSelectionMode.BALANCED_RANDOM,
+        voice_selection_seed=42,
+        narrator=NarratorSettings(enabled=True),
+    )
+    first = await service.create(archive.id, request)
+    second = await service.create(archive.id, request)
+    assert first.voice_assignments == second.voice_assignments
+    assert len(set(first.voice_assignments.values())) == 3
+    assert first.voice_pool_id == "broadcast-pool"
+    assert first.voice_selection_mode is VoiceSelectionMode.BALANCED_RANDOM
+    assert first.voice_selection_seed == 42
     await database.close()
 
 

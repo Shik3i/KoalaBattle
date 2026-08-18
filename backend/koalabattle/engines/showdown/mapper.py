@@ -102,7 +102,9 @@ def _move_name(move: Move) -> str:
 
 
 def _move_state(move: Move) -> MoveState:
-    return MoveState(id=move.id, name=_move_name(move), **_move_metadata(move))
+    return MoveState.model_validate(
+        {"id": move.id, "name": _move_name(move), **_move_metadata(move)}
+    )
 
 
 def _pokemon_state(identifier: str, pokemon: Pokemon, *, revealed: bool = True) -> PokemonState:
@@ -147,17 +149,27 @@ def legal_actions(battle: AbstractBattle) -> tuple[BattleAction, ...]:
         raw = _move_metadata(move)
         metadata = {"move_type": raw.pop("type"), **raw}
         actions.append(
-            BattleAction(id=f"move:{slot}", type=ActionType.MOVE, name=name, slot=slot, **metadata)
+            BattleAction.model_validate(
+                {
+                    "id": f"move:{slot}",
+                    "type": ActionType.MOVE,
+                    "name": name,
+                    "slot": slot,
+                    **metadata,
+                }
+            )
         )
         if bool(battle.can_tera):
             actions.append(
-                BattleAction(
-                    id=f"move:{slot}:tera",
-                    type=ActionType.MOVE,
-                    name=f"{name} + Terastallize",
-                    slot=slot,
-                    terastallize=True,
-                    **metadata,
+                BattleAction.model_validate(
+                    {
+                        "id": f"move:{slot}:tera",
+                        "type": ActionType.MOVE,
+                        "name": f"{name} + Terastallize",
+                        "slot": slot,
+                        "terastallize": True,
+                        **metadata,
+                    }
                 )
             )
     for slot, pokemon in enumerate(battle.available_switches, start=1):

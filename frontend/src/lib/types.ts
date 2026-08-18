@@ -659,6 +659,9 @@ export interface ProductionTimeline {
   director_state: DirectorState;
   cues: ProductionCue[];
   voice_assignments: Record<string, string>;
+  voice_pool_id: string | null;
+  voice_selection_mode: 'explicit' | 'random' | 'balanced-random';
+  voice_selection_seed: number | null;
   narrator: NarratorSettings;
   style: ProductionStyle;
   title: string | null;
@@ -674,12 +677,24 @@ export interface ProductionTimeline {
 export interface VoicePreset {
   id: string;
   display_name: string;
-  provider: 'system' | 'openai' | 'openai-compatible' | 'fake';
+  provider: 'system' | 'qwen-local' | 'openai' | 'openai-compatible' | 'fake';
   voice: string;
   model: string | null;
   language: string | null;
   speed: number;
   instructions: string | null;
+  tags: string[];
+  reference_audio_path: string | null;
+  reference_text: string | null;
+  x_vector_only_mode: boolean;
+  enabled: boolean;
+}
+
+export interface VoicePool {
+  id: string;
+  display_name: string;
+  description: string;
+  voice_ids: string[];
   enabled: boolean;
 }
 

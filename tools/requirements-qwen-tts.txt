@@ -1,0 +1,6 @@
+# Apple Silicon only: the application itself does not depend on MLX.
+mlx-audio
+fastapi
+uvicorn
+soundfile
+numpy

@@ -52,7 +52,9 @@ from koalabattle.production import (
     SaveStylePreset,
     StylePreset,
     UpdateProduction,
+    VoicePool,
     VoicePreset,
+    VoiceReferenceUpload,
     narrator_profiles,
 )
 from koalabattle.production.models import VoicePreviewRequest
@@ -336,6 +338,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ]
         }
 
+    @app.get("/api/production/tts-capabilities")
+    async def tts_capabilities(request: Request) -> dict[str, object]:
+        return {
+            "providers": [
+                provider.model_dump(mode="json")
+                for provider in _production(request).provider_status()
+            ],
+            "qwen": {
+                "base_url": resolved.speech_qwen_base_url,
+                "endpoint": resolved.speech_qwen_endpoint,
+                "model": resolved.speech_qwen_model,
+                "timeout_seconds": resolved.speech_qwen_timeout_seconds,
+                "max_retries": resolved.speech_qwen_max_retries,
+                "max_concurrency": resolved.speech_qwen_max_concurrency,
+            },
+        }
+
     @app.get("/api/production/voices", response_model=tuple[VoicePreset, ...])
     async def production_voices(request: Request) -> tuple[VoicePreset, ...]:
         return await _production(request).repository.list_voices()
@@ -344,6 +363,26 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def save_production_voice(payload: VoicePreset, request: Request) -> VoicePreset:
         await _production(request).repository.upsert_voice(payload)
         return payload
+
+    @app.post("/api/production/voices/reference", response_model=VoicePreset)
+    async def upload_production_voice_reference(
+        payload: VoiceReferenceUpload, request: Request
+    ) -> VoicePreset:
+        try:
+            return await _production(request).save_voice_reference(payload)
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.get("/api/production/voice-pools", response_model=tuple[VoicePool, ...])
+    async def production_voice_pools(request: Request) -> tuple[VoicePool, ...]:
+        return await _production(request).voice_pools()
+
+    @app.post("/api/production/voice-pools", response_model=VoicePool)
+    async def save_production_voice_pool(payload: VoicePool, request: Request) -> VoicePool:
+        try:
+            return await _production(request).save_voice_pool(payload)
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
 
     @app.post("/api/production/voices/preview")
     async def preview_production_voice(

@@ -1,6 +1,6 @@
 import { env } from '$env/dynamic/public';
 import { errorMessage } from './errors';
-import type { BrandAsset, BrandAssetKind, BrandAssetLibrary, ExportBackend, ExportPreflight, FormatCatalog, FormatDescriptor, FormatGroup, MatchArchive, NarratorProfile, NarratorSettings, ProductionProfile, ProductionStyle, ProductionTimeline, RenderEngine, RendererCapabilities, StylePreset, VideoExportJob, VideoExportPreset, VoicePreset } from './types';
+import type { BrandAsset, BrandAssetKind, BrandAssetLibrary, ExportBackend, ExportPreflight, FormatCatalog, FormatDescriptor, FormatGroup, MatchArchive, NarratorProfile, NarratorSettings, ProductionProfile, ProductionStyle, ProductionTimeline, RenderEngine, RendererCapabilities, StylePreset, VideoExportJob, VideoExportPreset, VoicePool, VoicePreset } from './types';
 
 export const apiBase = () => {
   const fallback = env.PUBLIC_API_URL || 'http://localhost:8001';
@@ -68,7 +68,7 @@ export const createProduction = (
   matchId: string,
   profileId: string,
   voiceAssignments: Record<string, string>,
-  options: { styleId?: string; title?: string | null; narrator?: NarratorSettings | null } = {}
+  options: { styleId?: string; title?: string | null; narrator?: NarratorSettings | null; voicePoolId?: string | null; voiceSelectionMode?: 'explicit' | 'random' | 'balanced-random'; voiceSelectionSeed?: number | null } = {}
 ) =>
   api<ProductionTimeline>(`/api/matches/${matchId}/productions`, {
     method: 'POST',
@@ -76,6 +76,9 @@ export const createProduction = (
       profile_id: profileId,
       voice_assignments: voiceAssignments,
       narrator: options.narrator || null,
+      voice_pool_id: options.voicePoolId || null,
+      voice_selection_mode: options.voiceSelectionMode || 'explicit',
+      voice_selection_seed: options.voiceSelectionSeed ?? null,
       style_id: options.styleId || null,
       title: options.title || null
     })
@@ -115,6 +118,16 @@ export const previewVoice = (presetId: string) =>
     method: 'POST',
     body: JSON.stringify({ preset_id: presetId, text: 'KoalaBattle voice preview.', allow_paid: false })
   });
+export const uploadVoiceReference = (preset: VoicePreset, audioBase64: string) =>
+  api<VoicePreset>('/api/production/voices/reference', {
+    method: 'POST',
+    body: JSON.stringify({ preset, audio_base64: audioBase64 })
+  });
+export const saveVoicePool = (pool: VoicePool) =>
+  api<VoicePool>('/api/production/voice-pools', {
+    method: 'POST',
+    body: JSON.stringify(pool)
+  });
 export const prepareProduction = (id: string, allowPaid = false) =>
   api<ProductionTimeline>(`/api/productions/${id}/prepare`, {
     method: 'POST',
@@ -126,12 +139,13 @@ export const directProduction = (id: string, command: string, clientId?: string)
     body: JSON.stringify({ command, client_id: clientId || null })
   });
 export const getProductionSetup = async () => {
-  const [profiles, voices, narratorProfiles] = await Promise.all([
+  const [profiles, voices, narratorProfiles, voicePools] = await Promise.all([
     api<{ profiles: ProductionProfile[] }>('/api/production/profiles'),
     api<VoicePreset[]>('/api/production/voices'),
-    api<{ profiles: NarratorProfile[] }>('/api/production/narrator-profiles')
+    api<{ profiles: NarratorProfile[] }>('/api/production/narrator-profiles'),
+    api<VoicePool[]>('/api/production/voice-pools')
   ]);
-  return { profiles: profiles.profiles, voices, narratorProfiles: narratorProfiles.profiles };
+  return { profiles: profiles.profiles, voices, narratorProfiles: narratorProfiles.profiles, voicePools };
 };
 export const getVideoSetup = async (matchId: string) => {
   const [presets, capabilities, jobs] = await Promise.all([

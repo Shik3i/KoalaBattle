@@ -23,6 +23,7 @@ from koalabattle.production import (
     NarratorMode,
     NarratorSettings,
     ProductionService,
+    VoiceSelectionMode,
 )
 from koalabattle.production.models import ProductionStatus, ProductionTimeline
 from koalabattle.service import BattleService
@@ -391,6 +392,9 @@ class OrchestratorService:
                         mode=NarratorMode(run.settings.narrator_mode),
                         voice_preset_id=run.settings.narrator_voice_preset_id,
                     ),
+                    voice_pool_id=run.settings.voice_pool_id,
+                    voice_selection_mode=VoiceSelectionMode(run.settings.voice_selection_mode),
+                    voice_selection_seed=run.settings.voice_selection_seed,
                 ),
             )
             production = await self._wait_for_production(
@@ -539,7 +543,7 @@ class OrchestratorService:
             MatchConfig(
                 name=f"{descriptor.name} · orchestrated Bo1",
                 format=descriptor.id,
-                players=tuple(players),
+                players=(players[0], players[1]),
                 banter_enabled=settings.banter_enabled,
                 team_policy=(
                     TeamPolicy.FIXED if not descriptor.random_team else TeamPolicy.SHOWDOWN_RANDOM

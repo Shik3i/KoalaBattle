@@ -11,7 +11,7 @@
   } from '../api';
   import { apiBase } from '../api';
   import { createClientId } from '../client-id';
-  import type { NarratorMode, NarratorProfile, NarratorSettings, ProductionProfile, ProductionTimeline, VoicePreset } from '../types';
+  import type { NarratorMode, NarratorProfile, NarratorSettings, ProductionProfile, ProductionTimeline, VoicePool, VoicePreset } from '../types';
   import CaptionOverlay from './CaptionOverlay.svelte';
   import ExportDashboard from './ExportDashboard.svelte';
   import { ProductionAudioEngine, type MixerSettings, type ProductionPlaybackState } from './audio-engine';
@@ -24,6 +24,7 @@
   let productions: ProductionTimeline[] = [];
   let voices: VoicePreset[] = [];
   let narratorProfiles: NarratorProfile[] = [];
+  let voicePools: VoicePool[] = [];
   let selectedProfile = 'live-stream';
   let selectedP1 = 'edge-neural-p1';
   let selectedP2 = 'edge-neural-p2';
@@ -31,6 +32,9 @@
   let selectedNarratorProfile = 'stadium-broadcast-v1';
   let narratorEnabled = false;
   let narratorMode: NarratorMode = 'highlights';
+  let voiceSelectionMode: 'explicit' | 'random' | 'balanced-random' = 'explicit';
+  let selectedVoicePool = '';
+  let voiceSelectionSeed: number | null = null;
   let production: ProductionTimeline | null = null;
   let engine: ProductionAudioEngine | null = null;
   let playback: ProductionPlaybackState | null = null;
@@ -55,6 +59,7 @@
       profiles = setup.profiles;
       voices = setup.voices.filter((voice) => voice.enabled);
       narratorProfiles = setup.narratorProfiles;
+      voicePools = setup.voicePools;
       productions = existing;
       if (existing[0]) select(existing[0]);
     } catch (caught) {
@@ -71,6 +76,9 @@
     selectedNarratorProfile = value.narrator?.profile_id || selectedNarratorProfile;
     narratorEnabled = value.narrator?.enabled || false;
     narratorMode = value.narrator?.mode || 'highlights';
+    voiceSelectionMode = value.voice_selection_mode || 'explicit';
+    selectedVoicePool = value.voice_pool_id || '';
+    voiceSelectionSeed = value.voice_selection_seed;
     engine?.load(value);
     if (compact) engine?.play();
   }
@@ -83,7 +91,12 @@
         p1: selectedP1,
         p2: selectedP2,
         ...(narratorEnabled ? { narrator: selectedNarrator } : {})
-      }, { narrator: narratorSettings() });
+      }, {
+        narrator: narratorSettings(),
+        voicePoolId: selectedVoicePool || null,
+        voiceSelectionMode,
+        voiceSelectionSeed
+      });
       productions = [value, ...productions];
       select(value);
     } catch (caught) {
@@ -221,6 +234,9 @@
       <button on:click={() => preview(selectedP1)}><i class="ph ph-waveform" aria-hidden="true"></i>Preview P1</button>
       <label>Player 2 voice<select bind:value={selectedP2}>{#each voices as voice}<option value={voice.id}>{voice.display_name}</option>{/each}</select></label>
       <button on:click={() => preview(selectedP2)}><i class="ph ph-waveform" aria-hidden="true"></i>Preview P2</button>
+      <label>Voice pool<select bind:value={selectedVoicePool}><option value="">Explicit voices</option>{#each voicePools.filter((pool) => pool.enabled) as pool}<option value={pool.id}>{pool.display_name}</option>{/each}</select></label>
+      <label>Pool selection<select bind:value={voiceSelectionMode} disabled={!selectedVoicePool}><option value="explicit">Explicit</option><option value="random">Random</option><option value="balanced-random">Balanced random</option></select></label>
+      <label>Seed<input type="number" bind:value={voiceSelectionSeed} placeholder="deterministic" disabled={!selectedVoicePool} /></label>
       <label class="narrator-toggle"><input type="checkbox" bind:checked={narratorEnabled} /> Narrator</label>
       <label>Narrator profile<select bind:value={selectedNarratorProfile} disabled={!narratorEnabled}>{#each narratorProfiles as profile}<option value={profile.id}>{profile.display_name}</option>{/each}</select></label>
       <label>Narrator mode<select bind:value={narratorMode} disabled={!narratorEnabled}><option value="highlights">Highlights</option><option value="broadcast">Broadcast</option><option value="full">Full</option></select></label>

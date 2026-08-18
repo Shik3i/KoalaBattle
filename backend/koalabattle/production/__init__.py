@@ -10,7 +10,10 @@ from .models import (
     ProductionTimeline,
     SpeechProviderStatus,
     UpdateProduction,
+    VoicePool,
     VoicePreset,
+    VoiceReferenceUpload,
+    VoiceSelectionMode,
 )
 from .narrator import narrator_profiles
 from .service import ProductionService
@@ -34,7 +37,10 @@ __all__ = [
     "SpeechProviderStatus",
     "StylePreset",
     "UpdateProduction",
+    "VoicePool",
     "VoicePreset",
+    "VoiceReferenceUpload",
+    "VoiceSelectionMode",
     "builtin_presets",
     "suggest_style",
     "narrator_profiles",

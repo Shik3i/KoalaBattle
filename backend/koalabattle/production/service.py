@@ -1,9 +1,16 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 import hashlib
+import io
 import json
+import os
+import random
 import re
+import tempfile
+import wave
 from collections import defaultdict
 from datetime import UTC, datetime
 from pathlib import Path
@@ -31,7 +38,10 @@ from .models import (
     SpeechRequest,
     Track,
     UpdateProduction,
+    VoicePool,
     VoicePreset,
+    VoiceReferenceUpload,
+    VoiceSelectionMode,
 )
 from .narrator import build_narrator_plan
 from .profiles import PRODUCTION_PROFILES
@@ -39,6 +49,7 @@ from .repository import ProductionRepository
 from .speech import (
     FakeSpeechProvider,
     OpenAISpeechProvider,
+    QwenLocalSpeechProvider,
     SpeechCache,
     SpeechGenerationQueue,
     SpeechProvider,
@@ -109,6 +120,16 @@ class ProductionService:
                 edge_enabled=settings.speech_edge_enabled,
                 edge_voices=edge_voices,
             ),
+            SpeechProviderKind.QWEN_LOCAL: QwenLocalSpeechProvider(
+                base_url=settings.speech_qwen_base_url,
+                endpoint=settings.speech_qwen_endpoint,
+                model=settings.speech_qwen_model,
+                api_key=settings.speech_qwen_api_key,
+                reference_root=settings.speech_qwen_reference_root,
+                timeout_seconds=settings.speech_qwen_timeout_seconds,
+                max_retries=settings.speech_qwen_max_retries,
+                max_concurrency=settings.speech_qwen_max_concurrency,
+            ),
             SpeechProviderKind.FAKE: FakeSpeechProvider(),
             SpeechProviderKind.OPENAI: OpenAISpeechProvider(api_key=settings.speech_openai_api_key),
             SpeechProviderKind.OPENAI_COMPATIBLE: OpenAISpeechProvider(
@@ -169,6 +190,37 @@ class ProductionService:
                 model="system",
             ),
             VoicePreset(
+                id="qwen-local-clone",
+                display_name="Qwen3-TTS · Local reference clone",
+                provider=SpeechProviderKind.QWEN_LOCAL,
+                voice="qwen-clone",
+                model=self.settings.speech_qwen_model,
+                language="en-US",
+                speed=1.0,
+                tags=("local", "clone"),
+                enabled=False,
+            ),
+            VoicePreset(
+                id="qwen-local-chelsie",
+                display_name="Qwen3-TTS · Chelsie (local)",
+                provider=SpeechProviderKind.QWEN_LOCAL,
+                voice="Chelsie",
+                model=self.settings.speech_qwen_model,
+                language="en-US",
+                speed=1.0,
+                tags=("local", "bright", "clear"),
+            ),
+            VoicePreset(
+                id="qwen-local-ethan",
+                display_name="Qwen3-TTS · Ethan (local)",
+                provider=SpeechProviderKind.QWEN_LOCAL,
+                voice="Ethan",
+                model=self.settings.speech_qwen_model,
+                language="en-US",
+                speed=1.0,
+                tags=("local", "warm", "dynamic"),
+            ),
+            VoicePreset(
                 id="system-p2",
                 display_name="Offline System B (basic)",
                 provider=SpeechProviderKind.SYSTEM,
@@ -204,6 +256,58 @@ class ProductionService:
     def provider_status(self) -> tuple[SpeechProviderStatus, ...]:
         return tuple(provider.status() for provider in self.providers.values())
 
+    async def voice_pools(self) -> tuple[VoicePool, ...]:
+        return await self.repository.list_voice_pools()
+
+    async def save_voice_pool(self, pool: VoicePool) -> VoicePool:
+        voices = {voice.id for voice in await self.repository.list_voices()}
+        missing = sorted(set(pool.voice_ids) - voices)
+        if missing:
+            raise ValueError(f"voice pool references unknown voices: {', '.join(missing)}")
+        await self.repository.upsert_voice_pool(pool)
+        return pool
+
+    async def save_voice_reference(self, upload: VoiceReferenceUpload) -> VoicePreset:
+        if upload.preset.provider is not SpeechProviderKind.QWEN_LOCAL:
+            raise ValueError("reference audio is only supported for qwen-local voice presets")
+        try:
+            content = base64.b64decode(upload.audio_base64, validate=True)
+        except (binascii.Error, ValueError) as error:
+            raise ValueError("reference audio must be valid base64") from error
+        if len(content) > 16 * 1024 * 1024:
+            raise ValueError("reference audio exceeds 16 MiB")
+        try:
+            with wave.open(io.BytesIO(content)) as audio:
+                if audio.getnchannels() not in (1, 2) or audio.getframerate() <= 0:
+                    raise ValueError("reference audio must be a valid mono or stereo WAV")
+                duration_ms = round(audio.getnframes() * 1000 / audio.getframerate())
+        except (EOFError, wave.Error) as error:
+            raise ValueError("reference audio must be a valid WAV file") from error
+        if duration_ms < 1_000 or duration_ms > 30_000:
+            raise ValueError("reference audio duration must be between 1 and 30 seconds")
+        root = self.settings.speech_qwen_reference_root.resolve()
+        root.mkdir(parents=True, exist_ok=True)
+        relative_path = f"{upload.preset.id}.wav"
+        destination = (root / relative_path).resolve()
+        if root not in destination.parents:
+            raise ValueError("reference audio path escapes the configured voice root")
+        descriptor, temporary = tempfile.mkstemp(prefix=f".{upload.preset.id}-", dir=root)
+        try:
+            with os.fdopen(descriptor, "wb") as handle:
+                handle.write(content)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, destination)
+        except BaseException:
+            try:
+                os.unlink(temporary)
+            except FileNotFoundError:
+                pass
+            raise
+        saved = upload.preset.model_copy(update={"reference_audio_path": relative_path})
+        await self.repository.upsert_voice(saved)
+        return saved
+
     async def create(self, match_id: UUID, request: CreateProduction) -> ProductionTimeline:
         archive = await self.battles.get_match(match_id)
         if archive is None:
@@ -213,9 +317,9 @@ class ProductionService:
         except KeyError as error:
             raise ValueError(f"Unknown production profile: {request.profile_id}") from error
         narrator = request.narrator or NarratorSettings()
-        voices = {**self.default_voice_assignments, **request.voice_assignments}
+        voices = await self._resolve_voice_assignments(match_id, request, narrator)
         if narrator.enabled:
-            voices.update(self.default_narrator_assignment)
+            voices = {**self.default_narrator_assignment, **voices}
             if "narrator" in request.voice_assignments:
                 voices["narrator"] = request.voice_assignments["narrator"]
         available = {preset.id for preset in await self.repository.list_voices() if preset.enabled}
@@ -232,6 +336,9 @@ class ProductionService:
             update={
                 "style": apply_default_branding(style, archive),
                 "title": request.title,
+                "voice_pool_id": request.voice_pool_id,
+                "voice_selection_mode": request.voice_selection_mode,
+                "voice_selection_seed": request.voice_selection_seed,
             }
         )
         if production.status is ProductionStatus.FINALIZED:
@@ -244,6 +351,45 @@ class ProductionService:
             # by this automatic path.
             return await self.ensure_prepared(saved.id)
         return saved
+
+    async def _resolve_voice_assignments(
+        self, match_id: UUID, request: CreateProduction, narrator: NarratorSettings
+    ) -> dict[str, str]:
+        explicit = dict(request.voice_assignments)
+        if request.voice_selection_mode is VoiceSelectionMode.EXPLICIT:
+            return {**self.default_voice_assignments, **explicit}
+        if not request.voice_pool_id:
+            raise ValueError("voice selection requires a voice_pool_id")
+        pool = await self.repository.get_voice_pool(request.voice_pool_id)
+        if pool is None or not pool.enabled:
+            raise ValueError(f"voice pool not found or disabled: {request.voice_pool_id}")
+        available = {
+            voice.id: voice
+            for voice in await self.repository.list_voices()
+            if voice.enabled and voice.id in pool.voice_ids
+        }
+        roles = ["p1", "p2"] + (["narrator"] if narrator.enabled else [])
+        if len(available) < len(roles):
+            raise ValueError(
+                f"voice pool {pool.id} needs at least {len(roles)} enabled distinct voices"
+            )
+        seed = request.voice_selection_seed
+        if seed is None:
+            seed = int.from_bytes(hashlib.sha256(f"{match_id}:{pool.id}".encode()).digest()[:8])
+        chooser = random.Random(seed)
+        candidates = list(available)
+        chooser.shuffle(candidates)
+        selected: dict[str, str] = {}
+        for role in roles:
+            if role in explicit:
+                selected[role] = explicit[role]
+                if selected[role] not in available:
+                    raise ValueError(f"voice {selected[role]} is not enabled in pool {pool.id}")
+                continue
+            selected[role] = next(
+                voice_id for voice_id in candidates if voice_id not in selected.values()
+            )
+        return selected
 
     async def ensure_prepared(self, production_id: UUID) -> ProductionTimeline:
         """Materialize missing public production media for an archived replay.
@@ -743,6 +889,7 @@ class ProductionService:
             raise RuntimeError(provider_status.detail)
         if provider_status.paid and not allow_paid:
             raise PermissionError("paid speech generation requires allow_paid=true")
+        reference_hash = self._reference_audio_hash(preset.reference_audio_path)
         speech = SpeechRequest(
             text=text,
             provider=preset.provider,
@@ -751,6 +898,10 @@ class ProductionService:
             speed=preset.speed,
             language=preset.language,
             instructions=preset.instructions,
+            reference_audio_path=preset.reference_audio_path,
+            reference_audio_sha256=reference_hash,
+            reference_text=preset.reference_text,
+            x_vector_only_mode=preset.x_vector_only_mode,
         )
         key = speech_cache_key(speech)
         cached = None if force else self.cache.validate(key)
@@ -768,6 +919,17 @@ class ProductionService:
             relative_path=str(validated.path.relative_to(self.cache.root)),
         )
         return artifact
+
+    def _reference_audio_hash(self, relative_path: str | None) -> str | None:
+        if not relative_path:
+            return None
+        root = self.settings.speech_qwen_reference_root.resolve()
+        path = (root / relative_path).resolve()
+        if root not in path.parents:
+            raise ValueError("voice reference path escapes the configured voice root")
+        if not path.is_file():
+            raise ValueError(f"voice reference audio does not exist: {relative_path}")
+        return hashlib.sha256(path.read_bytes()).hexdigest()
 
     def media_path(self, cache_key: str) -> Path | None:
         valid = self.cache.validate(cache_key)

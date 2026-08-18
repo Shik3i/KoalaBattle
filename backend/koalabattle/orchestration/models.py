@@ -62,6 +62,9 @@ class OrchestratorSettings(OrchestratorFrozenModel):
     narrator_voice_preset_id: str = Field(
         default="edge-neural-narrator", min_length=1, max_length=80
     )
+    voice_pool_id: str | None = Field(default=None, max_length=80)
+    voice_selection_mode: Literal["explicit", "random", "balanced-random"] = "explicit"
+    voice_selection_seed: int | None = None
 
 
 class OrchestratorRequest(OrchestratorFrozenModel):

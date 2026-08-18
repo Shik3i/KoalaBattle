@@ -54,9 +54,12 @@ For an explicit request, pass `settings`:
   "settings": {
     "format": "gen1ou",
     "best_of": 1,
-    "banter_enabled": true,
-    "auto_render": true,
-    "video_preset_id": "fast-preview",
+        "banter_enabled": true,
+        "auto_render": true,
+        "voice_pool_id": "pokemon-broadcast-v1",
+        "voice_selection_mode": "balanced-random",
+        "voice_selection_seed": 42,
+        "video_preset_id": "fast-preview",
     "players": [
       {
         "display_name": "Gemma 4 · A",

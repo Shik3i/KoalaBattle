@@ -88,6 +88,7 @@ class NarratorProfile(FrozenModel):
 
 class SpeechProviderKind(StrEnum):
     SYSTEM = "system"
+    QWEN_LOCAL = "qwen-local"
     OPENAI = "openai"
     OPENAI_COMPATIBLE = "openai-compatible"
     FAKE = "fake"
@@ -154,7 +155,30 @@ class VoicePreset(FrozenModel):
     language: str | None = Field(default=None, max_length=20)
     speed: float = Field(default=1.0, ge=0.25, le=4.0)
     instructions: str | None = Field(default=None, max_length=500)
+    tags: tuple[str, ...] = Field(default=(), max_length=20)
+    reference_audio_path: str | None = Field(default=None, max_length=260)
+    reference_text: str | None = Field(default=None, max_length=1000)
+    x_vector_only_mode: bool = False
     enabled: bool = True
+
+
+class VoiceSelectionMode(StrEnum):
+    EXPLICIT = "explicit"
+    RANDOM = "random"
+    BALANCED_RANDOM = "balanced-random"
+
+
+class VoicePool(FrozenModel):
+    id: str = Field(min_length=1, max_length=80, pattern=r"^[a-z0-9][a-z0-9._-]*$")
+    display_name: str = Field(min_length=1, max_length=120)
+    description: str = Field(default="", max_length=400)
+    voice_ids: tuple[str, ...] = Field(min_length=1, max_length=100)
+    enabled: bool = True
+
+
+class VoiceReferenceUpload(FrozenModel):
+    preset: VoicePreset
+    audio_base64: str = Field(min_length=16, max_length=24_000_000)
 
 
 class SpeechRequest(FrozenModel):
@@ -165,6 +189,10 @@ class SpeechRequest(FrozenModel):
     speed: float = Field(default=1.0, ge=0.25, le=4.0)
     language: str | None = None
     instructions: str | None = None
+    reference_audio_path: str | None = None
+    reference_audio_sha256: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
+    reference_text: str | None = None
+    x_vector_only_mode: bool = False
     format: str = Field(default="wav", pattern=r"^wav$")
 
     @field_validator("text")
@@ -203,6 +231,9 @@ class ProductionTimeline(FrozenModel):
     director_state: DirectorState = DirectorState.PRE_SHOW
     cues: tuple[ProductionCue, ...] = ()
     voice_assignments: dict[str, str] = Field(default_factory=dict)
+    voice_pool_id: str | None = None
+    voice_selection_mode: VoiceSelectionMode = VoiceSelectionMode.EXPLICIT
+    voice_selection_seed: int | None = None
     narrator: NarratorSettings = Field(default_factory=NarratorSettings)
     #: Presentation only. Productions saved before styles existed validate with the
     #: built-in Koala Broadcast defaults, so old archives keep rendering unchanged.
@@ -221,6 +252,9 @@ class ProductionTimeline(FrozenModel):
 class CreateProduction(FrozenModel):
     profile_id: str = "live-stream"
     voice_assignments: dict[str, str] = Field(default_factory=dict)
+    voice_pool_id: str | None = Field(default=None, max_length=80)
+    voice_selection_mode: VoiceSelectionMode = VoiceSelectionMode.EXPLICIT
+    voice_selection_seed: int | None = None
     narrator: NarratorSettings | None = None
     #: A built-in or saved style preset id. Player branding is filled in from the match's
     #: agents afterwards, so a new production already looks right before any editing.

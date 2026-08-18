@@ -10,11 +10,12 @@ from koalabattle.models.orm import (
     ProductionRow,
     SpeechCacheRow,
     StylePresetRow,
+    VoicePoolRow,
     VoicePresetRow,
 )
 from koalabattle.storage.database import Database
 
-from .models import ProductionTimeline, SpeechArtifact, SpeechProviderKind, VoicePreset
+from .models import ProductionTimeline, SpeechArtifact, SpeechProviderKind, VoicePool, VoicePreset
 from .style import ProductionStyle, StylePreset
 
 
@@ -143,6 +144,10 @@ class ProductionRepository:
             row.language = preset.language
             row.speed = preset.speed
             row.instructions = preset.instructions
+            row.tags_json = json.dumps(preset.tags, sort_keys=True)
+            row.reference_audio_path = preset.reference_audio_path
+            row.reference_text = preset.reference_text
+            row.x_vector_only_mode = preset.x_vector_only_mode
             row.enabled = preset.enabled
             row.updated_at = now
             await session.commit()
@@ -160,6 +165,57 @@ class ProductionRepository:
                     language=row.language,
                     speed=row.speed,
                     instructions=row.instructions,
+                    tags=tuple(json.loads(row.tags_json or "[]")),
+                    reference_audio_path=row.reference_audio_path,
+                    reference_text=row.reference_text,
+                    x_vector_only_mode=row.x_vector_only_mode,
+                    enabled=row.enabled,
+                )
+                for row in rows
+            )
+
+    async def upsert_voice_pool(self, pool: VoicePool) -> None:
+        now = datetime.now(UTC)
+        async with self.database.sessions() as session:
+            row = await session.get(VoicePoolRow, pool.id)
+            if row is None:
+                row = VoicePoolRow(
+                    id=pool.id,
+                    created_at=now,
+                    schema_version="1.0",
+                )
+                session.add(row)
+            row.display_name = pool.display_name
+            row.description = pool.description
+            row.voice_ids_json = json.dumps(pool.voice_ids, sort_keys=True)
+            row.enabled = pool.enabled
+            row.updated_at = now
+            await session.commit()
+
+    async def get_voice_pool(self, pool_id: str) -> VoicePool | None:
+        async with self.database.sessions() as session:
+            row = await session.get(VoicePoolRow, pool_id)
+            if row is None:
+                return None
+            return VoicePool(
+                id=row.id,
+                display_name=row.display_name,
+                description=row.description,
+                voice_ids=tuple(json.loads(row.voice_ids_json or "[]")),
+                enabled=row.enabled,
+            )
+
+    async def list_voice_pools(self) -> tuple[VoicePool, ...]:
+        async with self.database.sessions() as session:
+            rows = (
+                await session.scalars(select(VoicePoolRow).order_by(VoicePoolRow.display_name))
+            ).all()
+            return tuple(
+                VoicePool(
+                    id=row.id,
+                    display_name=row.display_name,
+                    description=row.description,
+                    voice_ids=tuple(json.loads(row.voice_ids_json or "[]")),
                     enabled=row.enabled,
                 )
                 for row in rows

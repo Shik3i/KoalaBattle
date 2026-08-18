@@ -55,6 +55,14 @@ class Settings(BaseSettings):
     pricing_table_json: str = "{}"
     speech_provider: str = "system"
     speech_audio_root: Path = Path("data/audio")
+    speech_qwen_base_url: str = "http://127.0.0.1:8890/v1"
+    speech_qwen_endpoint: str = "/audio/speech"
+    speech_qwen_model: str = "mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit"
+    speech_qwen_api_key: str | None = None
+    speech_qwen_reference_root: Path = Path("data/audio/voices")
+    speech_qwen_timeout_seconds: float = Field(default=300.0, ge=1, le=900)
+    speech_qwen_max_retries: int = Field(default=1, ge=0, le=3)
+    speech_qwen_max_concurrency: int = Field(default=1, ge=1, le=2)
     speech_edge_enabled: bool = True
     speech_edge_voice_p1: str = "en-US-EmmaMultilingualNeural"
     speech_edge_voice_p2: str = "en-US-BrianMultilingualNeural"

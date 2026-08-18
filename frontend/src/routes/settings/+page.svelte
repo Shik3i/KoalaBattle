@@ -99,7 +99,7 @@
   const providerLabel = (id: string) => ({
     openai: 'OpenAI', anthropic: 'Anthropic', gemini: 'Gemini', deepseek: 'DeepSeek',
     openai_compatible: 'OpenAI-compatible', fake: 'Fake · test only',
-    system: 'Edge Neural + system fallback', elevenlabs: 'ElevenLabs'
+    system: 'Edge Neural + system fallback', qwen_local: 'Qwen3-TTS · local', elevenlabs: 'ElevenLabs'
   })[id] || id.replaceAll('_', ' ');
 </script>
 

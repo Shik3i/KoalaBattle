@@ -5,7 +5,7 @@ import logging
 from collections.abc import Iterable
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from .models import (
     FormatCatalog,
@@ -20,7 +20,7 @@ SNAPSHOT_PATH = Path(__file__).with_name("showdown-format-catalog.json")
 
 #: KoalaBattle normalizes exactly one active Pokemon per side, so only two-player singles
 #: formats can be rendered, prompted and replayed correctly today.
-SUPPORTED_GAME_TYPES = ("singles",)
+SUPPORTED_GAME_TYPES: tuple[Literal["singles"], ...] = ("singles",)
 
 _GAME_TYPE_REASONS = {
     "doubles": "Not yet supported by KoalaBattle battle renderer (doubles)",

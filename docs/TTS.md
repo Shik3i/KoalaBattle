@@ -6,6 +6,36 @@ Strategy Memory, provider metadata, and hidden state are outside the speech requ
 
 ## Providers
 
+- `qwen-local`: local Qwen3-TTS through a configurable OpenAI-shaped audio endpoint. The
+  `Qwen3-TTS-12Hz-1.7B-Base` model uses a stored WAV reference and transcript for voice cloning;
+  it does not create a stable persona from `instructions` alone. References live below ignored
+  `data/audio/voices/` and can be assigned through a deterministic voice pool.
+
+### Windows and Docker
+
+The KoalaBattle backend has no MLX import and does not require `mlx-audio`. On Windows, leave
+`KOALABATTLE_SPEECH_PROVIDER=system` for Edge neural speech plus the bundled/basic offline
+fallback, or configure `openai-compatible` with a Windows TTS server. Docker Desktop exposes
+host services through `host.docker.internal`; the Compose backend image includes `ffmpeg` and
+`espeak-ng`.
+
+`qwen-local` is only an HTTP adapter and can point to any compatible TTS service on Windows.
+The repository's `tools/qwen_tts_server.py` is a separate Apple-Silicon MLX bridge. If it is
+started on Windows or Intel macOS, `/healthz` reports `mlx_supported: false` and synthesis
+returns `503` with the alternative-provider instruction.
+
+LM Studio may show the MLX model in its library while rejecting it at load time with
+`Model type qwen3_tts not supported`. In that case run the repository's Apple-Silicon bridge
+instead of trying to load the model through LM Studio:
+
+```bash
+python -m pip install -r tools/requirements-qwen-tts.txt
+python tools/qwen_tts_server.py
+```
+
+The bridge uses the local `mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit` checkpoint and exposes
+`http://127.0.0.1:8890/v1/audio/speech`. Docker reaches it through
+`http://host.docker.internal:8890/v1`. LM Studio remains the LLM endpoint on port `1234`.
 - `system` (default): free Edge neural speech using `edge-tts`, with distinct Emma and Brian
   multilingual neural voices at a restrained 0.96× delivery rate plus a separate Guy narrator
   voice at 1.02×. It requires Internet access
@@ -29,7 +59,9 @@ deterministic proportional timing and are normalized to actual cached WAV durati
 synthesis. WAV is the only internal format; FFmpeg is not required.
 
 The SHA-256 cache key covers normalized text, provider, model, voice, speed, language,
-instructions, and format as canonical JSON. Identical concurrent requests share one task.
+instructions, reference-audio hash, clone mode, and format as canonical JSON. Identical
+concurrent requests share one task. Qwen generation defaults to one active request to avoid
+loading multiple 1.7B speech generations into RAM at once.
 All missing replay cues are scheduled immediately when preparation starts. Generation is
 bounded by `KOALABATTLE_SPEECH_MAX_CONCURRENCY` (default `8`); cancellation does not expose a
 partial artifact. Text and payload size limits apply before publication.
@@ -44,3 +76,11 @@ Set `KOALABATTLE_SPEECH_EDGE_ENABLED=false` for strictly offline operation. Offl
 depends on installed host voices and is intentionally labeled basic. Sherpa-ONNX remains a future
 offline option; model weights are not bundled because each model has separate provenance and
 license obligations.
+
+## Voice pools
+
+Voice pools contain enabled `VoicePreset` IDs. A production can select explicit, random, or
+balanced-random voices. Selection happens once when the production is created; selected IDs and
+the seed are persisted in the timeline so rebuilds and video exports remain identical. Use
+`POST /api/production/voices/reference` for a validated local WAV reference and
+`POST /api/production/voice-pools` to save a pool.
