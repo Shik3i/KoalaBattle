@@ -179,7 +179,7 @@ class AgentConfiguration(FrozenModel):
     max_retries: int = Field(default=1, ge=0, le=5)
     fallback: FallbackPolicy = FallbackPolicy.RANDOM
     temperature: float | None = Field(default=None, ge=0, le=2)
-    max_output_tokens: int = Field(default=256, ge=32, le=8192)
+    max_output_tokens: int = Field(default=2048, ge=32, le=8192)
     reasoning_effort: Literal["low", "medium", "high", "max"] | None = None
     base_url: str | None = Field(default=None, max_length=500)
     maximum_cost: float | None = Field(default=None, ge=0)

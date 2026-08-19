@@ -13,7 +13,7 @@ from koalabattle.core.models import (
 
 
 class StructuredDecision(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
 
     action: str
     commentary: str = Field(default="", max_length=MAX_STORED_COMMENTARY_CHARACTERS)
@@ -91,17 +91,25 @@ def _decode_object(raw_response: str) -> object:
     stripped = raw_response.strip()
     try:
         return json.loads(stripped)
-    except json.JSONDecodeError as original:
-        decoder = json.JSONDecoder()
-        for index, character in enumerate(stripped):
-            if character != "{":
-                continue
-            try:
-                value, end = decoder.raw_decode(stripped[index:])
-            except json.JSONDecodeError:
-                continue
-            suffix = stripped[index + end :].strip()
-            if suffix and not suffix.startswith("```"):
-                continue
+    except json.JSONDecodeError:
+        pass
+
+    first = stripped.find("{")
+    last = stripped.rfind("}")
+    if first != -1 and last != -1 and last > first:
+        candidate = stripped[first : last + 1]
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError:
+            pass
+
+    decoder = json.JSONDecoder()
+    for index, character in enumerate(stripped):
+        if character != "{":
+            continue
+        try:
+            value, _ = decoder.raw_decode(stripped[index:])
             return value
-        raise original
+        except json.JSONDecodeError:
+            continue
+    raise json.JSONDecodeError("Expecting JSON object", stripped, 0)

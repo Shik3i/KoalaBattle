@@ -24,7 +24,7 @@ class OpenAICompatibleProvider:
         temperature=True,
         reasoning_control=False,
         usage_reporting=True,
-        streaming=True,
+        streaming=False,
     )
 
     def __init__(self, base_url: str, api_key: str | None = None) -> None:
@@ -47,11 +47,29 @@ class OpenAICompatibleProvider:
         common: dict[str, Any] = {
             "model": request.model,
             "messages": messages,
-            "max_tokens": request.max_output_tokens,
+            "max_tokens": max(request.max_output_tokens, 2048),
             "timeout": request.timeout_seconds,
         }
         if request.temperature is not None:
             common["temperature"] = request.temperature
+
+        # 1. Standard completion (compatible with 100% of OpenAI-compatible servers)
+        try:
+            response = await self._client.chat.completions.create(**common)
+            choice = response.choices[0]
+            text = choice.message.content or ""
+            if text.strip():
+                return ProviderResponse(
+                    text=text,
+                    model=response.model,
+                    usage=_provider_usage(response.usage),
+                    request_id=response.id,
+                    finish_reason=choice.finish_reason,
+                )
+        except Exception:
+            pass
+
+        # 2. Structured JSON schema completion
         formats: tuple[dict[str, Any] | None, ...] = (
             {
                 "type": "json_schema",
@@ -61,7 +79,6 @@ class OpenAICompatibleProvider:
                     "schema": request.output_schema or DECISION_SCHEMA,
                 },
             },
-            {"type": "json_object"},
             None,
         )
         for response_format in formats:
@@ -69,22 +86,20 @@ class OpenAICompatibleProvider:
                 arguments = dict(common)
                 if response_format is not None:
                     arguments["response_format"] = response_format
-                if on_text_delta is not None:
-                    return await self._stream_completion(arguments, on_text_delta)
                 response = await self._client.chat.completions.create(**arguments)
                 choice = response.choices[0]
-                return ProviderResponse(
-                    text=choice.message.content or "",
-                    model=response.model,
-                    usage=_provider_usage(response.usage),
-                    request_id=response.id,
-                    finish_reason=choice.finish_reason,
-                )
-            except BadRequestError as error:
+                text = choice.message.content or ""
+                if text.strip():
+                    return ProviderResponse(
+                        text=text,
+                        model=response.model,
+                        usage=_provider_usage(response.usage),
+                        request_id=response.id,
+                        finish_reason=choice.finish_reason,
+                    )
+            except Exception as error:
                 if response_format is None:
                     raise _openai_error(error) from error
-            except Exception as error:
-                raise _openai_error(error) from error
         raise RuntimeError("OpenAI-compatible response negotiation failed")
 
     async def _stream_completion(

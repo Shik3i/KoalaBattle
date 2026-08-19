@@ -20,8 +20,7 @@ data/branding/
 data/music/
 data/review-pack/
 data/sound-packs/
-data/videos/
-data/vendor/
-backend/data/
-showdown/server/
+data/
 tools/logs/
+latest_battle_video.*
+HANDOFF_PROMPT.md
