@@ -711,12 +711,10 @@ class ProductionService:
                             start_ms=duration,
                             result_duration_ms=production.profile.result_duration_ms,
                             outro_duration_ms=production.profile.outro_duration_ms,
+                            caption_max_characters=production.profile.caption_max_characters,
                         ),
                     )
-                    duration += (
-                        production.profile.result_duration_ms
-                        + production.profile.outro_duration_ms
-                    )
+                    duration = max(cue.start_ms + cue.duration_ms for cue in cues)
                 finalizing = production.model_copy(
                     update={
                         "status": ProductionStatus.FINALIZING,

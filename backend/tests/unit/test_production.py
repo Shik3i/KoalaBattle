@@ -7,7 +7,7 @@ from uuid import uuid4
 import pytest
 
 from koalabattle.config import Settings
-from koalabattle.core.models import BattleEvent, MatchConfig, MatchStatus
+from koalabattle.core.models import BattleEvent, MatchConfig, MatchStatus, Side
 from koalabattle.production import CreateProduction, ProductionService
 from koalabattle.production.models import (
     NarratorSettings,
@@ -371,6 +371,21 @@ async def test_final_cues_include_result_sting(
     ]
     assert cues[0].track is Track.SFX
     assert cues[0].start_ms == cues[1].start_ms == 4_000
+
+    completed = archive.model_copy(update={"status": MatchStatus.COMPLETED, "winner": Side.P1})
+    interview_cues = final_cues(completed, start_ms=4_000)
+    interview_ids = {cue.id for cue in interview_cues}
+    assert interview_ids >= {
+        "interview-p1-commentary",
+        "interview-p1-captions",
+        "interview-p2-commentary",
+        "interview-p2-captions",
+    }
+    assert "Post-match interview" in next(
+        cue.payload["text"]
+        for cue in interview_cues
+        if cue.id == "interview-p1-commentary"
+    )
     await database.close()
 
 

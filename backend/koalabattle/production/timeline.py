@@ -6,6 +6,7 @@ from uuid import UUID, uuid4
 
 from koalabattle.core.models import BattleEvent, MatchArchive, MatchStatus
 
+from .interview import build_post_match_interviews
 from .models import (
     CaptionSegment,
     DirectorState,
@@ -278,13 +279,15 @@ def final_cues(
     start_ms: int,
     result_duration_ms: int = 1_800,
     outro_duration_ms: int = 600,
+    caption_max_characters: int = 42,
 ) -> tuple[ProductionCue, ...]:
-    return (
+    result_start = start_ms
+    cues: list[ProductionCue] = [
         ProductionCue(
             id="director-result-sting",
             track=Track.SFX,
             kind="result-sting",
-            start_ms=start_ms,
+            start_ms=result_start,
             duration_ms=min(result_duration_ms, 1_200),
             payload={"sound_pack": "broadcast-synth-v1"},
         ),
@@ -292,7 +295,7 @@ def final_cues(
             id="director-result",
             track=Track.DIRECTOR,
             kind="result",
-            start_ms=start_ms,
+            start_ms=result_start,
             duration_ms=result_duration_ms,
             payload={
                 "winner": archive.winner.value if archive.winner else None,
@@ -300,14 +303,61 @@ def final_cues(
                 "status": archive.status.value,
             },
         ),
+    ]
+    interviews = (
+        build_post_match_interviews(archive)
+        if archive.status is MatchStatus.COMPLETED
+        else ()
+    )
+    interview_start = result_start + result_duration_ms
+    interview_duration = 3_200
+    for index, interview in enumerate(interviews):
+        side = interview.side.value
+        cue_start = interview_start + index * interview_duration
+        cues.append(
+            ProductionCue(
+                id=f"interview-{side}-commentary",
+                track=Track.COMMENTARY,
+                kind="post-match-interview",
+                start_ms=cue_start,
+                duration_ms=interview_duration,
+                side=side,
+                speaker=side,
+                payload={"text": interview.text},
+            )
+        )
+        cues.append(
+            ProductionCue(
+                id=f"interview-{side}-captions",
+                track=Track.CAPTIONS,
+                kind="post-match-interview",
+                start_ms=cue_start,
+                duration_ms=interview_duration,
+                side=side,
+                speaker=side,
+                payload={
+                    "segments": [
+                        segment.model_dump(mode="json")
+                        for segment in segment_caption(
+                            interview.text,
+                            maximum=caption_max_characters,
+                            duration_ms=interview_duration,
+                        )
+                    ]
+                },
+            )
+        )
+    outro_start = interview_start + len(interviews) * interview_duration
+    cues.append(
         ProductionCue(
             id="director-outro",
             track=Track.DIRECTOR,
             kind="outro",
-            start_ms=start_ms + result_duration_ms,
+            start_ms=outro_start,
             duration_ms=outro_duration_ms,
-        ),
+        )
     )
+    return tuple(cues)
 
 
 def _group_turn(group: list[ProductionCue]) -> int | None:
@@ -385,11 +435,24 @@ def retime_for_audio(
         cursor = _finish_turn(
             cursor, turn_start, profile, priority_score=turn_priority, gap=False
         )
+    result_sting = next((cue for cue in cues if cue.id == "director-result-sting"), None)
     result_cue = next((cue for cue in cues if cue.id == "director-result"), None)
+    interviews = {
+        side: [cue for cue in cues if cue.id.startswith(f"interview-{side}-")]
+        for side in ("p1", "p2")
+    }
     outro = next((cue for cue in cues if cue.id == "director-outro"), None)
     if result_cue is not None:
+        if result_sting is not None:
+            result.append(result_sting.model_copy(update={"start_ms": cursor}))
         result.append(result_cue.model_copy(update={"start_ms": cursor}))
         cursor += result_cue.duration_ms
+    for side in ("p1", "p2"):
+        group = interviews[side]
+        if not group:
+            continue
+        result.extend(cue.model_copy(update={"start_ms": cursor}) for cue in group)
+        cursor += max(cue.duration_ms for cue in group)
     if outro is not None:
         result.append(outro.model_copy(update={"start_ms": cursor}))
         cursor += outro.duration_ms
@@ -470,9 +533,10 @@ def build_timeline(
                 start_ms=cursor,
                 result_duration_ms=profile.result_duration_ms,
                 outro_duration_ms=profile.outro_duration_ms,
+                caption_max_characters=profile.caption_max_characters,
             )
         )
-        cursor += profile.result_duration_ms + profile.outro_duration_ms
+        cursor = max(cue.start_ms + cue.duration_ms for cue in cues)
     final_state = DirectorState.RESULT if archive.winner is not None else DirectorState.ENDED
     voice_assignments = dict(voices or {"p1": "edge-neural-p1", "p2": "edge-neural-p2"})
     if narrator_settings.enabled:
