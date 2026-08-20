@@ -16,7 +16,7 @@ from .models import (
     ProductionTimeline,
     Track,
 )
-from .narrator import NarratorCandidate, build_narrator_plan
+from .narrator import NarratorCandidate, build_narrator_plan, event_priority_score
 
 _EVENT_DURATIONS = {
     "move_used": 520,
@@ -147,6 +147,7 @@ def cues_for_event(
             duration_ms=duration,
             event_sequence=event.sequence,
             turn=cue_turn,
+            payload={"priority": event_priority_score(event, narrator_candidate)},
         )
     ]
     if profile.sfx_enabled and event.event_type in _SFX_EVENTS:
@@ -304,12 +305,28 @@ def _group_turn(group: list[ProductionCue]) -> int | None:
 
 
 def _finish_turn(
-    cursor: int, turn_start: int | None, profile: ProductionProfile, *, gap: bool
+    cursor: int,
+    turn_start: int | None,
+    profile: ProductionProfile,
+    *,
+    priority_score: int,
+    gap: bool,
 ) -> int:
     if turn_start is None:
         return cursor
-    cursor = max(cursor, turn_start + profile.turn_target_ms)
+    if priority_score <= 35:
+        target = profile.quiet_turn_target_ms or max(1_000, round(profile.turn_target_ms * 0.42))
+    elif priority_score >= 70:
+        target = profile.highlight_turn_target_ms or profile.turn_target_ms
+    else:
+        target = profile.turn_target_ms
+    cursor = max(cursor, turn_start + target)
     return cursor + profile.turn_pause_ms if gap else cursor
+
+
+def _cue_priority(cue: ProductionCue) -> int:
+    value = cue.payload.get("priority")
+    return round(value) if isinstance(value, int | float) else 0
 
 
 def retime_for_audio(
@@ -325,14 +342,19 @@ def retime_for_audio(
     sequences = sorted({cue.event_sequence for cue in cues if cue.event_sequence is not None})
     active_turn: int | None = None
     turn_start: int | None = None
+    turn_priority = 0
     for sequence in sequences:
         group = [cue for cue in cues if cue.event_sequence == sequence]
         event_turn = _group_turn(group)
         if event_turn is not None and event_turn != active_turn:
             if active_turn is not None:
-                cursor = _finish_turn(cursor, turn_start, profile, gap=True)
+                cursor = _finish_turn(
+                    cursor, turn_start, profile, priority_score=turn_priority, gap=True
+                )
             active_turn = event_turn
             turn_start = cursor
+            turn_priority = 0
+        turn_priority = max(turn_priority, max((_cue_priority(cue) for cue in group), default=0))
         if not any(cue.duration_ms > 0 for cue in group):
             # State checkpoints are instantaneous and must not add a synthetic pause to the
             # clock. They remain at the current cursor so the browser can apply their state.
@@ -349,7 +371,9 @@ def retime_for_audio(
         result.extend(cue.model_copy(update={"start_ms": cursor}) for cue in group)
         cursor += duration
     if active_turn is not None:
-        cursor = _finish_turn(cursor, turn_start, profile, gap=False)
+        cursor = _finish_turn(
+            cursor, turn_start, profile, priority_score=turn_priority, gap=False
+        )
     result_cue = next((cue for cue in cues if cue.id == "director-result"), None)
     outro = next((cue for cue in cues if cue.id == "director-outro"), None)
     if result_cue is not None:
@@ -392,6 +416,7 @@ def build_timeline(
         cursor = profile.intro_duration_ms
     active_turn: int | None = None
     turn_start: int | None = None
+    turn_priority = 0
     narrator_settings = narrator or NarratorSettings()
     narrator_plan = build_narrator_plan(archive.events, narrator_settings)
     for event in archive.events:
@@ -403,22 +428,29 @@ def build_timeline(
         )
         if event_turn is not None and event_turn != active_turn:
             if active_turn is not None:
-                cursor = _finish_turn(cursor, turn_start, profile, gap=True)
+                cursor = _finish_turn(
+                    cursor, turn_start, profile, priority_score=turn_priority, gap=True
+                )
             active_turn = event_turn
             turn_start = cursor
+            turn_priority = 0
+        narrator_candidate = narrator_plan.get(event.sequence)
+        turn_priority = max(turn_priority, event_priority_score(event, narrator_candidate))
         event_cues, duration = cues_for_event(
             event,
             profile,
             start_ms=cursor,
             timeline_turn=active_turn,
-            narrator_candidate=narrator_plan.get(event.sequence),
+            narrator_candidate=narrator_candidate,
             narrator_settings=narrator_settings,
         )
         if event_cues:
             cues.extend(event_cues)
             cursor += duration
     if active_turn is not None:
-        cursor = _finish_turn(cursor, turn_start, profile, gap=False)
+        cursor = _finish_turn(
+            cursor, turn_start, profile, priority_score=turn_priority, gap=False
+        )
     terminal = archive.status in _TERMINAL
     if terminal:
         cues.extend(

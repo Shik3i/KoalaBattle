@@ -28,6 +28,24 @@ _HIGHLIGHT_EVENTS: Final = {
     "pokemon_fainted",
 }
 
+_EVENT_PRIORITY: Final = {
+    "battle_started": 60,
+    "battle_finished": 120,
+    "critical_hit": 100,
+    "pokemon_fainted": 95,
+    "super_effective": 90,
+    "immune": 85,
+    "status_applied": 80,
+    "resisted": 75,
+    "move_missed": 65,
+    "pokemon_switched": 48,
+    "healing": 55,
+    "damage": 40,
+    "move_used": 35,
+    "agent_decision": 20,
+    "turn_started": 10,
+}
+
 NARRATOR_PROFILES: Final = (
     NarratorProfile(
         id="stadium-broadcast-v1",
@@ -108,6 +126,18 @@ def _hp_fraction(event: BattleEvent) -> float | None:
     except ValueError:
         return None
     return numerator / denominator if denominator > 0 else None
+
+
+def event_priority_score(
+    event: BattleEvent, candidate: NarratorCandidate | None = None
+) -> int:
+    """Stable public-event priority shared by narrator selection and video pacing."""
+
+    if candidate is not None:
+        return candidate.priority
+    if event.event_type == "damage" and (_hp_fraction(event) or 1) <= 0.25:
+        return 72
+    return _EVENT_PRIORITY.get(event.event_type, 0)
 
 
 def _has_nearby(events: tuple[BattleEvent, ...], index: int, event_type: str) -> bool:

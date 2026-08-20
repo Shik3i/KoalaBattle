@@ -261,6 +261,11 @@ async def test_internal_stream_events_do_not_create_replay_time(
 def test_broadcast_profiles_do_not_hold_short_turns_for_twenty_seconds() -> None:
     assert PRODUCTION_PROFILES["live-stream"].turn_target_ms == 12_000
     assert PRODUCTION_PROFILES["youtube"].turn_target_ms == 12_000
+    assert PRODUCTION_PROFILES["youtube"].quiet_turn_target_ms == 5_000
+    assert (
+        PRODUCTION_PROFILES["youtube"].quiet_turn_target_ms
+        < PRODUCTION_PROFILES["youtube"].turn_target_ms
+    )
 
 
 def test_turn_timing_has_no_intra_turn_gaps_and_uses_fixed_slots() -> None:
@@ -281,6 +286,7 @@ def test_turn_timing_has_no_intra_turn_gaps_and_uses_fixed_slots() -> None:
             duration_ms=100,
             event_sequence=1,
             turn=1,
+            payload={"priority": 20},
         ),
         ProductionCue(
             id="event-1-commentary",
@@ -299,6 +305,7 @@ def test_turn_timing_has_no_intra_turn_gaps_and_uses_fixed_slots() -> None:
             duration_ms=100,
             event_sequence=2,
             turn=1,
+            payload={"priority": 40},
         ),
         ProductionCue(
             id="event-3-visual",
@@ -308,6 +315,7 @@ def test_turn_timing_has_no_intra_turn_gaps_and_uses_fixed_slots() -> None:
             duration_ms=100,
             event_sequence=3,
             turn=2,
+            payload={"priority": 40},
         ),
         ProductionCue(
             id="director-result",
@@ -342,6 +350,34 @@ def test_turn_timing_has_no_intra_turn_gaps_and_uses_fixed_slots() -> None:
     assert duration_ms == (
         starts["director-result"] + profile.result_duration_ms + profile.outro_duration_ms
     )
+
+
+def test_quiet_turns_use_the_compact_slot() -> None:
+    profile = PRODUCTION_PROFILES["youtube"]
+    cues = (
+        ProductionCue(
+            id="director-intro",
+            track=Track.DIRECTOR,
+            kind="match-intro",
+            start_ms=0,
+            duration_ms=profile.intro_duration_ms,
+        ),
+        ProductionCue(
+            id="event-1-visual",
+            track=Track.VISUAL,
+            kind="move_used",
+            start_ms=0,
+            duration_ms=520,
+            event_sequence=1,
+            turn=1,
+            payload={"priority": 35},
+        ),
+    )
+
+    retimed, _ = retime_for_audio(cues, profile)
+
+    visual_start = next(cue for cue in retimed if cue.id == "event-1-visual").start_ms
+    assert visual_start == profile.intro_duration_ms
 
 
 @pytest.mark.asyncio

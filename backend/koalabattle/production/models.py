@@ -128,6 +128,10 @@ class ProductionProfile(FrozenModel):
     #: Minimum presentation slot for one deterministic replay turn. Speech or animation may
     #: extend it, but a short turn never creates an accidental variable-length pause.
     turn_target_ms: int = Field(default=20_000, ge=1_000, le=120_000)
+    #: Compact slot for turns without a meaningful state swing. None preserves old profiles.
+    quiet_turn_target_ms: int | None = Field(default=None, ge=1_000, le=120_000)
+    #: Full slot for highlight turns. None preserves the historical turn_target_ms behaviour.
+    highlight_turn_target_ms: int | None = Field(default=None, ge=1_000, le=120_000)
     #: Kept for compatibility with persisted profiles. New timelines apply this only between
     #: turns, never between individual event sequences.
     event_gap_ms: int = Field(default=120, ge=0, le=5000)

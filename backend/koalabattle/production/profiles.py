@@ -4,7 +4,8 @@ from .models import ProductionProfile
 
 PRODUCTION_PROFILES: dict[str, ProductionProfile] = {
     "live-stream": ProductionProfile(
-        id="live-stream", display_name="Live Stream", turn_target_ms=12_000, turn_gap_ms=120
+        id="live-stream", display_name="Live Stream", turn_target_ms=12_000,
+        quiet_turn_target_ms=5_000, highlight_turn_target_ms=12_000, turn_gap_ms=120
     ),
     "youtube": ProductionProfile(
         id="youtube",
@@ -15,6 +16,8 @@ PRODUCTION_PROFILES: dict[str, ProductionProfile] = {
         # commentary and two attacks have already finished. Longer turns still extend from
         # their real cues; this is only the minimum pacing slot.
         turn_target_ms=12_000,
+        quiet_turn_target_ms=5_000,
+        highlight_turn_target_ms=12_000,
         commentary_max_characters=420,
     ),
     "shorts": ProductionProfile(
@@ -24,6 +27,8 @@ PRODUCTION_PROFILES: dict[str, ProductionProfile] = {
         event_gap_ms=60,
         turn_gap_ms=60,
         turn_target_ms=10_000,
+        quiet_turn_target_ms=4_000,
+        highlight_turn_target_ms=10_000,
         intro_duration_ms=1_600,
         result_duration_ms=1_200,
         outro_duration_ms=400,
@@ -38,6 +43,8 @@ PRODUCTION_PROFILES: dict[str, ProductionProfile] = {
         event_gap_ms=20,
         turn_gap_ms=20,
         turn_target_ms=12_000,
+        quiet_turn_target_ms=4_000,
+        highlight_turn_target_ms=12_000,
         result_duration_ms=1_200,
         outro_duration_ms=300,
         commentary_max_characters=160,
@@ -50,6 +57,8 @@ PRODUCTION_PROFILES: dict[str, ProductionProfile] = {
         sfx_enabled=False,
         music_enabled=False,
         turn_target_ms=16_000,
+        quiet_turn_target_ms=6_000,
+        highlight_turn_target_ms=16_000,
         turn_gap_ms=80,
     ),
 }
