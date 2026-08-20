@@ -1061,6 +1061,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="local audio asset not installed")
         return FileResponse(path)
 
+    @app.get("/api/assets/effects/{effect_id}")
+    async def move_effect_asset(effect_id: str, request: Request) -> FileResponse:
+        path = _assets(request).effect(effect_id)
+        if path is None:
+            raise HTTPException(status_code=404, detail="local move effect asset not installed")
+        return FileResponse(path)
+
     @app.websocket("/api/matches/{match_id}/stream")
     async def stream_match(websocket: WebSocket, match_id: UUID) -> None:
         service: BattleService = websocket.app.state.service

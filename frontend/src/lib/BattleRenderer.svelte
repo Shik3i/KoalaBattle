@@ -1,5 +1,7 @@
 <script lang="ts">
   import { pokemonAssetUrl } from './presentation/assets';
+  import { apiBase } from './api';
+  import { moveEffectAssetUrl, resolveMoveEffect } from './move-effects';
   import {
     defaultRendererConfig,
     type AgentPresentationStatus,
@@ -18,6 +20,7 @@
   export let visualProgress = 0;
 
   let failedAssets = new Set<string>();
+  let failedEffectAssets = new Set<string>();
   const particleIndexes = Array.from({ length: 12 }, (_, index) => index);
   /**
    * Installed Showdown battle sprites are 96px static PNGs and ~60-96px animated GIFs.
@@ -57,6 +60,9 @@
     ? (['p1', 'p2'] as Side[]).find((side) => presentation?.players[side].motion === 'attacking') || null
     : null;
   $: moveProfile = attackerSide ? presentation?.currentMoveProfile || null : null;
+  $: moveRecipe = moveProfile && presentation?.currentMove
+    ? resolveMoveEffect(presentation.currentMove, moveProfile.type, moveProfile.archetype, config.moveEffectSkin)
+    : null;
   $: strongImpact = Boolean(
     presentation && ['impact', 'critical-hit', 'super-effective'].includes(presentation.effect)
   );
@@ -128,6 +134,10 @@
 
   function onAssetError(key: string) {
     failedAssets = new Set([...failedAssets, key]);
+  }
+
+  function onEffectAssetError(key: string) {
+    failedEffectAssets = new Set([...failedEffectAssets, key]);
   }
 
   /**
@@ -501,7 +511,7 @@
       {/each}
 
       <!-- Move visual animations: projectiles, beams, bursts -->
-      {#if presentation.currentMoveProfile && presentation.currentMovePhase === 'executing'}
+      {#if presentation.currentMoveProfile && presentation.currentMovePhase === 'executing' && moveRecipe && config.effects !== 'off'}
         {@const profile = presentation.currentMoveProfile}
         <div
           class="move-visual"
@@ -509,12 +519,21 @@
           data-move-type={profile.type}
           data-direction={presentation.currentMoveSide === (config.nearSide || 'p1') ? 'near-to-far' : 'far-to-near'}
           data-quality={config.effects}
+          data-recipe={moveRecipe.family}
+          data-skin={config.moveEffectSkin}
+          style={`--type-color:${moveRecipe.color};--type-highlight:${moveRecipe.secondary};--move-duration:${moveRecipe.durationMs}ms`}
           aria-hidden="true"
         >
           <div style={chargeStyle()} class="charge-ring"></div>
           <div class="physical-swipe" aria-hidden="true"><i></i><i></i><i></i></div>
           <div style={projectileStyle(presentation.currentMoveSide === (config.nearSide || 'p1') ? 'near-to-far' : 'far-to-near')} class="move-projectile"></div>
           <div style={beamStyle(presentation.currentMoveSide === (config.nearSide || 'p1') ? 'near-to-far' : 'far-to-near')} class="move-beam"></div>
+          <div class="recipe-layer recipe-layer-a"></div>
+          <div class="recipe-layer recipe-layer-b"></div>
+          <div class="recipe-layer recipe-layer-c"></div>
+          {#if moveRecipe.assetId && !failedEffectAssets.has(moveRecipe.assetId)}
+            <img class="move-texture" src={moveEffectAssetUrl(moveRecipe.assetId, apiBase())} alt="" on:error={() => moveRecipe?.assetId && onEffectAssetError(moveRecipe.assetId)} />
+          {/if}
         </div>
       {/if}
 
@@ -913,6 +932,22 @@
   .move-visual[data-archetype='status'] .charge-ring{top:50%;left:50%;width:30%;animation:status-aura .5s ease-out both}
   .move-visual[data-move-type='electric'] .move-beam,.move-visual[data-move-type='psychic'] .move-beam,.move-visual[data-move-type='dragon'] .move-beam,.move-visual[data-move-type='ice'] .move-beam{opacity:1}
   .move-visual[data-quality='low'] .charge-ring{display:none}
+  .recipe-layer,.move-texture{position:absolute;z-index:2;top:var(--origin-y);left:var(--origin-x);width:clamp(20px,3.4cqw,52px);aspect-ratio:1;transform:translate(-50%,-50%);pointer-events:none}
+  .move-texture{z-index:3;object-fit:contain;filter:drop-shadow(0 0 12px var(--type-color));animation:recipe-projectile var(--move-duration) cubic-bezier(.2,.7,.2,1) both}
+  .recipe-layer{border:2px solid var(--type-highlight);border-radius:50%;background:radial-gradient(circle at 36% 30%,#fff,var(--type-color) 30%,transparent 72%);box-shadow:0 0 22px var(--type-color);animation:recipe-projectile var(--move-duration) cubic-bezier(.2,.7,.2,1) both}
+  .recipe-layer-b{animation-delay:-80ms;opacity:.55}.recipe-layer-c{animation-delay:-145ms;opacity:.3}
+  .move-visual[data-recipe='contact'] .recipe-layer,.move-visual[data-recipe='barrier'] .recipe-layer,.move-visual[data-recipe='dance'] .recipe-layer,.move-visual[data-recipe='heal'] .recipe-layer,.move-visual[data-recipe='status'] .recipe-layer{top:var(--target-y);left:var(--target-x);background:transparent;animation:recipe-ring var(--move-duration) ease-out both}
+  .move-visual[data-recipe='contact'] .move-projectile,.move-visual[data-recipe='contact'] .move-beam{display:none}
+  .move-visual[data-recipe='beam'] .recipe-layer,.move-visual[data-recipe='lightning'] .recipe-layer{width:48%;height:clamp(5px,.7cqw,12px);aspect-ratio:auto;border:0;border-radius:999px;transform-origin:left center;background:linear-gradient(90deg,#fff,var(--type-color),transparent);animation:recipe-beam var(--move-duration) ease-out both}
+  .move-visual[data-recipe='lightning'] .recipe-layer{height:clamp(8px,1cqw,16px);clip-path:polygon(0 35%,35% 0,30% 40%,62% 8%,55% 52%,100% 30%,64% 100%,70% 55%,35% 88%,40% 50%);border-radius:0}
+  .move-visual[data-recipe='quake'] .recipe-layer,.move-visual[data-recipe='rock'] .recipe-layer{top:74%;left:50%;width:18%;height:7%;aspect-ratio:auto;background:transparent;border:clamp(2px,.35cqw,6px) solid var(--type-color);animation:recipe-quake var(--move-duration) ease-out both}
+  .move-visual[data-recipe='ice'] .recipe-layer{border-radius:5% 55% 5% 55%;clip-path:polygon(50% 0,100% 42%,62% 100%,0 65%);background:linear-gradient(135deg,#fff,var(--type-color) 48%,transparent);animation:recipe-projectile var(--move-duration) ease-in both}
+  .move-visual[data-recipe='water'] .recipe-layer,.move-visual[data-recipe='wind'] .recipe-layer{width:18%;height:7%;aspect-ratio:auto;background:transparent;border-width:clamp(3px,.55cqw,9px);border-left-color:transparent;border-right-color:transparent;animation:recipe-wave var(--move-duration) ease-out both}
+  .move-visual[data-recipe='explosion'] .recipe-layer{top:var(--target-y);left:var(--target-x);clip-path:polygon(50% 0,61% 35%,90% 18%,72% 45%,100% 54%,66% 61%,82% 94%,56% 70%,38% 100%,39% 67%,4% 82%,30% 56%,0 39%,36% 40%);border:0;border-radius:0;animation:recipe-explosion var(--move-duration) ease-out both}
+  .move-visual[data-recipe='poison'] .recipe-layer{border-radius:58% 42% 64% 36%;filter:saturate(1.35)}
+  .move-visual[data-recipe='leaf'] .recipe-layer{border-radius:100% 0 100% 0;transform:rotate(35deg)}
+  .move-visual[data-skin='retro'] .recipe-layer,.move-visual[data-skin='retro'] .move-texture{image-rendering:pixelated;filter:none;box-shadow:0 0 0 3px #111,0 0 0 5px var(--type-highlight)}
+  .move-visual[data-quality='low'] .recipe-layer-b,.move-visual[data-quality='low'] .recipe-layer-c,.move-visual[data-quality='low'] .move-texture{display:none}
   .effect[data-move-type],.move-visual[data-move-type]{--type-color:#e4e7df}
   .effect[data-move-type='fire'],.move-visual[data-move-type='fire']{--type-color:#ff704f}
   .effect[data-move-type='water'],.move-visual[data-move-type='water']{--type-color:#55b8ff}
@@ -1003,6 +1038,12 @@
   @keyframes status-aura{from{transform:translate(-50%,-50%) scale(.25);opacity:.8}to{transform:translate(-50%,-50%) scale(1.5);opacity:0}}
   @keyframes particle-burst{from{transform:translate(0) scale(1);opacity:1}to{transform:translate(var(--particle-x),var(--particle-y)) rotate(150deg) scale(.15);opacity:0}}
   @keyframes physical-swipe{0%{opacity:0;transform:translate(-50%,-50%) scale(.35) rotate(-18deg)}28%{opacity:1}70%{opacity:.95;transform:translate(-50%,-50%) scale(1.3) rotate(8deg)}100%{opacity:0;transform:translate(-50%,-50%) scale(1.65) rotate(18deg)}}
+  @keyframes recipe-projectile{0%{transform:translate(-50%,-50%) scale(.25);opacity:0}18%{opacity:1}82%{opacity:1}100%{top:var(--target-y);left:var(--target-x);transform:translate(-50%,-50%) scale(1.45) rotate(220deg);opacity:0}}
+  @keyframes recipe-ring{0%{transform:translate(-50%,-50%) scale(.15);opacity:0}25%{opacity:.9}100%{transform:translate(-50%,-50%) scale(3.5);opacity:0}}
+  @keyframes recipe-beam{0%,18%{transform:rotate(var(--beam-angle)) scaleX(0);opacity:0}36%,72%{transform:rotate(var(--beam-angle)) scaleX(1);opacity:1}100%{transform:rotate(var(--beam-angle)) scaleX(1);opacity:0}}
+  @keyframes recipe-quake{0%{transform:translate(-50%,-50%) scale(.1);opacity:0}22%{opacity:.9}100%{transform:translate(-50%,-50%) scale(6,2.8);opacity:0}}
+  @keyframes recipe-wave{0%{transform:translate(-50%,-50%) scale(.2);opacity:0}25%{opacity:1}100%{top:var(--target-y);left:var(--target-x);transform:translate(-50%,-50%) scale(2.2,1.2) rotate(var(--beam-angle));opacity:0}}
+  @keyframes recipe-explosion{0%{transform:translate(-50%,-50%) scale(.1);opacity:0}35%{opacity:1}75%{transform:translate(-50%,-50%) scale(4);opacity:.85}100%{transform:translate(-50%,-50%) scale(5.5);opacity:0}}
   @keyframes final-signal-in{from{opacity:0;transform:translateX(-50%) translateY(-14px) scale(.96)}to{opacity:1;transform:translateX(-50%) translateY(0) scale(1)}}
   @keyframes weather-drift{to{background-position:70px 20px}}
   @keyframes weather-fall{to{background-position:18px 36px}}

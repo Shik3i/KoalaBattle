@@ -6,7 +6,7 @@
   import { loadRendererConfig, saveRendererConfig } from '$lib/presentation/config';
   import { PresentationTimeline } from '$lib/presentation/timeline';
   import { connectLiveSocket } from '$lib/presentation/live-socket';
-  import { defaultRendererConfig, HUD_SCALE_RANGE, type AgentPresentationStatus, type CommentaryMode, type EffectQuality, type RendererConfig, type RendererLayout, type RendererTheme, type TimelineSnapshot } from '$lib/presentation/types';
+  import { defaultRendererConfig, HUD_SCALE_RANGE, type AgentPresentationStatus, type CommentaryMode, type EffectQuality, type MoveEffectSkin, type RendererConfig, type RendererLayout, type RendererTheme, type TimelineSnapshot } from '$lib/presentation/types';
   import type { AgentLifecycleState, AgentRequest, BattleAction, BattleEvent, MatchArchive, Side } from '$lib/types';
 
   export let data: { id: string };
@@ -44,6 +44,7 @@
       theme: current.theme,
       near: current.nearSide,
       effects: current.effects,
+      moveEffects: current.moveEffectSkin,
       commentary: current.commentaryMode,
       hudScale: String(current.hudScale),
       roster: current.showTeamRoster ? '1' : '0',
@@ -401,6 +402,7 @@
     <div class="tool-group">
       <span class="tool-label">Motion</span>
       <label>Effects<select value={config.effects} on:change={(event) => updateConfig({ effects: event.currentTarget.value as EffectQuality })}><option value="off">Off</option><option value="low">Low</option><option value="standard">Standard</option><option value="high">High</option></select></label>
+      <label>Move style<select value={config.moveEffectSkin} on:change={(event) => updateConfig({ moveEffectSkin: event.currentTarget.value as MoveEffectSkin })}><option value="broadcast">Broadcast</option><option value="retro">Retro</option><option value="procedural">Procedural</option></select></label>
       <label>Commentary<select value={config.commentaryMode} on:change={(event) => updateConfig({ commentaryMode: event.currentTarget.value as CommentaryMode })}><option value="latest">Latest only</option><option value="last-3">Last three</option><option value="full">Full detail</option><option value="hidden">Hidden</option></select></label>
       <label class="check"><input type="checkbox" checked={config.animatedSprites} on:change={(event) => updateConfig({ animatedSprites: event.currentTarget.checked })} />Animated sprites</label>
       <label class="check"><input type="checkbox" checked={config.reducedMotion} on:change={(event) => updateConfig({ reducedMotion: event.currentTarget.checked })} />Reduced motion</label>

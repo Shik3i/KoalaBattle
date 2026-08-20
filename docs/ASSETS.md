@@ -63,6 +63,11 @@ source/licence guidance and `scripts/setup_sfx.py` for explicit mapping, checksu
 and safe removal. Curated files go below `data/assets/audio/`; the backend serves only exact
 semantic ids through `GET /api/assets/audio/{effect_id}` and never accepts arbitrary paths.
 
+Optional move textures follow the same boundary. [MOVE_EFFECTS.md](MOVE_EFFECTS.md) documents
+the pinned CC0 allowlist, conservative exclusions, local-pack mapping, checksums, and removal.
+They are served by exact id through `GET /api/assets/effects/{effect_id}`; procedural recipes
+remain the default fallback when no texture is installed.
+
 The resolver checks canonical IDs plus legacy installer names and refuses paths that resolve
 outside `KOALABATTLE_ASSET_ROOT`. APIs: `GET /api/assets/status`,
 `POST /api/assets/rescan`, `GET /api/assets/resolve/pokemon/:species`, and the content route

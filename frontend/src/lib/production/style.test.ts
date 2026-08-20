@@ -69,7 +69,7 @@ test('one style drives the live DOM surface too, without a parallel theme system
     version: 1, layout: 'overlay-landscape', theme: 'koala-dark', preset: 'video',
     playbackSpeed: 1, commentaryMode: 'latest', showBattleLog: false, showTurn: true,
     showAgentState: true, transparentBackground: true, animatedSprites: true,
-    effects: 'standard', reducedMotion: false, showDamageNumbers: true, nearSide: 'p1'
+    effects: 'standard', moveEffectSkin: 'broadcast', reducedMotion: false, showDamageNumbers: true, nearSide: 'p1'
   } as never;
 
   style.effect.intensity = 'dramatic';

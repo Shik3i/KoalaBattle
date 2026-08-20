@@ -70,6 +70,8 @@ class LocalAssetProvider:
 
     _allowed_extensions = (".webp", ".png", ".gif", ".svg", ".jpg", ".jpeg")
     _audio_extensions = (".wav", ".ogg", ".mp3")
+    _effect_extensions = (".webp", ".png", ".jpg", ".jpeg")
+    _effect_packs = ("showdown-cc0", "kenney-particles", "custom")
     _category_paths = {
         "pokemon_front": Path("pokemon/front"),
         "pokemon_back": Path("pokemon/back"),
@@ -156,6 +158,20 @@ class LocalAssetProvider:
             candidate = (self.root / "audio" / f"{effect_id}{extension}").resolve()
             if candidate.is_relative_to(self.root) and candidate.is_file():
                 return candidate
+        return None
+
+    def effect(self, effect_id: str) -> Path | None:
+        """Resolve a named optional move texture from known pack directories only."""
+        if not re.fullmatch(r"[a-z0-9][a-z0-9._-]*", effect_id):
+            return None
+        roots = tuple(self.root / "effects" / pack for pack in self._effect_packs) + (
+            self.root / "effects",
+        )
+        for directory in roots:
+            for extension in self._effect_extensions:
+                candidate = (directory / f"{effect_id}{extension}").resolve()
+                if candidate.is_relative_to(self.root) and candidate.is_file():
+                    return candidate
         return None
 
     def scan(self) -> AssetScanReport:

@@ -90,6 +90,9 @@ def test_asset_status_and_resolution_api(tmp_path: Path) -> None:
     audio = assets / "audio"
     audio.mkdir(parents=True)
     (audio / "impact-01.wav").write_bytes(b"RIFF-local-test")
+    effects = assets / "effects" / "showdown-cc0"
+    effects.mkdir(parents=True)
+    (effects / "fireball.png").write_bytes(b"\x89PNG\r\n\x1a\nlocal-test")
     settings = Settings(
         _env_file=None,
         database_url=f"sqlite+aiosqlite:///{tmp_path / 'assets.db'}",
@@ -106,6 +109,10 @@ def test_asset_status_and_resolution_api(tmp_path: Path) -> None:
         sfx = client.get("/api/assets/audio/impact-01")
         assert sfx.status_code == 200
         assert sfx.content == b"RIFF-local-test"
+        move_effect = client.get("/api/assets/effects/fireball")
+        assert move_effect.status_code == 200
+        assert move_effect.content.startswith(b"\x89PNG")
+        assert client.get("/api/assets/effects/not-installed").status_code == 404
         assert client.get("/api/assets/audio/../secret").status_code in {404, 400}
 
 

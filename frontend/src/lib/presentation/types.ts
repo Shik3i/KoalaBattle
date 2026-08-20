@@ -57,6 +57,7 @@ export type PokemonType =
   | 'rock' | 'ghost' | 'dragon' | 'dark' | 'steel' | 'fairy';
 export type MoveVisualArchetype = 'physical' | 'special' | 'status';
 export type EffectQuality = 'off' | 'low' | 'standard' | 'high';
+export type MoveEffectSkin = 'broadcast' | 'retro' | 'procedural';
 
 export interface MoveVisualProfile {
   type: PokemonType;
@@ -78,6 +79,7 @@ export interface RendererConfig {
   transparentBackground: boolean;
   animatedSprites: boolean;
   effects: EffectQuality;
+  moveEffectSkin: MoveEffectSkin;
   reducedMotion: boolean;
   showDamageNumbers: boolean;
   nearSide: Side;
@@ -184,6 +186,7 @@ export const defaultRendererConfig = (
   transparentBackground: false,
   animatedSprites: true,
   effects: 'standard',
+  moveEffectSkin: 'broadcast',
   reducedMotion: false,
   showDamageNumbers: true,
   nearSide: 'p1',

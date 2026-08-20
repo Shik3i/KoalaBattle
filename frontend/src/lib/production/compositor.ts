@@ -1,4 +1,5 @@
 import type { PokemonType } from '../presentation/types.ts';
+import { moveEffectAssetUrl, resolveMoveEffect, type MoveEffectFamily } from '../move-effects.ts';
 import type { PokemonState, ProductionStyle } from '../types.ts';
 import { damageCallout, directorCard, isKnockedOut } from './scene.ts';
 import type { ProductionScene, ProductionSceneSide } from './scene.ts';
@@ -77,6 +78,14 @@ export class ProductionCompositor {
     const missingFonts = await this.fontsReady;
     for (const id of missingFonts) this.missingAssets.add(id);
     const background = style.stage.background.kind === 'image' ? style.stage.background.asset_id : null;
+    const moveRecipe = scene.effect.moveName
+      ? resolveMoveEffect(
+          scene.effect.moveName,
+          scene.effect.type,
+          scene.effect.category,
+          scene.style.hud.preset === 'retro' ? 'retro' : 'broadcast'
+        )
+      : null;
     await Promise.all(
       [
         scene.p1.spriteUrl,
@@ -86,7 +95,8 @@ export class ProductionCompositor {
         scene.p1.logoUrl,
         scene.p2.logoUrl,
         assetUrl(this.assetApiBase, background),
-        style.watermark.enabled ? assetUrl(this.assetApiBase, style.watermark.asset_id) : null
+        style.watermark.enabled ? assetUrl(this.assetApiBase, style.watermark.asset_id) : null,
+        moveRecipe?.assetId ? moveEffectAssetUrl(moveRecipe.assetId, this.assetApiBase) : null
       ].map((url) => this.load(url))
     );
     for (const [id, url] of [
@@ -1065,15 +1075,26 @@ export class ProductionCompositor {
     const color = TYPE_COLORS[effect.type];
     const impactCue = new Set(['damage', 'critical_hit', 'super_effective', 'resisted', 'immune']);
     const context = this.context;
+    const recipe = resolveMoveEffect(
+      effect.moveName || effect.moveId || '',
+      effect.type,
+      effect.category,
+      scene.style.hud.preset === 'retro' ? 'retro' : 'broadcast'
+    );
     context.save(); context.globalCompositeOperation = 'lighter';
     if (effect.archetype === 'heal') this.drawHeal(end, effect, color, scale);
     else if (effect.archetype === 'status') this.drawStatusEffect(end, effect, color, scale);
     else if (['pulse', 'field', 'buff', 'debuff'].includes(effect.archetype)) this.drawPulse(effect.archetype === 'field' ? { x: width / 2, y: height * .7 } : end, effect, effect.archetype === 'debuff' ? '#ff5f72' : color, scale);
     else if (effect.archetype === 'barrier') this.drawBarrier(end, effect, color, scale);
     else if (effect.archetype === 'hazard') this.drawHazard(end, effect, color, scale);
-    else if (effect.attack && effect.moveId === 'earthquake') this.drawEarthquake(scene, effect, width, height, scale);
-    else if (effect.attack && effect.moveId === 'earthpower' && effect.actor) this.drawEarthPower(positions[effect.actor], end, scene, effect, width, height, scale);
-    else if (effect.attack && effect.actor) this.drawAttack(positions[effect.actor], end, effect, color, width, scale, resolved);
+    else if (effect.attack && recipe.family === 'quake') this.drawEarthquake(scene, effect, width, height, scale);
+    else if (effect.attack && effect.actor) {
+      const archetype = recipe.family === 'beam' || recipe.family === 'lightning'
+        ? 'beam'
+        : recipe.family === 'contact' ? 'contact' : effect.archetype;
+      this.drawAttack(positions[effect.actor], end, { ...effect, archetype }, recipe.color, width, scale, resolved);
+      this.drawRecipeMotif(recipe.family, positions[effect.actor], end, effect, recipe.color, recipe.assetId, scale);
+    }
     if (scene.style.effect.impact_flash && impactCue.has(effect.kind) && effect.impactProgress > 0 && effect.impactProgress < 1) {
       const burst = impactEnvelope(effect.impactProgress) * resolved.effect;
       const rays = Math.max(6, Math.round(18 * resolved.effect));
@@ -1083,6 +1104,57 @@ export class ProductionCompositor {
       context.fillStyle = withAlpha(impactColor, .28); context.globalAlpha = Math.min(1, burst * .7); context.beginPath(); context.arc(end.x, end.y - 120 * scale, 75 * scale * burst, 0, Math.PI * 2); context.fill();
     }
     context.restore();
+  }
+
+  /** Move-specific accent shared with the live recipe registry; always has a procedural fallback. */
+  private drawRecipeMotif(family: MoveEffectFamily, start: Point, end: Point, effect: ProductionScene['effect'], color: string, assetId: string | null, scale: number) {
+    const context = this.context;
+    const travel = easeInOut(clamp((effect.progress - .12) / .68));
+    const origin = { x: start.x, y: start.y - 150 * scale };
+    const target = { x: end.x, y: end.y - 125 * scale };
+    const x = origin.x + (target.x - origin.x) * travel;
+    const y = origin.y + (target.y - origin.y) * travel - Math.sin(travel * Math.PI) * (family === 'water' ? 35 : 85) * scale;
+    const pulse = Math.sin(effect.progress * Math.PI);
+    const bitmap = assetId ? this.bitmap(moveEffectAssetUrl(assetId, this.assetApiBase)) : null;
+    if (bitmap && !['beam', 'lightning', 'quake', 'rock', 'ice', 'wind'].includes(family)) {
+      const size = (80 + pulse * 55) * scale;
+      context.globalAlpha = pulse;
+      context.drawImage(bitmap, x - size / 2, y - size / 2, size, size);
+    }
+    context.strokeStyle = color;
+    context.fillStyle = color;
+    context.lineCap = 'round';
+    if (family === 'lightning') {
+      context.lineWidth = 12 * scale;
+      context.globalAlpha = pulse;
+      context.beginPath(); context.moveTo(origin.x, origin.y);
+      for (let i = 1; i < 7; i += 1) {
+        const t = Math.min(travel, i / 6);
+        context.lineTo(origin.x + (target.x - origin.x) * t + (hash(effect.seed + i) - .5) * 70 * scale, origin.y + (target.y - origin.y) * t);
+      }
+      context.stroke();
+    } else if (family === 'water' || family === 'wind') {
+      context.globalAlpha = pulse * .8;
+      context.lineWidth = 8 * scale;
+      for (let i = 0; i < 3; i += 1) {
+        context.beginPath(); context.ellipse(x, y, (45 + i * 22) * scale, (13 + i * 7) * scale, -.35, 0, Math.PI * 2); context.stroke();
+      }
+    } else if (family === 'ice' || family === 'rock') {
+      context.globalAlpha = pulse;
+      for (let i = 0; i < 7; i += 1) {
+        const angle = i / 7 * Math.PI * 2 + hash(effect.seed + i);
+        const radius = (28 + hash(effect.seed + i * 11) * 55) * scale;
+        const px = target.x + Math.cos(angle) * radius;
+        const py = target.y + Math.sin(angle) * radius;
+        const size = (8 + hash(effect.seed + i * 17) * 18) * scale;
+        context.beginPath(); context.moveTo(px, py - size); context.lineTo(px + size, py + size); context.lineTo(px - size, py + size * .65); context.closePath(); context.fill();
+      }
+    } else if (family === 'explosion') {
+      context.globalAlpha = pulse * .8;
+      const glow = context.createRadialGradient(target.x, target.y, 0, target.x, target.y, 190 * scale * pulse);
+      glow.addColorStop(0, '#fff'); glow.addColorStop(.3, color); glow.addColorStop(1, 'rgba(0,0,0,0)');
+      context.fillStyle = glow; context.beginPath(); context.arc(target.x, target.y, 190 * scale * pulse, 0, Math.PI * 2); context.fill();
+    }
   }
 
   /** Original canvas treatment for Ground moves: arena-wide shockwaves, cracks and debris. */

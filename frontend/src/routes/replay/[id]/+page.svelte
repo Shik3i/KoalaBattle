@@ -19,6 +19,7 @@
     type EffectQuality,
     type PlaybackSpeed,
     type RendererConfig,
+    type MoveEffectSkin,
     type RendererLayout,
     type RendererTheme,
     type TimelineSnapshot
@@ -201,6 +202,7 @@
       <label>Theme<select value={config.theme} on:change={(event) => updateConfig({ theme: event.currentTarget.value as RendererTheme })}><option value="koala-dark">Koala Dark</option><option value="koala-light">Koala Light</option></select></label>
       <label>Commentary<select value={config.commentaryMode} on:change={(event) => updateConfig({ commentaryMode: event.currentTarget.value as CommentaryMode })}><option value="latest">Latest</option><option value="last-3">Last 3</option><option value="full">Full history</option><option value="hidden">Hidden</option></select></label>
       <label>Effects<select value={config.effects} on:change={(event) => updateConfig({ effects: event.currentTarget.value as EffectQuality })}><option value="off">Off</option><option value="low">Low</option><option value="standard">Standard</option><option value="high">High</option></select></label>
+      <label>Move style<select value={config.moveEffectSkin} on:change={(event) => updateConfig({ moveEffectSkin: event.currentTarget.value as MoveEffectSkin })}><option value="broadcast">Broadcast</option><option value="retro">Retro</option><option value="procedural">Procedural</option></select></label>
     </div>
   </section>
 {/if}

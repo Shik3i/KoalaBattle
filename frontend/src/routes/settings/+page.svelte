@@ -3,7 +3,7 @@
   import { api, apiBase, configureProvider, uploadVoiceReference, wsBase } from '$lib/api';
   import { loadRendererConfig, saveRendererConfig } from '$lib/presentation/config';
   import { hydrateStoredProviderSettings, loadProviderSettings, saveProviderSetting, type StoredProviderSetting } from '$lib/provider-settings';
-  import { defaultRendererConfig, type EffectQuality, type RendererConfig, type RendererTheme } from '$lib/presentation/types';
+  import { defaultRendererConfig, type EffectQuality, type MoveEffectSkin, type RendererConfig, type RendererTheme } from '$lib/presentation/types';
   import type { AssetResolution, AssetScanReport, MatchSummary, ProviderStatus, RendererCapabilities, SpeechProviderStatus, VoicePersona, VoicePreset } from '$lib/types';
 
   type ObsPreset = 'youtube' | 'twitch' | 'vertical';
@@ -35,7 +35,7 @@
 
   $: preset = presets[obsPreset];
   $: overlayUrl = selectedMatch
-    ? `${baseUrl}/overlay/${selectedMatch}?layout=${preset.layout}&theme=${renderer.theme}&transparent=${renderer.transparentBackground ? '1' : '0'}&commentary=${renderer.commentaryMode}&log=${renderer.showBattleLog ? '1' : '0'}&near=${renderer.nearSide}&effects=${renderer.effects}&reducedMotion=${renderer.reducedMotion ? '1' : '0'}&damageNumbers=${renderer.showDamageNumbers ? '1' : '0'}`
+    ? `${baseUrl}/overlay/${selectedMatch}?layout=${preset.layout}&theme=${renderer.theme}&transparent=${renderer.transparentBackground ? '1' : '0'}&commentary=${renderer.commentaryMode}&log=${renderer.showBattleLog ? '1' : '0'}&near=${renderer.nearSide}&effects=${renderer.effects}&moveEffects=${renderer.moveEffectSkin}&reducedMotion=${renderer.reducedMotion ? '1' : '0'}&damageNumbers=${renderer.showDamageNumbers ? '1' : '0'}`
     : 'Select a recorded match';
 
   onMount(() => {
@@ -195,6 +195,7 @@
       <label>Presentation preset<select value={renderer.preset} on:change={(event) => updateRenderer({ preset: event.currentTarget.value as RendererConfig['preset'] })}><option value="live">Live</option><option value="video">Video</option><option value="fast">Fast</option><option value="instant">Instant</option></select></label>
       <label>Commentary history<select value={renderer.commentaryMode} on:change={(event) => updateRenderer({ commentaryMode: event.currentTarget.value as RendererConfig['commentaryMode'] })}><option value="latest">Latest</option><option value="last-3">Last 3</option><option value="full">Full</option><option value="hidden">Hidden</option></select></label>
       <label>Effect quality<select value={renderer.effects} on:change={(event) => updateRenderer({ effects: event.currentTarget.value as EffectQuality })}><option value="off">Off</option><option value="low">Low</option><option value="standard">Standard</option><option value="high">High</option></select></label>
+      <label>Move animation style<select value={renderer.moveEffectSkin} on:change={(event) => updateRenderer({ moveEffectSkin: event.currentTarget.value as MoveEffectSkin })}><option value="broadcast">Broadcast + local textures</option><option value="retro">Retro + local textures</option><option value="procedural">Procedural only</option></select></label>
     </div>
     <div class="toggles">
       <label><input type="checkbox" checked={renderer.showBattleLog} on:change={(event) => updateRenderer({ showBattleLog: event.currentTarget.checked })} />Battle log</label>

@@ -12,6 +12,7 @@ restricted presentation data.
 - Configure an LLM or use a no-key agent: [Provider configuration](PROVIDERS.md)
 - Use an external browser chat without an API key: [Manual Web Chat](MANUAL_MODE.md)
 - Install optional local sprites responsibly: [Optional assets and rights](ASSETS.md)
+- Add license-tracked move-effect textures: [Optional move effects](MOVE_EFFECTS.md)
 - Develop and run the complete validation gate: [Development](DEVELOPMENT.md)
 
 ## Run battles and tournaments

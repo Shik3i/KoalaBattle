@@ -4,6 +4,7 @@ import {
   HUD_SCALE_RANGE,
   type CommentaryMode,
   type EffectQuality,
+  type MoveEffectSkin,
   type PresentationPreset,
   type RendererConfig,
   type RendererLayout,
@@ -16,6 +17,7 @@ const themes: RendererTheme[] = ['pokemon-route', 'pokemon-stadium', 'koala-dark
 const presets: PresentationPreset[] = ['live', 'video', 'fast', 'instant'];
 const commentaryModes: CommentaryMode[] = ['latest', 'last-3', 'full', 'hidden'];
 const effectQualities: EffectQuality[] = ['off', 'low', 'standard', 'high'];
+const moveEffectSkins: MoveEffectSkin[] = ['broadcast', 'retro', 'procedural'];
 
 export function loadRendererConfig(): RendererConfig {
   if (typeof localStorage === 'undefined') return defaultRendererConfig();
@@ -54,6 +56,9 @@ export function sanitizeRendererConfig(value: unknown): RendererConfig {
     ),
     animatedSprites: booleanOrDefault(candidate.animatedSprites, defaults.animatedSprites),
     effects: includes(effectQualities, candidate.effects) ? candidate.effects : defaults.effects,
+    moveEffectSkin: includes(moveEffectSkins, candidate.moveEffectSkin)
+      ? candidate.moveEffectSkin
+      : defaults.moveEffectSkin,
     reducedMotion: booleanOrDefault(candidate.reducedMotion, defaults.reducedMotion),
     showDamageNumbers: booleanOrDefault(candidate.showDamageNumbers, defaults.showDamageNumbers),
     nearSide:
@@ -81,6 +86,7 @@ export function configFromQuery(search: URLSearchParams): RendererConfig {
     preset: search.get('preset') || base.preset,
     commentaryMode: search.get('commentary') || base.commentaryMode,
     effects: search.get('effects') || base.effects,
+    moveEffectSkin: search.get('moveEffects') || base.moveEffectSkin,
     nearSide: (search.get('near') as Side | null) || base.nearSide,
     transparentBackground:
       transparent === null ? base.transparentBackground : transparent === '1' || transparent === 'true',

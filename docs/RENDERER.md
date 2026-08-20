@@ -36,10 +36,13 @@ assume that `p1` is permanently fixed to one visual side.
 
 ## Effects and performance
 
-Procedural CSS motion covers all 18 move types and physical, special, and status archetypes,
+One shared deterministic move registry gives iconic attacks distinct recipes (quake, fire,
+water, lightning, ice, psychic, shadow, rock, poison, heal, barrier, dance, explosion, and more)
+and gives every unknown move a metadata-based fallback. Both the live DOM renderer and offline
+Canvas compositor consume that registry. Procedural CSS/Canvas motion covers all 18 move types,
 including projectile/beam/charge layers, seeded particles, arena-local impact shake, HP ghost
-bars, damage/heal numbers, effectiveness, field states, switch/faint, and victory. It contains
-no extracted game VFX or battle backgrounds. Playback speed controls scheduler and HP
+bars, damage/heal numbers, effectiveness, field states, switch/faint, and victory. Optional
+CC0 textures are local, gitignored, and never required. Playback speed controls scheduler and HP
 interpolation durations.
 `prefers-reduced-motion` collapses decorative motion.
 
