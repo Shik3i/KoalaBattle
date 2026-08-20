@@ -107,6 +107,19 @@ test('move visuals use authoritative type/category with deterministic fallback',
   assert.equal(fallback.currentMoveProfile?.archetype, 'special');
 });
 
+test('switches clear the previous move before the replacement enters', () => {
+  const attacking = reducePresentation(createPresentationState(match), event(1, 'move_used', {
+    actor: 'p1a: Pikachu', move: 'Thunderbolt'
+  }));
+  const switched = reducePresentation(attacking, event(2, 'pokemon_switched', {
+    actor: 'p1a: Raichu', hp: '100/100'
+  }));
+  assert.equal(switched.currentMove, null);
+  assert.equal(switched.currentMoveProfile, null);
+  assert.equal(switched.currentMovePhase, 'resolved');
+  assert.equal(switched.players.p1.motion, 'switching-in');
+});
+
 test('damage, healing, effectiveness and field feedback follow visible events', () => {
   const active = {
     id: 'pikachu', name: 'Pikachu', species: 'pikachu', hp_fraction: 1, status: null,

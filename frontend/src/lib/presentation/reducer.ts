@@ -157,6 +157,12 @@ export function reducePresentation(
     }
     case 'pokemon_switched':
       battle = switchBattleActive(battle, side, payload);
+      // A switch is its own beat. Do not let the previous move remain in the executing
+      // phase while the replacement enters the arena; that rendered as an attack on switch.
+      currentMove = null;
+      currentMoveProfile = null;
+      currentMoveSide = null;
+      currentMovePhase = 'resolved';
       players = setMotion(players, side, 'switching-in');
       players = setCommentaryPhase(players, side, 'executing');
       break;

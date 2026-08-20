@@ -66,6 +66,7 @@
       : Math.round(650 / Number(config.playbackSpeed));
   $: formatLabel = formatName(presentation?.format || '', generation);
   $: feed = groupedFeed(presentation);
+  $: finalPokemon = isFinalPokemon(near) && isFinalPokemon(far);
   $: slots = [
     { place: 'far', side: farSide, data: far, perspective: 'front' },
     { place: 'near', side: nearSide, data: near, perspective: 'back' }
@@ -160,6 +161,11 @@
     return unrevealed
       ? `${standing} known Pokémon still standing · ${unrevealed} unrevealed team slots`
       : `${standing} of ${TEAM_SIZE} Pokémon still standing`;
+  }
+
+  function isFinalPokemon(side: BattleSide | null) {
+    const team = side?.team || [];
+    return team.length === TEAM_SIZE && team.filter((member) => !member.fainted).length === 1;
   }
 
   function pokemonGender(active: PokemonState | null | undefined): 'male' | 'female' | null {
@@ -463,7 +469,7 @@
             <div class="sprite-slot">
               <div class="platform" aria-hidden="true"><i class="pedestal-surface"></i><i class="pedestal-rim"></i></div>
               <div class="contact-shadow" aria-hidden="true"></div>
-              {#key `${slot.data.active.species}:${presentation.players[slot.side].motion}:${presentation.eventSequence}`}
+              {#key `${slot.data.active.species}:${presentation.players[slot.side].motion}`}
                 <div
                   style={spriteStyle(presentation.players[slot.side].motion, slot.place === 'near')}
                   class={`sprite ${presentation.players[slot.side].motion}`}
@@ -506,8 +512,17 @@
           aria-hidden="true"
         >
           <div style={chargeStyle()} class="charge-ring"></div>
+          <div class="physical-swipe" aria-hidden="true"><i></i><i></i><i></i></div>
           <div style={projectileStyle(presentation.currentMoveSide === (config.nearSide || 'p1') ? 'near-to-far' : 'far-to-near')} class="move-projectile"></div>
           <div style={beamStyle(presentation.currentMoveSide === (config.nearSide || 'p1') ? 'near-to-far' : 'far-to-near')} class="move-beam"></div>
+        </div>
+      {/if}
+
+      {#if finalPokemon && !presentation.finished}
+        <div class="final-signal" role="status" aria-live="polite">
+          <small>CLUTCH MOMENT</small>
+          <strong>FINAL POKÉMON!</strong>
+          <span>One remaining fighter on each side</span>
         </div>
       {/if}
 
@@ -564,12 +579,12 @@
                     <small class="context-meter">Context · {player.contextMetrics.estimatedTokens.toLocaleString()} tokens</small>
                   {/if}
                 {:else}
-                  <p class="dialogue-text">
+                  <div class="dialogue-copy">
                     {#if player.currentCommentary?.banter}
                       <span class="banter-quote">"{player.currentCommentary.banter}"</span>
                     {/if}
-                    {player.currentCommentary?.commentary || `${player.currentCommentary?.actionName || player.currentCommentary?.action || 'Action'} selected.`}
-                  </p>
+                    <span class="commentary-copy">{player.currentCommentary?.commentary || `${player.currentCommentary?.actionName || player.currentCommentary?.action || 'Action'} selected.`}</span>
+                  </div>
                 {/if}
               </div>
             {/if}
@@ -622,6 +637,21 @@
         {/if}
       </div>
     {/if}
+
+    {#if presentation.eventIndex === 0 && !presentation.finished}
+      <div class="director-card director-intro" role="status" aria-label="Match introduction">
+        <span class="director-mark"><img src="/koalabattle-mark.svg" alt="" /></span>
+        <small>KOALABATTLE // MAIN EVENT</small>
+        <strong>{presentation.players.p1.displayName} <i>VS</i> {presentation.players.p2.displayName}</strong>
+        <span>{formatLabel}</span>
+      </div>
+    {:else if presentation.finished}
+      <div class="director-card director-result" role="status" aria-label="Match result">
+        <small>KOALABATTLE // FINAL</small>
+        <strong>{presentation.winnerName || presentation.battle?.result?.winner_name || 'DRAW'}{presentation.winner ? ' WINS' : ''}</strong>
+        <span>{formatLabel} · TURN {presentation.battle?.turn ?? 0}</span>
+      </div>
+    {/if}
   </section>
 {:else}
   <section class="renderer-loading panel"><span class="eyebrow">Renderer ready</span><h2>Waiting for normalized battle state…</h2><p>No engine connection is required to draw this frame.</p></section>
@@ -650,12 +680,17 @@
   .player-name{overflow:hidden;font:800 calc(var(--hud-scale,1) * clamp(.75rem,1.05cqw,1.1rem))/1.1 var(--display);letter-spacing:-.01em;text-overflow:ellipsis;text-transform:uppercase;white-space:nowrap;color:#fff}
   .header-p1 .player-name{color:var(--r-p1)}
   .header-p2 .player-name{color:var(--r-p2)}
-  .agent-state{padding:.05rem .25rem;border-radius:3px;background:rgba(255,255,255,.08);font:700 calc(var(--hud-scale,1) * clamp(.48rem,.65cqw,.65rem)) var(--mono);font-style:normal;letter-spacing:.08em;text-transform:uppercase}
+  .agent-state{display:inline-flex;align-items:center;gap:.28rem;min-height:1.3em;padding:.14rem .4rem;border-radius:4px;background:rgba(255,255,255,.1);font:800 calc(var(--hud-scale,1) * clamp(.62rem,.82cqw,.82rem)) var(--mono);font-style:normal;letter-spacing:.08em;text-transform:uppercase;text-shadow:0 1px 2px rgba(0,0,0,.8)}
+  .agent-state::before{content:'•';font-size:1.35em;line-height:.5;color:currentColor}
+  .agent-state.waiting::before{content:'◌'}
+  .agent-state.thinking::before{content:'◌'}
+  .agent-state.finished::before{content:'✓'}
+  .agent-state.error::before{content:'!'}
   .agent-state.thinking{background:rgba(242,193,95,.2);color:#ffd679}
   .agent-state.decided,.agent-state.executing{background:rgba(120,255,169,.16);color:var(--r-accent)}
   .agent-state.error{background:rgba(255,139,135,.18);color:#ff9d98}
-  .team-strip{display:flex;gap:clamp(2px,.2cqw,3px)}
-  .team-strip i{position:relative;display:grid;place-items:center;width:calc(var(--hud-scale,1) * clamp(15px,1.5cqw,24px));aspect-ratio:1;overflow:hidden;border:1px solid color-mix(in srgb,var(--side-color) 45%,transparent);border-radius:4px;background:rgba(255,255,255,.05)}
+  .team-strip{display:flex;gap:clamp(3px,.3cqw,5px)}
+  .team-strip i{position:relative;display:grid;place-items:center;width:calc(var(--hud-scale,1) * clamp(20px,2.1cqw,32px));aspect-ratio:1;overflow:hidden;border:1.5px solid color-mix(in srgb,var(--side-color) 62%,rgba(255,255,255,.3));border-radius:5px;background:rgba(255,255,255,.08);box-shadow:0 1px 3px rgba(0,0,0,.42)}
   .team-strip img{width:145%;height:145%;object-fit:contain;image-rendering:pixelated}
   .team-strip i b{color:var(--r-dim);font:800 .55rem var(--display)}
   .team-strip i.unrevealed{border-color:rgba(255,255,255,.16);background:rgba(0,0,0,.24)}
@@ -664,7 +699,7 @@
   .team-strip i.fainted{border-color:rgba(255,255,255,.12);background:rgba(0,0,0,.4);opacity:.38;filter:grayscale(1) brightness(.65)}
   .team-strip i.fainted::after{content:'';position:absolute;width:132%;height:1px;background:rgba(255,255,255,.5);transform:rotate(-45deg)}
   .team-strip i.active{border-color:#fff;background:color-mix(in srgb,var(--side-color) 26%,transparent);box-shadow:0 0 0 1px rgba(255,255,255,.5)}
-  .team-strip u{position:absolute;bottom:0;left:0;height:2px;border-radius:0 2px 0 0;background:var(--r-hp-high);text-decoration:none;transition:width var(--hp-duration,420ms) cubic-bezier(.2,.8,.2,1)}
+  .team-strip u{position:absolute;bottom:0;left:0;height:calc(var(--hud-scale,1) * clamp(3px,.3cqw,5px));min-height:3px;border:1px solid rgba(0,0,0,.65);border-radius:0 2px 0 0;background:var(--r-hp-high);text-decoration:none;transition:width var(--hp-duration,420ms) cubic-bezier(.2,.8,.2,1);box-shadow:0 -1px 0 rgba(255,255,255,.75)}
   .team-strip u[data-tone='mid']{background:var(--r-hp-mid)}
   .team-strip u[data-tone='low']{background:var(--r-hp-low)}
   .brand{display:flex;align-items:center;gap:.45rem;color:var(--r-ink);font:800 calc(var(--hud-scale,1) * clamp(.68rem,.88cqw,.9rem)) var(--display);letter-spacing:.12em}
@@ -824,8 +859,9 @@
   .dialogue-header{display:flex;align-items:center;justify-content:space-between;gap:.4rem}
   .dialogue-name{font-family:var(--display);font-size:calc(var(--hud-scale,1) * clamp(.66rem,.82cqw,.84rem));font-weight:800;color:#fff;letter-spacing:.02em;text-transform:uppercase}
   .dialogue-phase{color:var(--side-color);font:900 calc(var(--hud-scale,1) * clamp(.52rem,.66cqw,.68rem)) var(--mono);letter-spacing:.12em}
-  .dialogue-text,.dialogue-item p{display:-webkit-box;overflow:hidden;margin:0;color:#dfeae3;font-size:calc(var(--hud-scale,1) * clamp(.74rem,.92cqw,.92rem));line-height:1.4;line-clamp:2;-webkit-box-orient:vertical;-webkit-line-clamp:2}
-  .dialogue-box .banter-quote{display:block;color:#ffd679;font-style:italic;font-weight:700;margin-bottom:.1rem}
+  .dialogue-copy{display:grid;gap:.15rem;min-height:2.8em;overflow:hidden;margin:0;color:#dfeae3;font-size:calc(var(--hud-scale,1) * clamp(.74rem,.92cqw,.92rem));line-height:1.4}
+  .dialogue-copy .commentary-copy{display:-webkit-box;overflow:hidden;line-clamp:2;-webkit-box-orient:vertical;-webkit-line-clamp:2}
+  .dialogue-box .banter-quote{display:block;overflow:hidden;color:#ffd679;font-style:italic;font-weight:700;white-space:nowrap;text-overflow:ellipsis}
   .dialogue-box .thinking{color:var(--r-dim);font-style:italic}
   .dialogue-box .live-response{color:#f3fff6;font-style:normal}
   .dialogue-box .live-response span{color:var(--side-color);animation:cursor-blink 1s steps(2,end) infinite}
@@ -869,6 +905,10 @@
   .move-beam{position:absolute;top:var(--origin-y);left:var(--origin-x);width:52%;height:6px;transform-origin:left center;transform:rotate(var(--beam-angle)) scaleX(0);border-radius:999px;background:linear-gradient(90deg,#fff,var(--type-color),transparent);box-shadow:0 0 14px var(--type-color);opacity:0;animation:beam-fire .46s ease-out both}
   .charge-ring{position:absolute;top:var(--origin-y);left:var(--origin-x);width:70px;aspect-ratio:1;transform:translate(-50%,-50%);border:2px solid var(--type-color);border-radius:50%;opacity:0;animation:charge-ring .5s ease-out both}
   .move-visual[data-archetype='physical'] .move-projectile,.move-visual[data-archetype='physical'] .move-beam{display:none}
+  .physical-swipe{position:absolute;top:50%;left:50%;width:22%;height:18%;transform:translate(-50%,-50%) rotate(-18deg);opacity:0;filter:drop-shadow(0 0 10px var(--type-color));animation:physical-swipe .48s cubic-bezier(.2,.8,.2,1) both}
+  .physical-swipe i{position:absolute;left:0;width:100%;height:9%;border-radius:999px;background:linear-gradient(90deg,transparent,#fff,var(--type-color),transparent);transform:rotate(calc((var(--slash-index) - 1) * 24deg));}
+  .physical-swipe i:nth-child(1){--slash-index:0;top:12%}.physical-swipe i:nth-child(2){--slash-index:1;top:43%}.physical-swipe i:nth-child(3){--slash-index:2;top:74%}
+  .move-visual[data-archetype='special'] .physical-swipe,.move-visual[data-archetype='status'] .physical-swipe{display:none}
   .move-visual[data-archetype='status'] .move-projectile,.move-visual[data-archetype='status'] .move-beam{display:none}
   .move-visual[data-archetype='status'] .charge-ring{top:50%;left:50%;width:30%;animation:status-aura .5s ease-out both}
   .move-visual[data-move-type='electric'] .move-beam,.move-visual[data-move-type='psychic'] .move-beam,.move-visual[data-move-type='dragon'] .move-beam,.move-visual[data-move-type='ice'] .move-beam{opacity:1}
@@ -900,6 +940,11 @@
   .battle-feed p[data-emphasis='critical']{color:#ffd262}
   .battle-feed p[data-emphasis='positive']{color:#8cf2a7}
   .battle-feed p[data-emphasis='negative']{color:#ff9d98}
+
+  .final-signal{position:absolute;z-index:21;top:8%;left:50%;display:grid;gap:.2rem;min-width:min(70%,520px);padding:.7rem 1.2rem;transform:translateX(-50%);border:1px solid color-mix(in srgb,#ffd262 72%,transparent);border-radius:8px;background:linear-gradient(90deg,rgba(65,28,8,.92),rgba(18,13,8,.96),rgba(65,28,8,.92));box-shadow:0 8px 30px rgba(0,0,0,.6),0 0 30px rgba(255,210,98,.18);text-align:center;animation:final-signal-in .55s both}
+  .final-signal small{color:#ffd262;font:900 calc(var(--hud-scale,1) * clamp(.55rem,.76cqw,.78rem)) var(--mono);letter-spacing:.24em}
+  .final-signal strong{color:#fff4c9;font:900 calc(var(--hud-scale,1) * clamp(1.15rem,2.5cqw,2.4rem)) var(--display);letter-spacing:.06em;text-shadow:0 0 16px rgba(255,210,98,.4)}
+  .final-signal span{color:#e4c990;font:600 calc(var(--hud-scale,1) * clamp(.56rem,.72cqw,.72rem)) var(--mono)}
 
   /* ── Winner ─────────────────────────────────────────────────────────────── */
   /* A result screen is the one frame people screenshot, so it gets real presence: the
@@ -957,12 +1002,29 @@
   @keyframes charge-ring{0%{transform:translate(-50%,-50%) scale(1.5);opacity:0}30%{opacity:.8}70%{transform:translate(-50%,-50%) scale(.35);opacity:.8}100%{opacity:0}}
   @keyframes status-aura{from{transform:translate(-50%,-50%) scale(.25);opacity:.8}to{transform:translate(-50%,-50%) scale(1.5);opacity:0}}
   @keyframes particle-burst{from{transform:translate(0) scale(1);opacity:1}to{transform:translate(var(--particle-x),var(--particle-y)) rotate(150deg) scale(.15);opacity:0}}
+  @keyframes physical-swipe{0%{opacity:0;transform:translate(-50%,-50%) scale(.35) rotate(-18deg)}28%{opacity:1}70%{opacity:.95;transform:translate(-50%,-50%) scale(1.3) rotate(8deg)}100%{opacity:0;transform:translate(-50%,-50%) scale(1.65) rotate(18deg)}}
+  @keyframes final-signal-in{from{opacity:0;transform:translateX(-50%) translateY(-14px) scale(.96)}to{opacity:1;transform:translateX(-50%) translateY(0) scale(1)}}
   @keyframes weather-drift{to{background-position:70px 20px}}
   @keyframes weather-fall{to{background-position:18px 36px}}
   .battle-renderer.deterministic .sprite,.battle-renderer.deterministic .effect span,.battle-renderer.deterministic .impact-burst i,.battle-renderer.deterministic .move-projectile,.battle-renderer.deterministic .move-beam,.battle-renderer.deterministic .charge-ring,.battle-renderer.deterministic .arena-shake,.battle-renderer.deterministic .weather-layer,.battle-renderer.deterministic .winner-banner,.battle-renderer.deterministic .hp-delta{animation:none!important}
   .battle-renderer.deterministic .hp-track i,.battle-renderer.deterministic .hp-track b{transition:none!important}
   .battle-renderer.reduced-motion .sprite,.battle-renderer.reduced-motion .move-visual,.battle-renderer.reduced-motion .impact-burst,.battle-renderer.reduced-motion .arena-shake{animation:none!important;transform:none!important}
   @media(prefers-reduced-motion:reduce){.sprite,.effect span,.winner-banner{animation-duration:.001ms!important;animation-iteration-count:1!important}.hp-track i{transition-duration:.001ms!important}}
+
+  .director-card{position:absolute;z-index:50;inset:0;display:grid;place-content:center;justify-items:center;gap:.65rem;padding:2rem;background:#020408;text-align:center;pointer-events:none}
+  .director-card::before,.director-card::after{content:'';position:absolute;inset:0;pointer-events:none}
+  .director-card::before{background:linear-gradient(112deg,rgba(95,227,154,.23) 0 38%,transparent 38% 62%,rgba(201,140,255,.2) 62%)}
+  .director-card::after{background:repeating-linear-gradient(112deg,transparent 0 15%,rgba(255,255,255,.06) 15.1% 15.5%,transparent 15.6% 28%);mix-blend-mode:screen}
+  .director-card>*{position:relative;z-index:1}
+  .director-card small{color:#baf8ca;font:900 calc(var(--hud-scale,1) * clamp(.62rem,1cqw,1rem)) var(--mono);letter-spacing:.28em}
+  .director-card strong{max-width:90%;color:#fff;font:900 calc(var(--hud-scale,1) * clamp(2rem,5.5cqw,5.8rem))/1 var(--display);letter-spacing:-.04em;text-transform:uppercase;text-shadow:0 8px 32px rgba(0,0,0,.75)}
+  .director-card strong i{font-style:normal;color:#ffd262;font-size:.48em;letter-spacing:.12em;vertical-align:middle}
+  .director-card span:not(.director-mark){color:rgba(240,246,242,.86);font:800 calc(var(--hud-scale,1) * clamp(.68rem,1.05cqw,1.05rem)) var(--mono);letter-spacing:.08em;text-transform:uppercase}
+  .director-mark{display:grid;place-items:center;width:clamp(50px,7cqw,92px);aspect-ratio:1;border:1px solid rgba(255,255,255,.22);border-radius:18px;background:rgba(0,0,0,.25);box-shadow:0 0 30px rgba(120,255,169,.2)}
+  .director-mark img{width:62%}
+  .director-result{background:#020408;}
+  .director-result::before{background:linear-gradient(112deg,rgba(255,217,106,.25) 0 38%,transparent 38% 62%,rgba(255,152,76,.22) 62%)}
+  .director-result small{color:#ffd96a}
 
   /* ── Vertical (1080×1920) ───────────────────────────────────────────────── */
   .battle-renderer[data-layout='standard-vertical']{width:min(100%,620px);aspect-ratio:9/16;margin-inline:auto}
