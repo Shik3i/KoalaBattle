@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import re
 from datetime import UTC, datetime
+from typing import Literal
 from uuid import UUID, uuid4
 
-from koalabattle.core.models import BattleEvent, MatchArchive, MatchStatus
+from koalabattle.core.models import BattleEvent, MatchArchive, MatchStatus, Side
 
 from .interview import build_post_match_interviews
 from .models import (
@@ -312,7 +313,7 @@ def final_cues(
     interview_start = result_start + result_duration_ms
     interview_duration = 3_200
     for index, interview in enumerate(interviews):
-        side = interview.side.value
+        side: Literal["p1", "p2"] = "p1" if interview.side is Side.P1 else "p2"
         cue_start = interview_start + index * interview_duration
         cues.append(
             ProductionCue(

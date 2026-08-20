@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from openai import AsyncOpenAI, BadRequestError
+from openai import AsyncOpenAI
 
 from koalabattle.core.models import ProviderUsage
 
@@ -82,7 +82,8 @@ class OpenAICompatibleProvider:
                 "trying structured response negotiation",
                 request.model,
             )
-            # Structured negotiation is intentional: an empty standard response cannot yield a legal action.
+            # Structured negotiation is intentional: an empty standard response
+            # cannot yield a legal action.
 
         # 2. Structured JSON schema completion
         formats: tuple[dict[str, Any] | None, ...] = (

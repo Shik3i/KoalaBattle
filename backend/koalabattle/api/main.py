@@ -16,6 +16,7 @@ from koalabattle.agents.context import (
     PROMPT_PROFILES,
     render_prompt_messages,
 )
+from koalabattle.agents.providers.base import safe_error_detail
 from koalabattle.branding import (
     BrandAsset,
     BrandAssetInUse,
@@ -764,8 +765,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
         except Exception as error:
-            LOGGER.warning("Model discovery failed: %s", error)
-            raise HTTPException(status_code=502, detail=str(error)) from error
+            detail = safe_error_detail(error)
+            LOGGER.warning("Model discovery failed: %s", detail)
+            raise HTTPException(status_code=502, detail=detail) from error
         return {"models": [model.model_dump(mode="json") for model in models]}
 
     @app.post("/api/teams/prompt")

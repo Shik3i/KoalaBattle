@@ -303,7 +303,7 @@ class BattleService:
         }
 
     def provider_status(self) -> tuple[dict[str, object], ...]:
-        catalog = {
+        catalog: dict[ProviderKind, dict[str, object]] = {
             ProviderKind.OPENAI: {
                 "label": "OpenAI",
                 "default_model": "gpt-5-mini",

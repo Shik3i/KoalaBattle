@@ -1,14 +1,22 @@
 # Changelog
 
-## Unreleased
+## 0.11.0 - 2026-08-20
 
 - replaced placeholder product branding with a dedicated KoalaBattle mark and Phosphor UI icons;
 - added a reduced-motion-aware interaction system, stronger navigation, focus, loading, and
   responsive feedback;
 - aligned battle HP/status cards with familiar competitive-battle readability while preserving
   the original asset-free Verdant Circuit presentation;
-- corrected speech-provider labels and export-preflight status semantics; and
-- reorganized newcomer documentation and removed internal implementation-milestone terminology.
+- added live intro/result cards, final-Pokémon escalation, readable team strips, persistent
+  sprite motion, corrected switch/move animation sequencing, and move-specific effect recipes;
+- added highlight-aware pacing, synchronized live speech/captions, post-match interviews,
+  sample-based SFX support, and distinct configurable Qwen voice personas;
+- added manual move/switch controls plus runtime OpenAI, Gemini, Anthropic, DeepSeek, and generic
+  OpenAI-compatible provider configuration and model discovery;
+- corrected speech-provider labels, renderer configuration broadcasting, export-preflight status
+  semantics, and static type/lint findings; and
+- reorganized newcomer documentation and added opt-in, gitignored asset/SFX/effect installers
+  with explicit provenance and licensing boundaries.
 
 ## 0.10.0 - 2026-08-16
 

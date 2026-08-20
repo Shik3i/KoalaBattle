@@ -1,6 +1,6 @@
 # LLM providers
 
-KoalaBattle 0.10.0 supports five battle-decision provider shapes and one test-only provider.
+KoalaBattle 0.11.0 supports five battle-decision provider shapes and one test-only provider.
 Credentials are backend environment variables; the API exposes only a boolean
 `configured` status.
 

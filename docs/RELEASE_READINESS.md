@@ -1,6 +1,6 @@
 # Release readiness
 
-KoalaBattle 0.10.0 is a self-hosted, pre-1.0 release candidate for local dogfooding. The
+KoalaBattle 0.11.0 is a self-hosted, pre-1.0 release candidate for local dogfooding. The
 supported path is Docker Compose with a Chromium-based browser. The normal application UI may
 work in other current browsers, but deterministic offline composition specifically requires a
 compatible Chromium/WebCodecs path or the documented FFmpeg fallback.

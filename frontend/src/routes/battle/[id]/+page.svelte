@@ -18,6 +18,7 @@
   let copied: string | null = null;
   let copyTimer: ReturnType<typeof setTimeout> | null = null;
   let configBroadcastTimer: ReturnType<typeof setTimeout> | null = null;
+  let configSyncError = '';
   let error = ''; let stopSocket: (() => void) | null = null;
   let timeline: PresentationTimeline | null = null; let snapshot: TimelineSnapshot | null = null;
   let config: RendererConfig = defaultRendererConfig();
@@ -189,9 +190,12 @@
     // hear about it over the match's live socket, so push it there too (debounced, since a
     // dragged slider fires this on every pixel of movement).
     if (configBroadcastTimer) clearTimeout(configBroadcastTimer);
+    configSyncError = '';
     configBroadcastTimer = setTimeout(() => {
       configBroadcastTimer = null;
-      void broadcastRendererConfig(data.id, config).catch(() => {});
+      void broadcastRendererConfig(data.id, config).catch((caught) => {
+        configSyncError = caught instanceof Error ? caught.message : String(caught);
+      });
     }, 200);
   }
   async function copyText(key: string, value: string) {
@@ -411,7 +415,7 @@
 
     <div class="tool-foot">
       <button type="button" class="link-button" on:click={() => updateConfig(defaultRendererConfig())}>Reset to defaults</button>
-      <span class="preview-note">Live preview. The battle-view tab and the OBS source use these same settings.</span>
+      <span class:sync-error={configSyncError} class="preview-note" role={configSyncError ? 'alert' : undefined}>{configSyncError || 'Live preview. The battle-view tab and the OBS source use these same settings.'}</span>
     </div>
   </div>
 </section>
@@ -595,6 +599,7 @@
   .range input{width:100%;accent-color:var(--accent)}
   .tool-foot{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.6rem;grid-column:1/-1;padding-top:.7rem;border-top:1px solid var(--border)}
   .preview-note{color:var(--muted);font-size:.72rem}
+  .preview-note.sync-error{color:var(--danger)}
 
   /* ── Manual workspace ───────────────────────────────────────────────────── */
   .workspace{display:grid;gap:.75rem;margin-top:1.5rem}

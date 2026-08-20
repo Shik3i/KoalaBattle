@@ -75,6 +75,40 @@ def test_overlay_clients_can_restore_historical_match_and_stream_snapshot(
         assert presentation.status_code == 200
         assert "sk-secret-in-raw-audit" not in presentation.text
         assert "secret-metadata" not in presentation.text
+        renderer_config = {
+            "version": "2.0",
+            "layout": "overlay-landscape",
+            "theme": "pokemon-route",
+            "preset": "live",
+            "playbackSpeed": 1,
+            "commentaryMode": "latest",
+            "showBattleLog": True,
+            "showTurn": True,
+            "showAgentState": True,
+            "transparentBackground": False,
+            "animatedSprites": True,
+            "effects": "standard",
+            "moveEffectSkin": "broadcast",
+            "reducedMotion": False,
+            "showDamageNumbers": True,
+            "nearSide": "p1",
+            "showTeamRoster": True,
+            "hudScale": 1,
+        }
+        broadcast = client.post(
+            f"/api/matches/{match_id}/renderer-config", json=renderer_config
+        )
+        assert broadcast.status_code == 202
+        invalid_speed = client.post(
+            f"/api/matches/{match_id}/renderer-config",
+            json={**renderer_config, "playbackSpeed": 1.5},
+        )
+        assert invalid_speed.status_code == 422
+        boolean_speed = client.post(
+            f"/api/matches/{match_id}/renderer-config",
+            json={**renderer_config, "playbackSpeed": True},
+        )
+        assert boolean_speed.status_code == 422
         with client.websocket_connect(f"/api/matches/{match_id}/stream") as websocket:
             snapshot = websocket.receive_json()
             assert snapshot["kind"] == "snapshot"
@@ -207,6 +241,29 @@ def test_browser_provider_configuration_enables_deepseek_without_leaking_key(
             model="deepseek-chat",
         )
         assert isinstance(service._provider_for(player), DeepSeekProvider)
+
+
+def test_provider_model_discovery_redacts_upstream_credentials(tmp_path: Path) -> None:
+    settings = Settings(
+        _env_file=None,
+        database_url=f"sqlite+aiosqlite:///{tmp_path / 'provider-models.db'}",
+    )
+    create_test_schema(settings.database_url)
+    secret = "sk-upstream-secret-value"
+
+    with TestClient(create_app(settings)) as client:
+        async def fail_model_discovery(*_args: object, **_kwargs: object) -> None:
+            raise RuntimeError(f"upstream rejected Bearer {secret}")
+
+        client.app.state.service.list_provider_models = fail_model_discovery
+        response = client.post(
+            "/api/providers/models",
+            json={"provider": "openai-compatible", "base_url": "http://127.0.0.1:1234/v1"},
+        )
+
+    assert response.status_code == 502
+    assert secret not in response.text
+    assert "Bearer [REDACTED]" in response.json()["detail"]
 
 
 def test_tournament_crud_uses_summaries_and_sanitized_presentation(tmp_path: Path) -> None:

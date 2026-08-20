@@ -11,7 +11,7 @@
   generated prompts, normalized agent context/knowledge, provider response metadata, raw
   Showdown logs, fixed team snapshot IDs/exports/packed teams, and error detail.
 - The local production-control endpoint may expose the full safe audit,
-  including provider output, prompt, context, and private team snapshots. KoalaBattle 0.10.0
+  including provider output, prompt, context, and private team snapshots. KoalaBattle 0.11.0
   remains local-first and does not
   add accounts or remote authorization.
 - Provider text is parsed as data. Only an exact normalized legal action ID reaches the

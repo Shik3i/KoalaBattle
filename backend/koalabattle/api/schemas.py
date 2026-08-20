@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from koalabattle.core.models import (
     AgentConfiguration,
@@ -114,7 +114,7 @@ class RendererConfigInput(BaseModel):
     layout: Literal["standard-landscape", "standard-vertical", "overlay-landscape"]
     theme: Literal["pokemon-route", "pokemon-stadium", "koala-dark", "koala-light"]
     preset: Literal["live", "video", "fast", "instant"]
-    playback_speed: Literal[0.5, 1, 2, 4, "instant"] = Field(alias="playbackSpeed")
+    playback_speed: float | Literal["instant"] = Field(alias="playbackSpeed")
     commentary_mode: Literal["latest", "last-3", "full", "hidden"] = Field(
         alias="commentaryMode"
     )
@@ -124,11 +124,25 @@ class RendererConfigInput(BaseModel):
     transparent_background: bool = Field(alias="transparentBackground")
     animated_sprites: bool = Field(alias="animatedSprites")
     effects: Literal["off", "low", "standard", "high"]
+    move_effect_skin: Literal["broadcast", "retro", "procedural"] = Field(
+        alias="moveEffectSkin"
+    )
     reduced_motion: bool = Field(alias="reducedMotion")
     show_damage_numbers: bool = Field(alias="showDamageNumbers")
     near_side: Literal["p1", "p2"] = Field(alias="nearSide")
     show_team_roster: bool = Field(alias="showTeamRoster")
     hud_scale: float = Field(alias="hudScale", ge=0.8, le=1.6)
+
+    @field_validator("playback_speed", mode="before")
+    @classmethod
+    def validate_playback_speed(cls, value: object) -> object:
+        if value == "instant":
+            return value
+        if isinstance(value, bool) or not isinstance(value, int | float):
+            raise ValueError("playbackSpeed must be 0.5, 1, 2, 4, or instant")
+        if float(value) not in {0.5, 1.0, 2.0, 4.0}:
+            raise ValueError("playbackSpeed must be 0.5, 1, 2, 4, or instant")
+        return float(value)
 
 
 class ProviderModelsInput(BaseModel):
