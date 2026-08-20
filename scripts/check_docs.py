@@ -58,6 +58,15 @@ def check(root: Path) -> list[str]:
         if key not in {"KOALABATTLE_ASSET_ROOT"}:
             problems.append(f".env.example: missing Compose key {key}")
 
+    # The backend image has no browser runtime. If its default worker is enabled alongside the
+    # renderer profile, it can win the SQLite claim race and fail otherwise valid export jobs.
+    worker_default = (
+        "KOALABATTLE_VIDEO_WORKER_ENABLED: "
+        "${KOALABATTLE_VIDEO_WORKER_ENABLED:-false}"
+    )
+    if worker_default not in compose:
+        problems.append("docker-compose.yml: backend video worker must default to false")
+
     required = {
         "scripts/setup_assets.py",
         "scripts/check_docs.py",

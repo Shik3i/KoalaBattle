@@ -1,6 +1,7 @@
 import type { ProductionCue, ProductionTimeline } from '../types.ts';
 import { ProductionScheduler } from './scheduler.ts';
 import { sfxVariantFor } from './sfx.ts';
+import { stingRecipeFor } from './stings.ts';
 
 export interface MixerSettings {
   master: number;
@@ -18,11 +19,12 @@ export interface ProductionPlaybackState {
   visual: ProductionCue | null;
   caption: ProductionCue | null;
   director: ProductionCue | null;
+  speaking: readonly VoiceChannel[];
   settings: MixerSettings;
 }
 
 const defaults: MixerSettings = { master: 1, voice: 1, narrator: 1, sfx: 0.65, music: 0.35 };
-type VoiceChannel = 'p1' | 'p2' | 'narrator';
+export type VoiceChannel = 'p1' | 'p2' | 'narrator';
 
 export class ProductionAudioEngine {
   private readonly scheduler = new ProductionScheduler();
@@ -182,11 +184,15 @@ export class ProductionAudioEngine {
         if (this.activeVoices.get(channel) === audio) this.activeVoices.delete(channel);
         this.updateVoiceVolumes();
         if (this.activeMusic) this.activeMusic.volume = this.musicVolume();
+        this.emit();
       };
       this.activeVoices.set(channel, audio);
       this.updateVoiceVolumes();
       if (this.activeMusic) this.activeMusic.volume = this.musicVolume();
-      void audio.play().catch(() => undefined);
+      void audio.play().then(() => this.emit()).catch(() => {
+        if (this.activeVoices.get(channel) === audio) this.activeVoices.delete(channel);
+        this.emit();
+      });
     }
     if (cue.track === 'sfx') this.playSfx(cue.kind, cue.id);
     if (cue.track === 'music' && typeof cue.payload.media_url === 'string') {
@@ -199,6 +205,11 @@ export class ProductionAudioEngine {
   }
 
   private playSfx(kind: string, seed: string): void {
+    // Broadcast stings are an original procedural score and never depend on local samples.
+    if (stingRecipeFor(kind)) {
+      this.playSynthSfx(kind);
+      return;
+    }
     const variant = sfxVariantFor(kind, seed);
     if (variant) {
       const mediaUrl = `${this.mediaBase.replace(/\/$/, '')}/api/assets/audio/${encodeURIComponent(variant)}`;
@@ -231,10 +242,11 @@ export class ProductionAudioEngine {
     if (!this.context) return;
     const now = this.context.currentTime;
     const volume = this.volume('sfx');
-    if (kind === 'result-sting') {
-      [392, 494, 587, 784].forEach((frequency, index) => {
-        this.playTone(frequency, now + index * 0.09, 0.42, 'triangle', volume * 0.1);
-      });
+    const sting = stingRecipeFor(kind);
+    if (sting) {
+      for (const note of sting) {
+        this.playTone(note.frequency, now + note.offset, note.duration, note.type, volume * note.gain, note.glideTo);
+      }
       return;
     }
     const frequencies: Record<string, number> = {
@@ -262,12 +274,14 @@ export class ProductionAudioEngine {
     start: number,
     duration: number,
     type: OscillatorType,
-    peak: number
+    peak: number,
+    glideTo?: number
   ): void {
     if (!this.context) return;
     const oscillator = this.context.createOscillator();
     const gain = this.context.createGain();
     oscillator.frequency.setValueAtTime(frequency, start);
+    if (glideTo) oscillator.frequency.exponentialRampToValueAtTime(glideTo, start + duration);
     oscillator.type = type;
     gain.gain.setValueAtTime(0.0001, start);
     gain.gain.exponentialRampToValueAtTime(Math.max(0.0002, peak), start + 0.012);
@@ -338,6 +352,7 @@ export class ProductionAudioEngine {
       visual: this.visual,
       caption: this.caption,
       director: this.director,
+      speaking: [...this.activeVoices.keys()],
       settings: this.settings
     };
   }

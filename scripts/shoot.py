@@ -27,6 +27,13 @@ def main() -> None:
     only = sys.argv[2] if len(sys.argv) > 2 else ""
     shots = [
         ("watch", f"{FRONTEND}/watch/{match_id}", 1920, 1080),
+        ("overlay", f"{FRONTEND}/overlay/{match_id}", 1920, 1080),
+        (
+            "watch-vertical",
+            f"{FRONTEND}/watch/{match_id}?layout=standard-vertical",
+            1080,
+            1920,
+        ),
         ("control", f"{FRONTEND}/battle/{match_id}", 1600, 1500),
         ("new", f"{FRONTEND}/new", 1600, 1200),
     ]
@@ -35,7 +42,8 @@ def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(
-            executable_path="/usr/bin/chromium", args=["--no-sandbox"]
+            executable_path="/usr/bin/chromium",
+            args=["--no-sandbox", "--host-resolver-rules=MAP localhost backend"],
         )
         for name, url, width, height in shots:
             page = browser.new_page(viewport={"width": width, "height": height})
@@ -61,10 +69,18 @@ def main() -> None:
             )
             page.goto(url, wait_until="networkidle", timeout=60_000)
             page.wait_for_timeout(2500)
+            card_title = page.locator(".director-card strong, .winner-banner strong").first
+            if card_title.count():
+                card_title.wait_for(state="visible", timeout=5_000)
+                page.wait_for_timeout(250)
             target = OUT / f"{name}.png"
             page.screenshot(path=str(target))
             body = page.inner_text("body")[:120].replace("\n", " | ")
             print(f"{name:8} -> {target}  text={body!r}")
+            for selector in (".director-card", ".winner-banner"):
+                card = page.locator(selector)
+                if card.count():
+                    print(f"         {selector}={card.first.inner_text()!r}")
             for problem in problems[:6]:
                 print(f"         {problem}")
             page.close()

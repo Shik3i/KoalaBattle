@@ -6,10 +6,13 @@
     defaultRendererConfig,
     type AgentPresentationStatus,
     type BattlePresentationState,
-    type RendererConfig,
-    type SpectatorLogEntry
+    type RendererConfig
   } from './presentation/types';
   import type { BattleSide, PokemonState, Side } from './types';
+  import type { VoiceChannel } from './production/audio-engine';
+  import RendererBroadcast from './battle-renderer/RendererBroadcast.svelte';
+  import RendererCommentary from './battle-renderer/RendererCommentary.svelte';
+  import RendererCards from './battle-renderer/RendererCards.svelte';
 
   export let presentation: BattlePresentationState | null = null;
   export let config: RendererConfig = defaultRendererConfig();
@@ -18,6 +21,7 @@
   export let deterministic = false;
   export let logicalElapsedMs = 0;
   export let visualProgress = 0;
+  export let speaking: readonly VoiceChannel[] = [];
 
   let failedAssets = new Set<string>();
   let failedEffectAssets = new Set<string>();
@@ -37,11 +41,6 @@
     side: Side;
     data: BattleSide | null;
     perspective: 'front' | 'back';
-  }
-
-  interface RosterSlot {
-    index: number;
-    member: PokemonState | null;
   }
 
   let nearSide: Side = 'p1';
@@ -71,7 +70,6 @@
       ? 0
       : Math.round(650 / Number(config.playbackSpeed));
   $: formatLabel = formatName(presentation?.format || '', generation);
-  $: feed = groupedFeed(presentation);
   $: finalPokemon = isFinalPokemon(near) && isFinalPokemon(far);
   $: slots = [
     { place: 'far', side: farSide, data: far, perspective: 'front' },
@@ -85,14 +83,6 @@
     return battle.opponent.side === side ? battle.opponent : null;
   }
 
-  /** Only the commentary that belongs to the action in flight is public-facing. */
-  function currentIntent(state: BattlePresentationState | null, side: Side) {
-    if (!state || config.commentaryMode === 'hidden') return null;
-    const player = state.players[side];
-    if (player.commentaryPhase === 'resolved' || player.commentaryPhase === 'waiting') return null;
-    return player;
-  }
-
   function generationFromFormat(id: string | undefined) {
     const match = /^gen(\d+)/.exec(id || '');
     return match ? Number(match[1]) : null;
@@ -104,20 +94,6 @@
     return `GEN ${gen} · ${(suffix || 'custom game').replace(/([a-z])([A-Z])/g, '$1 $2').toUpperCase()}`;
   }
 
-  /** Spectator feed grouped by turn, newest turn last, no repeated authoritative lines. */
-  function groupedFeed(state: BattlePresentationState | null) {
-    const groups: Array<{ turn: number; lines: SpectatorLogEntry[] }> = [];
-    if (!state) return groups;
-    const recent = state.log.slice(-9);
-    for (const entry of recent) {
-      if (entry.kind === 'turn_started') continue;
-      const last = groups[groups.length - 1];
-      if (last && last.turn === entry.turn) last.lines.push(entry);
-      else groups.push({ turn: entry.turn, lines: [entry] });
-    }
-    return groups.slice(-3).map((group) => ({ ...group, lines: group.lines.slice(-3) }));
-  }
-
   function assetKey(side: BattleSide, perspective: 'front' | 'back') {
     return `${side.active?.species}:${perspective}:${config.animatedSprites}`;
   }
@@ -125,11 +101,6 @@
   function renderablePokemon(active: PokemonState | null | undefined): active is PokemonState {
     const species = active?.species?.toLocaleLowerCase().replace(/[^a-z0-9]/g, '') || '';
     return Boolean(active && species && species !== 'unknown' && species !== 'egg');
-  }
-
-  function rosterSlots(side: BattleSide | null): RosterSlot[] {
-    const team = side?.team || [];
-    return Array.from({ length: TEAM_SIZE }, (_, index) => ({ index, member: team[index] || null }));
   }
 
   function onAssetError(key: string) {
@@ -160,17 +131,6 @@
 
   function hpTone(fraction: number) {
     return fraction > 0.5 ? 'high' : fraction > 0.2 ? 'mid' : 'low';
-  }
-
-  /** "4 of 6 Pokémon still standing" — the match score, for anyone not reading sprites. */
-  function rosterLabel(side: BattleSide | null) {
-    const team = side?.team || [];
-    if (!team.length) return 'Team not revealed yet';
-    const standing = team.filter((member) => !member.fainted).length;
-    const unrevealed = Math.max(0, TEAM_SIZE - team.length);
-    return unrevealed
-      ? `${standing} known Pokémon still standing · ${unrevealed} unrevealed team slots`
-      : `${standing} of ${TEAM_SIZE} Pokémon still standing`;
   }
 
   function isFinalPokemon(side: BattleSide | null) {
@@ -281,7 +241,13 @@
 
   function formatExactHp(active: NonNullable<BattleSide['active']>) {
     if (active.current_hp != null && active.max_hp) {
-      return `${active.current_hp} / ${active.max_hp}`;
+      // Older normalized snapshots can carry a stale absolute value next to the authoritative
+      // fraction. Never render a mathematically impossible pair such as 303 / 303 (19%).
+      const recordedFraction = active.current_hp / active.max_hp;
+      const current = Math.abs(recordedFraction - active.hp_fraction) <= 0.015
+        ? active.current_hp
+        : Math.round(active.hp_fraction * active.max_hp);
+      return `${current} / ${active.max_hp}`;
     }
     const max = active.max_hp || (active.level ? Math.round(active.level * 3.1 + 25) : 250);
     const curr = Math.round(active.hp_fraction * max);
@@ -297,6 +263,7 @@
     class:transparent={config.transparentBackground}
     class:deterministic
     class:reduced-motion={config.reducedMotion}
+    class:voice-active={speaking.length > 0}
     class="battle-renderer"
     data-layout={config.layout}
     data-renderer-theme={config.theme}
@@ -305,91 +272,7 @@
     style={`--hp-duration:${hpDuration}ms;--sprite-native:${NATIVE_SPRITE_PX}px;--max-upscale:${MAX_UPSCALE};--hud-scale:${config.hudScale}`}
     aria-label="KoalaBattle production renderer"
   >
-    <!-- Broadcast bar: brand, turn, format, plus integrated player rosters for zero stage occlusion -->
-    <header class="broadcast-bar">
-      <!-- Player 1 Header Slot (Left) -->
-      <div class="header-player header-p1" data-side="p1">
-        <span class="player-name">{presentation.players.p1.displayName}</span>
-        {#if config.showAgentState}
-          <em class={`agent-state ${agentStatus.p1 || presentation.players.p1.agentStatus}`}>
-            {agentStatus.p1 || presentation.players.p1.agentStatus}
-          </em>
-        {/if}
-        {#if config.showTeamRoster && p1Side}
-          <span class="team-strip" aria-label={rosterLabel(p1Side)}>
-            {#each rosterSlots(p1Side) as roster (roster.index)}
-              {@const member = roster.member}
-              <i
-                class:active={Boolean(member?.active)}
-                class:fainted={Boolean(member?.fainted)}
-                class:unrevealed={!member}
-                title={member ? `${member.name}${member.fainted ? ' · fainted' : ` · ${hpPercent(member)}%`}` : 'Unrevealed Pokémon'}
-              >
-                {#if member && !failedAssets.has(`roster:${member.species}`)}
-                  <img
-                    src={spriteUrl(member.species, 'front')}
-                    alt={member.name}
-                    on:error={() => onAssetError(`roster:${member.species}`)}
-                  />
-                {:else if member}
-                  <b>{member.name.slice(0, 1)}</b>
-                {:else}
-                  <span class="pokeball" aria-hidden="true"><i></i></span>
-                {/if}
-                {#if member && !member.fainted}
-                  <u style={`width:${Math.max(member.hp_fraction, 0) * 100}%`} data-tone={hpTone(member.hp_fraction)}></u>
-                {/if}
-              </i>
-            {/each}
-          </span>
-        {/if}
-      </div>
-
-      <!-- Match Metadata (Center) -->
-      <div class="header-center">
-        <span class="brand"><img src="/koalabattle-mark.svg" alt="" /><b>KOALABATTLE</b></span>
-        {#if config.showTurn}<span class="turn">TURN <b>{presentation.battle?.turn ?? 0}</b></span>{/if}
-        <span class="format">{formatLabel}</span>
-      </div>
-
-      <!-- Player 2 Header Slot (Right) -->
-      <div class="header-player header-p2" data-side="p2">
-        {#if config.showTeamRoster && p2Side}
-          <span class="team-strip" aria-label={rosterLabel(p2Side)}>
-            {#each rosterSlots(p2Side) as roster (roster.index)}
-              {@const member = roster.member}
-              <i
-                class:active={Boolean(member?.active)}
-                class:fainted={Boolean(member?.fainted)}
-                class:unrevealed={!member}
-                title={member ? `${member.name}${member.fainted ? ' · fainted' : ` · ${hpPercent(member)}%`}` : 'Unrevealed Pokémon'}
-              >
-                {#if member && !failedAssets.has(`roster:${member.species}`)}
-                  <img
-                    src={spriteUrl(member.species, 'front')}
-                    alt={member.name}
-                    on:error={() => onAssetError(`roster:${member.species}`)}
-                  />
-                {:else if member}
-                  <b>{member.name.slice(0, 1)}</b>
-                {:else}
-                  <span class="pokeball" aria-hidden="true"><i></i></span>
-                {/if}
-                {#if member && !member.fainted}
-                  <u style={`width:${Math.max(member.hp_fraction, 0) * 100}%`} data-tone={hpTone(member.hp_fraction)}></u>
-                {/if}
-              </i>
-            {/each}
-          </span>
-        {/if}
-        {#if config.showAgentState}
-          <em class={`agent-state ${agentStatus.p2 || presentation.players.p2.agentStatus}`}>
-            {agentStatus.p2 || presentation.players.p2.agentStatus}
-          </em>
-        {/if}
-        <span class="player-name">{presentation.players.p2.displayName}</span>
-      </div>
-    </header>
+    <RendererBroadcast {presentation} {config} {p1Side} {p2Side} {formatLabel} {agentStatus} {deterministic} />
 
     <div style={arenaStyle()} class:arena-shake={strongImpact && config.effects !== 'off' && !config.reducedMotion} class="stage">
       <!-- Original KoalaBattle arena: stadium bowl, crowd, lit floor plane. -->
@@ -473,6 +356,7 @@
         {#if slot.data?.active && renderablePokemon(slot.data.active)}
           <article
             class={`combatant combatant-${slot.place}`}
+            class:speaking={speaking.includes(slot.side) || speaking.includes('narrator')}
             data-side={slot.side}
             aria-label={`${slot.data.active.name}: ${formatExactHp(slot.data.active)} HP (${hpPercent(slot.data.active)}%)`}
           >
@@ -577,100 +461,12 @@
         </div>
       {/if}
 
-      <!-- Central Dialogue Box: Classic Pokémon Message Window (Zero overlap with combatants) -->
-      {#if currentIntent(presentation, 'p1') || currentIntent(presentation, 'p2')}
-        <div class="dialogue-box" role="region" aria-label="Battle Dialogue & Thinking" aria-live="polite">
-          {#each slots as slot (slot.side)}
-            {@const player = currentIntent(presentation, slot.side)}
-            {#if player}
-              <div class="dialogue-item" data-side={slot.side}>
-                <header class="dialogue-header">
-                  <b class="dialogue-name">{presentation.players[slot.side].displayName}</b>
-                  <small class="dialogue-phase">{player.commentaryPhase === 'thinking' ? 'THINKING' : player.currentCommentary?.banter ? 'BANTER' : 'COMMENTARY'}</small>
-                </header>
-                {#if player.commentaryPhase === 'thinking'}
-                  {#if player.streamPreview}
-                    <p class="thinking live-response">{player.streamPreview}<span aria-hidden="true">▌</span></p>
-                  {:else}
-                    <p class="thinking">Thinking…</p>
-                  {/if}
-                  {#if player.contextMetrics}
-                    <small class="context-meter">Context · {player.contextMetrics.estimatedTokens.toLocaleString()} tokens</small>
-                  {/if}
-                {:else}
-                  <div class="dialogue-copy">
-                    {#if player.currentCommentary?.banter}
-                      <span class="banter-quote">"{player.currentCommentary.banter}"</span>
-                    {/if}
-                    <span class="commentary-copy">{player.currentCommentary?.commentary || `${player.currentCommentary?.actionName || player.currentCommentary?.action || 'Action'} selected.`}</span>
-                  </div>
-                {/if}
-              </div>
-            {/if}
-          {/each}
-        </div>
-      {/if}
+      <RendererCommentary {presentation} {config} sideOrder={[farSide, nearSide]} />
     </div>
 
-    {#if config.showBattleLog}
-      <aside class="battle-feed" aria-label="Spectator battle feed" aria-live="polite">
-        {#each feed as group (group.turn)}
-          <div class="feed-turn">
-            <span class="feed-label">Turn {group.turn}</span>
-            {#each group.lines as entry (entry.sequence)}
-              <p data-emphasis={entry.emphasis}>{entry.text}</p>
-            {/each}
-          </div>
-        {/each}
-        {#if !feed.length}<div class="feed-turn"><span class="feed-label">Ready</span><p>Waiting for the first turn.</p></div>{/if}
-      </aside>
-    {/if}
+    <RendererCommentary {presentation} {config} variant="feed" />
 
-    {#if presentation.finished}
-      {@const champion = presentation.winner ? battleSide(presentation, presentation.winner) : null}
-      <div class="winner-banner" role="status" data-side={presentation.winner || ''}>
-        <small>BATTLE COMPLETE</small>
-        <strong>{presentation.winnerName || presentation.battle?.result?.winner_name || 'DRAW'}</strong>
-        {#if presentation.winner}
-          <span class="winner-meta">
-            <b class="winner-side">{presentation.winner.toUpperCase()}</b>
-            <em>{presentation.players[presentation.winner].providerLabel}</em>
-            {#if champion}<i class="winner-score">{champion.team.filter((member) => !member.fainted).length}/{champion.team.length} standing</i>{/if}
-          </span>
-          <!-- The winning squad, so the result screen shows who actually did the work. -->
-          {#if champion?.team.length}
-            <span class="winner-team">
-              {#each champion.team as member (member.id || member.species)}
-                <i class:fainted={member.fainted} title={member.name}>
-                  {#if !failedAssets.has(`roster:${member.species}`)}
-                    <img src={spriteUrl(member.species, 'front')} alt={member.name} on:error={() => onAssetError(`roster:${member.species}`)} />
-                  {:else}
-                    <b>{member.name.slice(0, 1)}</b>
-                  {/if}
-                </i>
-              {/each}
-            </span>
-          {/if}
-        {:else}
-          <span class="winner-meta"><em>No winner recorded</em></span>
-        {/if}
-      </div>
-    {/if}
-
-    {#if presentation.eventIndex === 0 && !presentation.finished}
-      <div class="director-card director-intro" role="status" aria-label="Match introduction">
-        <span class="director-mark"><img src="/koalabattle-mark.svg" alt="" /></span>
-        <small>KOALABATTLE // MAIN EVENT</small>
-        <strong>{presentation.players.p1.displayName} <i>VS</i> {presentation.players.p2.displayName}</strong>
-        <span>{formatLabel}</span>
-      </div>
-    {:else if presentation.finished}
-      <div class="director-card director-result" role="status" aria-label="Match result">
-        <small>KOALABATTLE // FINAL</small>
-        <strong>{presentation.winnerName || presentation.battle?.result?.winner_name || 'DRAW'}{presentation.winner ? ' WINS' : ''}</strong>
-        <span>{formatLabel} · TURN {presentation.battle?.turn ?? 0}</span>
-      </div>
-    {/if}
+    <RendererCards {presentation} {config} {formatLabel} {deterministic} />
   </section>
 {:else}
   <section class="renderer-loading panel"><span class="eyebrow">Renderer ready</span><h2>Waiting for normalized battle state…</h2><p>No engine connection is required to draw this frame.</p></section>
@@ -689,43 +485,6 @@
   }
   .battle-renderer.transparent{background:transparent;border-color:transparent;box-shadow:none}
   .battle-renderer.overlay{width:100vw;height:100vh;min-height:0;aspect-ratio:auto;border:0;border-radius:0;box-shadow:none}
-
-  /* ── Broadcast bar with integrated player identities ────────────────────── */
-  .broadcast-bar{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;height:clamp(46px,6cqh,64px);padding:0 clamp(10px,1.4cqw,24px);gap:.6rem;background:rgba(4,9,7,.95);border-bottom:1px solid var(--r-line);backdrop-filter:blur(10px)}
-  .header-player{display:flex;align-items:center;gap:clamp(6px,.8cqw,12px);overflow:hidden}
-  .header-p1{justify-content:flex-start;--side-color:var(--r-p1)}
-  .header-p2{justify-content:flex-end;--side-color:var(--r-p2)}
-  .header-center{display:flex;align-items:center;justify-content:center;gap:clamp(8px,1cqw,18px)}
-  .player-name{overflow:hidden;font:800 calc(var(--hud-scale,1) * clamp(.75rem,1.05cqw,1.1rem))/1.1 var(--display);letter-spacing:-.01em;text-overflow:ellipsis;text-transform:uppercase;white-space:nowrap;color:#fff}
-  .header-p1 .player-name{color:var(--r-p1)}
-  .header-p2 .player-name{color:var(--r-p2)}
-  .agent-state{display:inline-flex;align-items:center;gap:.28rem;min-height:1.3em;padding:.14rem .4rem;border-radius:4px;background:rgba(255,255,255,.1);font:800 calc(var(--hud-scale,1) * clamp(.62rem,.82cqw,.82rem)) var(--mono);font-style:normal;letter-spacing:.08em;text-transform:uppercase;text-shadow:0 1px 2px rgba(0,0,0,.8)}
-  .agent-state::before{content:'•';font-size:1.35em;line-height:.5;color:currentColor}
-  .agent-state.waiting::before{content:'◌'}
-  .agent-state.thinking::before{content:'◌'}
-  .agent-state.finished::before{content:'✓'}
-  .agent-state.error::before{content:'!'}
-  .agent-state.thinking{background:rgba(242,193,95,.2);color:#ffd679}
-  .agent-state.decided,.agent-state.executing{background:rgba(120,255,169,.16);color:var(--r-accent)}
-  .agent-state.error{background:rgba(255,139,135,.18);color:#ff9d98}
-  .team-strip{display:flex;gap:clamp(3px,.3cqw,5px)}
-  .team-strip i{position:relative;display:grid;place-items:center;width:calc(var(--hud-scale,1) * clamp(20px,2.1cqw,32px));aspect-ratio:1;overflow:hidden;border:1.5px solid color-mix(in srgb,var(--side-color) 62%,rgba(255,255,255,.3));border-radius:5px;background:rgba(255,255,255,.08);box-shadow:0 1px 3px rgba(0,0,0,.42)}
-  .team-strip img{width:145%;height:145%;object-fit:contain;image-rendering:pixelated}
-  .team-strip i b{color:var(--r-dim);font:800 .55rem var(--display)}
-  .team-strip i.unrevealed{border-color:rgba(255,255,255,.16);background:rgba(0,0,0,.24)}
-  .pokeball{position:relative;display:block;width:58%;aspect-ratio:1;border:1.5px solid rgba(255,255,255,.72);border-radius:50%;background:linear-gradient(180deg,#e85d5d 0 46%,#1c2522 46% 54%,#f1f4ed 54%);box-shadow:0 1px 4px rgba(0,0,0,.5)}
-  .pokeball i{position:absolute;top:50%;left:50%;width:30%;aspect-ratio:1;transform:translate(-50%,-50%);border:1px solid rgba(0,0,0,.8);border-radius:50%;background:#f5faf5}
-  .team-strip i.fainted{border-color:rgba(255,255,255,.12);background:rgba(0,0,0,.4);opacity:.38;filter:grayscale(1) brightness(.65)}
-  .team-strip i.fainted::after{content:'';position:absolute;width:132%;height:1px;background:rgba(255,255,255,.5);transform:rotate(-45deg)}
-  .team-strip i.active{border-color:#fff;background:color-mix(in srgb,var(--side-color) 26%,transparent);box-shadow:0 0 0 1px rgba(255,255,255,.5)}
-  .team-strip u{position:absolute;bottom:0;left:0;height:calc(var(--hud-scale,1) * clamp(3px,.3cqw,5px));min-height:3px;border:1px solid rgba(0,0,0,.65);border-radius:0 2px 0 0;background:var(--r-hp-high);text-decoration:none;transition:width var(--hp-duration,420ms) cubic-bezier(.2,.8,.2,1);box-shadow:0 -1px 0 rgba(255,255,255,.75)}
-  .team-strip u[data-tone='mid']{background:var(--r-hp-mid)}
-  .team-strip u[data-tone='low']{background:var(--r-hp-low)}
-  .brand{display:flex;align-items:center;gap:.45rem;color:var(--r-ink);font:800 calc(var(--hud-scale,1) * clamp(.68rem,.88cqw,.9rem)) var(--display);letter-spacing:.12em}
-  .brand img{width:clamp(20px,1.7cqw,26px);aspect-ratio:1}
-  .turn{color:var(--r-dim);font:600 calc(var(--hud-scale,1) * clamp(.62rem,.8cqw,.82rem)) var(--mono);letter-spacing:.12em}
-  .turn b{margin-left:.3rem;color:var(--r-ink);font-size:1.4em;letter-spacing:0}
-  .format{color:var(--r-dim);font:600 calc(var(--hud-scale,1) * clamp(.58rem,.76cqw,.78rem)) var(--mono);letter-spacing:.08em}
 
   /* ── Arena ──────────────────────────────────────────────────────────────── */
   .stage{position:relative;overflow:hidden;background:#060d0b;container-type:size}
@@ -865,28 +624,6 @@
   .gen5-exact-hp{font-family:var(--display);font-size:calc(var(--hud-scale,1) * clamp(.98rem,1.3cqw,1.35rem));font-weight:900;color:#fff;letter-spacing:.02em;font-variant-numeric:tabular-nums;font-feature-settings:'tnum' 1;text-shadow:0 1px 3px rgba(0,0,0,.9)}
   .gen5-hp-pct{font-family:var(--mono);font-size:calc(var(--hud-scale,1) * clamp(.76rem,1cqw,1.02rem));font-weight:800;color:#8ef3a9;font-variant-numeric:tabular-nums;font-feature-settings:'tnum' 1;text-shadow:0 1px 2px rgba(0,0,0,.9)}
 
-  /* ── Central Dialogue Box: Classic Pokémon Dialogue Window (Zero overlap with combatants) */
-  .dialogue-box{
-    position:absolute;z-index:22;bottom:2%;left:50%;transform:translateX(-50%);
-    width:clamp(320px,46cqw,580px);max-height:22%;display:grid;gap:.35rem;padding:.45rem .85rem;
-    border-radius:8px;background:rgba(8,16,14,.95);border:1.5px solid var(--r-line);
-    box-shadow:0 10px 30px rgba(0,0,0,.85);backdrop-filter:blur(10px)
-  }
-  .dialogue-item{display:grid;gap:.15rem;padding-left:.5rem}
-  .dialogue-item[data-side='p1']{--side-color:var(--r-p1);border-left:3px solid var(--side-color)}
-  .dialogue-item[data-side='p2']{--side-color:var(--r-p2);border-left:3px solid var(--side-color)}
-  .dialogue-header{display:flex;align-items:center;justify-content:space-between;gap:.4rem}
-  .dialogue-name{font-family:var(--display);font-size:calc(var(--hud-scale,1) * clamp(.66rem,.82cqw,.84rem));font-weight:800;color:#fff;letter-spacing:.02em;text-transform:uppercase}
-  .dialogue-phase{color:var(--side-color);font:900 calc(var(--hud-scale,1) * clamp(.52rem,.66cqw,.68rem)) var(--mono);letter-spacing:.12em}
-  .dialogue-copy{display:grid;gap:.15rem;min-height:2.8em;overflow:hidden;margin:0;color:#dfeae3;font-size:calc(var(--hud-scale,1) * clamp(.74rem,.92cqw,.92rem));line-height:1.4}
-  .dialogue-copy .commentary-copy{display:-webkit-box;overflow:hidden;line-clamp:2;-webkit-box-orient:vertical;-webkit-line-clamp:2}
-  .dialogue-box .banter-quote{display:block;overflow:hidden;color:#ffd679;font-style:italic;font-weight:700;white-space:nowrap;text-overflow:ellipsis}
-  .dialogue-box .thinking{color:var(--r-dim);font-style:italic}
-  .dialogue-box .live-response{color:#f3fff6;font-style:normal}
-  .dialogue-box .live-response span{color:var(--side-color);animation:cursor-blink 1s steps(2,end) infinite}
-  .dialogue-box .context-meter{color:var(--r-dim);font:600 calc(var(--hud-scale,1) * clamp(.44rem,.55cqw,.55rem)) var(--mono);letter-spacing:.04em;text-transform:none}
-  @keyframes cursor-blink{50%{opacity:0}}
-
   /* ── Combatants & Sprites (Classic Perspective) ─────────────────────────── */
   .combatant{position:absolute;z-index:10;display:flex;align-items:center;justify-content:center;pointer-events:none}
   .combatant-far{top:15%;right:18%;width:min(32%,360px)}
@@ -967,48 +704,10 @@
   .effect[data-move-type='steel'],.move-visual[data-move-type='steel']{--type-color:#b5c4cb}
   .effect[data-move-type='fairy'],.move-visual[data-move-type='fairy']{--type-color:#ff9bd1}
 
-  /* ── Spectator feed ─────────────────────────────────────────────────────── */
-  .battle-feed{display:flex;gap:1px;height:clamp(84px,12.5%,140px);overflow:hidden;background:var(--r-line);border-top:1px solid var(--r-line)}
-  .feed-turn{flex:1;min-width:0;overflow:hidden;padding:.55rem 1rem;background:rgba(5,11,9,.95)}
-  .feed-label{display:block;margin-bottom:.28rem;color:var(--r-accent);font:900 calc(var(--hud-scale,1) * clamp(.6rem,.76cqw,.76rem)) var(--mono);letter-spacing:.12em;text-transform:uppercase}
-  .battle-feed p{overflow:hidden;margin:.12rem 0;color:#c6d6cc;font-size:calc(var(--hud-scale,1) * clamp(.76rem,.94cqw,.94rem));line-height:1.45;text-overflow:ellipsis;white-space:nowrap}
-  .battle-feed p[data-emphasis='critical']{color:#ffd262}
-  .battle-feed p[data-emphasis='positive']{color:#8cf2a7}
-  .battle-feed p[data-emphasis='negative']{color:#ff9d98}
-
   .final-signal{position:absolute;z-index:21;top:8%;left:50%;display:grid;gap:.2rem;min-width:min(70%,520px);padding:.7rem 1.2rem;transform:translateX(-50%);border:1px solid color-mix(in srgb,#ffd262 72%,transparent);border-radius:8px;background:linear-gradient(90deg,rgba(65,28,8,.92),rgba(18,13,8,.96),rgba(65,28,8,.92));box-shadow:0 8px 30px rgba(0,0,0,.6),0 0 30px rgba(255,210,98,.18);text-align:center;animation:final-signal-in .55s both}
   .final-signal small{color:#ffd262;font:900 calc(var(--hud-scale,1) * clamp(.55rem,.76cqw,.78rem)) var(--mono);letter-spacing:.24em}
   .final-signal strong{color:#fff4c9;font:900 calc(var(--hud-scale,1) * clamp(1.15rem,2.5cqw,2.4rem)) var(--display);letter-spacing:.06em;text-shadow:0 0 16px rgba(255,210,98,.4)}
   .final-signal span{color:#e4c990;font:600 calc(var(--hud-scale,1) * clamp(.56rem,.72cqw,.72rem)) var(--mono)}
-
-  /* ── Winner ─────────────────────────────────────────────────────────────── */
-  /* A result screen is the one frame people screenshot, so it gets real presence: the
-     champion's colour, their name at poster scale, and the squad that survived. */
-  .winner-banner{position:absolute;z-index:40;inset:0;display:grid;place-content:center;justify-items:center;gap:.5rem;padding:2rem;background:radial-gradient(ellipse at 50% 45%,color-mix(in srgb,var(--champion) 22%,transparent),rgba(4,10,7,.93) 62%),rgba(4,10,7,.9);text-align:center;backdrop-filter:blur(9px);animation:winner-in .7s both}
-  .winner-banner{--champion:var(--r-accent)}
-  .winner-banner[data-side='p1']{--champion:var(--r-p1)}
-  .winner-banner[data-side='p2']{--champion:var(--r-p2)}
-  .winner-banner small{display:flex;align-items:center;gap:.7rem;color:var(--champion);font:900 calc(var(--hud-scale,1) * clamp(.7rem,.95cqw,.98rem)) var(--mono);letter-spacing:.34em}
-  .winner-banner small::before,.winner-banner small::after{content:'';width:clamp(24px,4cqw,72px);height:1px;background:linear-gradient(90deg,transparent,var(--champion))}
-  .winner-banner small::after{background:linear-gradient(90deg,var(--champion),transparent)}
-  .winner-banner strong{
-    margin:.1rem 0 .2rem;
-    background:linear-gradient(180deg,#fff 26%,color-mix(in srgb,var(--champion) 82%,#fff));
-    -webkit-background-clip:text;background-clip:text;color:transparent;
-    font-size:calc(var(--hud-scale,1) * clamp(2.6rem,8.4cqw,7.5rem));font-weight:900;line-height:.9;
-    letter-spacing:-.055em;text-transform:uppercase;
-    filter:drop-shadow(0 6px 26px color-mix(in srgb,var(--champion) 55%,transparent))
-  }
-  .winner-meta{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:.55rem}
-  .winner-side{padding:.22rem .7rem;border-radius:999px;background:var(--champion);color:#04100a;font:900 calc(var(--hud-scale,1) * clamp(.82rem,1.05cqw,1.1rem)) var(--mono);letter-spacing:.1em}
-  .winner-meta em{color:#e6f2ea;font:700 calc(var(--hud-scale,1) * clamp(.82rem,1.05cqw,1.1rem)) var(--display);font-style:normal;letter-spacing:.02em;text-transform:uppercase}
-  .winner-score{color:var(--r-dim);font:600 calc(var(--hud-scale,1) * clamp(.72rem,.9cqw,.95rem)) var(--mono);font-style:normal}
-  .winner-team{display:flex;flex-wrap:wrap;justify-content:center;gap:.45rem;margin-top:.9rem}
-  .winner-team i{display:grid;place-items:center;width:calc(var(--hud-scale,1) * clamp(38px,4.2cqw,66px));aspect-ratio:1;overflow:hidden;border:1px solid color-mix(in srgb,var(--champion) 55%,transparent);border-radius:9px;background:rgba(255,255,255,.06)}
-  .winner-team img{width:145%;height:145%;object-fit:contain}
-  [data-retro='true'] .winner-team img{image-rendering:pixelated}
-  .winner-team i b{color:var(--r-dim);font:800 1rem var(--display)}
-  .winner-team i.fainted{border-color:rgba(255,255,255,.12);opacity:.32;filter:grayscale(1) brightness(.6)}
 
   /* ── Motion ─────────────────────────────────────────────────────────────── */
   .sprite.attacking{animation:attack-far .5s cubic-bezier(.2,.8,.2,1)}
@@ -1019,8 +718,12 @@
   .sprite.fainting{animation:faint .78s both}
   .sprite.status-flash{animation:status-flash .45s}
   .sprite.idle{animation:idle 3.6s ease-in-out infinite}
+  .combatant.speaking .sprite.idle{animation:voice-idle 1.8s ease-in-out infinite}
+  .combatant.speaking .contact-shadow{animation:voice-shadow 1.8s ease-in-out infinite}
   .arena-shake{animation:arena-shake .44s cubic-bezier(.2,.8,.2,1) both}
   @keyframes idle{50%{transform:translateY(-2%) scale(1.012)}}
+  @keyframes voice-idle{25%{transform:translateY(-2.8%) rotate(-.6deg) scale(1.018)}75%{transform:translateY(-1.2%) rotate(.6deg) scale(1.008)}}
+  @keyframes voice-shadow{50%{opacity:.72;transform:translate(-50%,30%) scaleX(.93)}}
   @keyframes attack-far{45%{transform:translate(-14%,9%) scale(1.07)}}
   @keyframes attack-near{45%{transform:translate(14%,-9%) scale(1.07)}}
   @keyframes hit{20%,60%{transform:translateX(-8%);filter:brightness(1.9) saturate(.5)}40%,80%{transform:translateX(8%)}}
@@ -1030,7 +733,6 @@
   @keyframes status-flash{50%{filter:drop-shadow(0 0 22px #ffd05d) brightness(1.4)}}
   @keyframes effect-pop{from{opacity:0;transform:scale(.72)}32%{opacity:1;transform:scale(1.06)}to{opacity:0;transform:scale(1.16)}}
   @keyframes value-pop{from{opacity:0;transform:translate(-50%,14px) scale(.8)}22%{opacity:1;transform:translate(-50%,-4px) scale(1.12)}to{opacity:.95;transform:translate(-50%,-10px) scale(1)}}
-  @keyframes winner-in{from{opacity:0;clip-path:inset(50% 0)}to{opacity:1;clip-path:inset(0)}}
   @keyframes arena-shake{0%,100%{transform:translate(0)}25%{transform:translate(-.5%,.28%)}50%{transform:translate(.42%,-.22%)}75%{transform:translate(-.2%,.13%)}}
   @keyframes projectile-flight{0%{transform:translate(-50%,-50%) scale(.45);opacity:0}18%{opacity:1}82%{opacity:1}100%{top:var(--target-y);left:var(--target-x);transform:translate(-50%,-50%) scale(1.3);opacity:0}}
   @keyframes beam-fire{0%,18%{transform:rotate(var(--beam-angle)) scaleX(0);opacity:0}38%,65%{transform:rotate(var(--beam-angle)) scaleX(1);opacity:.9}100%{transform:rotate(var(--beam-angle)) scaleX(1);opacity:0}}
@@ -1047,25 +749,10 @@
   @keyframes final-signal-in{from{opacity:0;transform:translateX(-50%) translateY(-14px) scale(.96)}to{opacity:1;transform:translateX(-50%) translateY(0) scale(1)}}
   @keyframes weather-drift{to{background-position:70px 20px}}
   @keyframes weather-fall{to{background-position:18px 36px}}
-  .battle-renderer.deterministic .sprite,.battle-renderer.deterministic .effect span,.battle-renderer.deterministic .impact-burst i,.battle-renderer.deterministic .move-projectile,.battle-renderer.deterministic .move-beam,.battle-renderer.deterministic .charge-ring,.battle-renderer.deterministic .arena-shake,.battle-renderer.deterministic .weather-layer,.battle-renderer.deterministic .winner-banner,.battle-renderer.deterministic .hp-delta{animation:none!important}
+  .battle-renderer.deterministic .sprite,.battle-renderer.deterministic .effect span,.battle-renderer.deterministic .impact-burst i,.battle-renderer.deterministic .move-projectile,.battle-renderer.deterministic .move-beam,.battle-renderer.deterministic .charge-ring,.battle-renderer.deterministic .arena-shake,.battle-renderer.deterministic .weather-layer,.battle-renderer.deterministic .hp-delta{animation:none!important}
   .battle-renderer.deterministic .hp-track i,.battle-renderer.deterministic .hp-track b{transition:none!important}
   .battle-renderer.reduced-motion .sprite,.battle-renderer.reduced-motion .move-visual,.battle-renderer.reduced-motion .impact-burst,.battle-renderer.reduced-motion .arena-shake{animation:none!important;transform:none!important}
-  @media(prefers-reduced-motion:reduce){.sprite,.effect span,.winner-banner{animation-duration:.001ms!important;animation-iteration-count:1!important}.hp-track i{transition-duration:.001ms!important}}
-
-  .director-card{position:absolute;z-index:50;inset:0;display:grid;place-content:center;justify-items:center;gap:.65rem;padding:2rem;background:#020408;text-align:center;pointer-events:none}
-  .director-card::before,.director-card::after{content:'';position:absolute;inset:0;pointer-events:none}
-  .director-card::before{background:linear-gradient(112deg,rgba(95,227,154,.23) 0 38%,transparent 38% 62%,rgba(201,140,255,.2) 62%)}
-  .director-card::after{background:repeating-linear-gradient(112deg,transparent 0 15%,rgba(255,255,255,.06) 15.1% 15.5%,transparent 15.6% 28%);mix-blend-mode:screen}
-  .director-card>*{position:relative;z-index:1}
-  .director-card small{color:#baf8ca;font:900 calc(var(--hud-scale,1) * clamp(.62rem,1cqw,1rem)) var(--mono);letter-spacing:.28em}
-  .director-card strong{max-width:90%;color:#fff;font:900 calc(var(--hud-scale,1) * clamp(2rem,5.5cqw,5.8rem))/1 var(--display);letter-spacing:-.04em;text-transform:uppercase;text-shadow:0 8px 32px rgba(0,0,0,.75)}
-  .director-card strong i{font-style:normal;color:#ffd262;font-size:.48em;letter-spacing:.12em;vertical-align:middle}
-  .director-card span:not(.director-mark){color:rgba(240,246,242,.86);font:800 calc(var(--hud-scale,1) * clamp(.68rem,1.05cqw,1.05rem)) var(--mono);letter-spacing:.08em;text-transform:uppercase}
-  .director-mark{display:grid;place-items:center;width:clamp(50px,7cqw,92px);aspect-ratio:1;border:1px solid rgba(255,255,255,.22);border-radius:18px;background:rgba(0,0,0,.25);box-shadow:0 0 30px rgba(120,255,169,.2)}
-  .director-mark img{width:62%}
-  .director-result{background:#020408;}
-  .director-result::before{background:linear-gradient(112deg,rgba(255,217,106,.25) 0 38%,transparent 38% 62%,rgba(255,152,76,.22) 62%)}
-  .director-result small{color:#ffd96a}
+  @media(prefers-reduced-motion:reduce){.sprite,.effect span{animation-duration:.001ms!important;animation-iteration-count:1!important}.hp-track i{transition-duration:.001ms!important}}
 
   /* ── Vertical (1080×1920) ───────────────────────────────────────────────── */
   .battle-renderer[data-layout='standard-vertical']{width:min(100%,620px);aspect-ratio:9/16;margin-inline:auto}
@@ -1078,8 +765,6 @@
   .battle-renderer[data-layout='standard-vertical'] .intent-far{top:26%}
   .battle-renderer[data-layout='standard-vertical'] .intent-near{bottom:28%}
   .battle-renderer[data-layout='standard-vertical'] .action-banner{top:48%}
-  .battle-renderer[data-layout='standard-vertical'] .battle-feed{flex-direction:column;height:clamp(72px,11%,132px)}
-  .battle-renderer[data-layout='standard-vertical'] .feed-turn:not(:last-child){display:none}
   .battle-renderer[data-layout='overlay-landscape']{border-radius:0}
 
   /* ── Narrow desktop and mobile ──────────────────────────────────────────── */
@@ -1095,7 +780,6 @@
     .combatant-near{bottom:6%;left:2%}
     .player-hud{max-width:44%}
     .intent{display:none}
-    .battle-feed .feed-turn:not(:last-child){display:none}
   }
 
   .renderer-loading{display:grid;place-content:center;min-height:420px;padding:2rem;text-align:center}

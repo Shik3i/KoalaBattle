@@ -8,6 +8,7 @@
   import { connectLiveSocket } from '$lib/presentation/live-socket';
   import { defaultRendererConfig, HUD_SCALE_RANGE, type AgentPresentationStatus, type CommentaryMode, type EffectQuality, type MoveEffectSkin, type RendererConfig, type RendererLayout, type RendererTheme, type TimelineSnapshot } from '$lib/presentation/types';
   import type { AgentLifecycleState, AgentRequest, BattleAction, BattleEvent, MatchArchive, Side } from '$lib/types';
+  import { actionIndexForKey, actionPreview, shortcutFor } from '$lib/manual-action';
 
   export let data: { id: string };
   let match: MatchArchive | null = null;
@@ -97,8 +98,10 @@
   onMount(() => {
     config = loadRendererConfig();
     activeMatchId = data.id;
+    window.addEventListener('keydown', handleManualShortcut);
     void connect();
     return () => {
+      window.removeEventListener('keydown', handleManualShortcut);
       stopSocket?.(); timeline?.destroy();
       if (copyTimer) clearTimeout(copyTimer);
       if (configBroadcastTimer) clearTimeout(configBroadcastTimer);
@@ -226,6 +229,16 @@
     };
     validation = { ...validation, [side]: `Selected ${action.name} · submitting…` };
     void submit(side);
+  }
+  function handleManualShortcut(event: KeyboardEvent) {
+    const target = event.target as HTMLElement | null;
+    if (target?.matches('input, textarea, select, [contenteditable="true"]')) return;
+    if (!activeTab || event.metaKey || event.ctrlKey || event.altKey) return;
+    const index = actionIndexForKey(event.key);
+    const request = activeTab ? pending[activeTab] : null;
+    if (index == null || !request?.legal_actions[index] || submitting[activeTab]) return;
+    event.preventDefault();
+    chooseAction(activeTab, request.legal_actions[index]);
   }
   function actionSummary(action: BattleAction) {
     if (action.type === 'switch') {
@@ -461,14 +474,17 @@
               <section class="action-picker" aria-label="Choose a legal battle action">
                 <div class="column-head">
                   <h3>Choose your action</h3>
-                  <span class="meta">Clicking submits immediately</span>
+                  <span class="meta">Click or press 1–9 · submits immediately</span>
                 </div>
                 <div class="action-grid">
-                  {#each request.legal_actions as action (action.id)}
-                    <button type="button" class="action-choice" disabled={Boolean(submitting[side])} on:click={() => chooseAction(side, action)}>
+                  {#each request.legal_actions as action, index (action.id)}
+                    {@const preview = actionPreview(action)}
+                    <button type="button" class="action-choice" disabled={Boolean(submitting[side])} aria-keyshortcuts={shortcutFor(index) || undefined} on:click={() => chooseAction(side, action)}>
+                      {#if shortcutFor(index)}<kbd>{shortcutFor(index)}</kbd>{/if}
                       <span class="action-kind">{action.type === 'move' ? 'MOVE' : 'SWITCH'}</span>
                       <strong>{action.name}</strong>
                       <small>{actionSummary(action)}</small>
+                      <span class="action-preview"><b>{preview.impact}</b><em>{preview.tempo}</em></span>
                     </button>
                   {/each}
                 </div>
@@ -628,12 +644,16 @@
   .manual-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem;max-width:1180px}
   .action-picker{grid-column:1/-1;display:grid;gap:.6rem;padding:.9rem;border:1px solid color-mix(in srgb,var(--accent) 38%,var(--border));border-radius:.75rem;background:color-mix(in srgb,var(--accent) 5%,var(--panel))}
   .action-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:.55rem}
-  .action-choice{display:grid;gap:.14rem;min-height:76px;padding:.7rem .75rem;border:1px solid var(--border);border-left:3px solid var(--side-color);border-radius:.6rem;background:var(--panel-strong);color:var(--text);text-align:left;cursor:pointer;transition:border-color .16s ease,transform .16s ease,background .16s ease}
+  .action-choice{position:relative;display:grid;gap:.14rem;min-height:112px;padding:.7rem 2.2rem .7rem .75rem;border:1px solid var(--border);border-left:3px solid var(--side-color);border-radius:.6rem;background:var(--panel-strong);color:var(--text);text-align:left;cursor:pointer;transition:border-color .16s ease,transform .16s ease,background .16s ease}
   .action-choice:hover:not(:disabled){border-color:var(--side-color);background:color-mix(in srgb,var(--side-color) 12%,var(--panel-strong));transform:translateY(-1px)}
   .action-choice:disabled{cursor:wait;opacity:.55}
   .action-kind{color:var(--side-color);font:800 .58rem var(--mono);letter-spacing:.12em}
   .action-choice strong{font-size:.92rem}
   .action-choice small{overflow:hidden;color:var(--muted);font:.62rem var(--mono);text-overflow:ellipsis;white-space:nowrap}
+  .action-choice kbd{position:absolute;top:.55rem;right:.55rem;display:grid;place-items:center;width:1.35rem;aspect-ratio:1;border:1px solid color-mix(in srgb,var(--side-color) 45%,var(--border));border-radius:.35rem;background:var(--surface);color:var(--side-color);font:800 .65rem var(--mono);box-shadow:0 2px 0 rgba(0,0,0,.35)}
+  .action-preview{display:grid;gap:.08rem;margin-top:.25rem;padding-top:.35rem;border-top:1px solid var(--border)}
+  .action-preview b{color:var(--text);font:700 .68rem var(--display)}
+  .action-preview em{color:var(--muted);font:500 .6rem var(--mono);font-style:normal}
   .column{display:grid;gap:.4rem;min-width:0}
   .column-head{display:flex;align-items:baseline;justify-content:space-between;gap:.6rem}
   .column-head h3{margin:0;font-size:.85rem}

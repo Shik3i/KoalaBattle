@@ -29,6 +29,7 @@ from koalabattle.production.speech.cache import speech_cache_key
 from koalabattle.production.speech.system import SystemSpeechProvider
 from koalabattle.production.timeline import (
     build_timeline,
+    cues_for_event,
     final_cues,
     retime_for_audio,
     segment_caption,
@@ -556,6 +557,15 @@ def test_narrator_plan_announces_final_pokemon_from_full_roster_snapshot(
 
     assert plan[1].rule_id == "final-pokemon"
     assert plan[1].priority == 115
+    cues, _ = cues_for_event(
+        events[0],
+        PRODUCTION_PROFILES["youtube"],
+        start_ms=2_000,
+        narrator_candidate=plan[1],
+    )
+    sting = next(cue for cue in cues if cue.kind == "final-pokemon-sting")
+    assert sting.track is Track.SFX
+    assert sting.start_ms == 2_000
 
 
 def test_narrator_profile_applies_recommendations_without_overwriting_custom_values(

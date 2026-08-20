@@ -26,6 +26,7 @@
   let agentStatus: Partial<Record<Side, AgentPresentationStatus>> = {};
   let match: MatchArchive | null = null;
   let productionClockActive = false;
+  let speaking: ProductionPlaybackState['speaking'] = [];
 
   interface StreamMessage {
     kind: string;
@@ -125,6 +126,7 @@
   }
 
   function syncProductionPlayback(event: CustomEvent<ProductionPlaybackState>) {
+    speaking = event.detail.speaking;
     const sequence = event.detail.visual?.event_sequence;
     if (!sequence || !match || !timeline) return;
     const index = match.events.findIndex((item) => item.sequence === sequence);
@@ -138,7 +140,7 @@
 </script>
 
 <svelte:head><title>KoalaBattle OBS Overlay</title></svelte:head>
-<BattleRenderer presentation={snapshot?.state || null} {config} overlay {agentStatus} />
+<BattleRenderer presentation={snapshot?.state || null} {config} overlay {agentStatus} {speaking} />
 <ProductionConsole
   matchId={data.id}
   compact

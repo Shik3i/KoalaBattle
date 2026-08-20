@@ -149,7 +149,9 @@
 <style>
   :global(html),:global(body){width:100%;height:100%;margin:0;overflow:hidden;background:#07120c}
   :global(body>div){width:100%;height:100%}
-  .render-shell{position:fixed;inset:0;width:100vw;height:100vh;overflow:hidden;background:#07120c}
+  /* Reset the application-wide `main` geometry; any inherited padding becomes letterboxing in
+     screenshots and final video frames. */
+  .render-shell{position:fixed;inset:0;width:100vw;max-width:none;height:100vh;margin:0;padding:0;overflow:hidden;background:#07120c}
   .native-compositor{display:block;width:100%;height:100%;object-fit:contain;background:#07120c}
   .render-error{display:grid;height:100%;place-items:center;padding:2rem;color:#fff;font-family:system-ui}
 </style>

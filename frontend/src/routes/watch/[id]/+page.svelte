@@ -29,6 +29,7 @@
   let agentStatus: Partial<Record<Side, AgentPresentationStatus>> = {};
   let match: MatchArchive | null = null;
   let productionClockActive = false;
+  let speaking: ProductionPlaybackState['speaking'] = [];
   let connection: 'connecting' | 'live' | 'reconnecting' = 'connecting';
 
   interface StreamMessage {
@@ -94,6 +95,7 @@
   }
 
   function syncProductionPlayback(event: CustomEvent<ProductionPlaybackState>) {
+    speaking = event.detail.speaking;
     const sequence = event.detail.visual?.event_sequence;
     if (!sequence || !match || !timeline) return;
     const index = match.events.findIndex((item) => item.sequence === sequence);
@@ -109,7 +111,7 @@
 <svelte:head><title>KoalaBattle · Battle view</title></svelte:head>
 
 <div class="battle-view">
-  <BattleRenderer presentation={snapshot?.state || null} {config} overlay {agentStatus} />
+  <BattleRenderer presentation={snapshot?.state || null} {config} overlay {agentStatus} {speaking} />
   <!-- Keeps narration audio available on the viewer tab; no battle controls are exposed. -->
   <ProductionConsole
     matchId={data.id}

@@ -227,6 +227,19 @@ def cues_for_event(
                 duration = max(duration, estimated)
     if narrator_candidate is not None:
         narrator_duration = narrator_candidate.duration_ms
+        if profile.sfx_enabled and narrator_candidate.rule_id == "final-pokemon":
+            cues.append(
+                ProductionCue(
+                    id=f"{base}-final-pokemon-sting",
+                    track=Track.SFX,
+                    kind="final-pokemon-sting",
+                    start_ms=start_ms,
+                    duration_ms=min(1_200, narrator_duration),
+                    event_sequence=event.sequence,
+                    turn=cue_turn,
+                    payload={"sound_pack": "broadcast-synth-v1"},
+                )
+            )
         cues.append(
             ProductionCue(
                 id=f"{base}-narrator-commentary",

@@ -77,6 +77,18 @@ including uploaded logos, an uploaded background and a watermark:
 python3 scripts/capture_studio_pack.py --match <uuid> --output data/review-pack/<name>
 ```
 
+For exact renderer regression checks, create one 16:9 and one 9:16 production from the same
+archive. The first command accepts six deterministic local baselines; subsequent runs fail when
+any intro, mid-battle or result frame changes:
+
+```bash
+python3 scripts/visual_regression.py --landscape <16:9-production-uuid> --vertical <9:16-production-uuid> --accept
+python3 scripts/visual_regression.py --landscape <16:9-production-uuid> --vertical <9:16-production-uuid>
+```
+
+Captures remain in ignored `data/visual-regression/`; they can contain locally installed media
+that must not enter the MIT repository.
+
 Speech must be prepared *before* export and never rebuilt afterwards: `rebuild` regenerates
 the timeline from the archive and drops synthesized voice cues. Preparation also re-times
 the clock against the real audio, so **re-read the production after preparing** — a copy
