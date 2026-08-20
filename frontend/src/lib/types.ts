@@ -17,7 +17,13 @@ export interface AgentConfiguration {
 
 export interface ProviderStatus {
   id: ProviderKind;
+  label: string;
+  default_model: string;
+  default_base_url: string | null;
+  requires_api_key: boolean;
+  environment_variable: string | null;
   configured: boolean;
+  source: 'runtime' | 'environment' | 'custom-url' | 'none';
   capabilities: {
     structured_output: boolean;
     model_listing: boolean;

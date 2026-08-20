@@ -95,6 +95,7 @@ from .schemas import (
     CreateMatchRequest,
     ManualDecisionInput,
     PromptRenderInput,
+    ProviderConfigurationInput,
     ProviderModelsInput,
     RendererConfigInput,
     StoredPresetInput,
@@ -732,6 +733,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/api/providers")
     async def providers(request: Request) -> dict[str, object]:
         return {"providers": _service(request).provider_status()}
+
+    @app.post("/api/providers/configure")
+    async def configure_provider(
+        payload: ProviderConfigurationInput, request: Request
+    ) -> dict[str, object]:
+        try:
+            return _service(request).configure_provider(
+                payload.provider, payload.api_key, payload.base_url
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
 
     @app.post("/api/providers/models")
     async def provider_models(payload: ProviderModelsInput, request: Request) -> dict[str, object]:

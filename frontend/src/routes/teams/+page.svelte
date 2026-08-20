@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { api } from '$lib/api';
+  import { hydrateStoredProviderSettings } from '$lib/provider-settings';
   import type { ProviderKind, ProviderStatus, TeamBuildAudit, TeamSnapshot, TeamValidationResult } from '$lib/types';
 
   let teams: TeamSnapshot[] = [];
@@ -16,12 +17,20 @@
 
   onMount(() => {
     const controller = new AbortController();
-    void Promise.all([
-      api<TeamSnapshot[]>('/api/teams', { signal: controller.signal }),
-      api<{ providers: ProviderStatus[] }>('/api/providers', { signal: controller.signal })
-    ]).then(([stored, status]) => { teams = stored; providers = status.providers; }).catch((caught) => {
-      if (!controller.signal.aborted) error = caught instanceof Error ? caught.message : String(caught);
-    });
+    void (async () => {
+      try {
+        await hydrateStoredProviderSettings();
+        const [stored, status] = await Promise.all([
+          api<TeamSnapshot[]>('/api/teams', { signal: controller.signal }),
+          api<{ providers: ProviderStatus[] }>('/api/providers', { signal: controller.signal })
+        ]);
+        teams = stored; providers = status.providers;
+        const configured = providers.find((item) => item.configured);
+        if (configured) { provider = configured.id; model = configured.default_model; }
+      } catch (caught) {
+        if (!controller.signal.aborted) error = caught instanceof Error ? caught.message : String(caught);
+      }
+    })();
     return () => controller.abort();
   });
 
@@ -77,7 +86,7 @@
   <article class="panel builder">
     <span class="eyebrow">AI team builder</span><h2>Generate, validate, repair</h2>
     <p>No provider is called until this button is selected. Fake is deterministic and costs nothing.</p>
-    <label>Provider<select bind:value={provider}>{#each providers as item}<option value={item.id} disabled={!item.configured}>{item.id}{item.configured ? '' : ' · unavailable'}</option>{/each}</select></label>
+  <label>Provider<select bind:value={provider}>{#each providers.filter((item) => item.configured) as item}<option value={item.id}>{item.label || item.id} · ready</option>{/each}{#if !providers.some((item) => item.configured)}<option disabled>No configured provider — use Settings</option>{/if}</select></label>
     <label>Model<input bind:value={model} maxlength="200" /></label>
     <button class="button secondary" disabled={busy || !model.trim()} on:click={generate}><i class="ph ph-sparkle" aria-hidden="true"></i>{busy ? 'Working…' : 'Generate team explicitly'}</button>
     {#if buildAudit}<div class:valid={buildAudit.success} class="result"><strong>{buildAudit.success ? '✓ Generated team is legal' : 'Generation failed'}</strong><p>{buildAudit.repair_attempts} repair attempt(s) · {buildAudit.latency_ms} ms</p>{#each buildAudit.validation_errors.flat() as item}<p>{item}</p>{/each}</div>{/if}

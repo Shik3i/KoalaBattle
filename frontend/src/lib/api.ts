@@ -1,6 +1,6 @@
 import { env } from '$env/dynamic/public';
 import { errorMessage } from './errors';
-import type { BrandAsset, BrandAssetKind, BrandAssetLibrary, ExportBackend, ExportPreflight, FormatCatalog, FormatDescriptor, FormatGroup, MatchArchive, NarratorProfile, NarratorSettings, ProductionProfile, ProductionStyle, ProductionTimeline, RenderEngine, RendererCapabilities, StylePreset, VideoExportJob, VideoExportPreset, VoicePool, VoicePreset } from './types';
+import type { BrandAsset, BrandAssetKind, BrandAssetLibrary, ExportBackend, ExportPreflight, FormatCatalog, FormatDescriptor, FormatGroup, MatchArchive, NarratorProfile, NarratorSettings, ProductionProfile, ProductionStyle, ProductionTimeline, ProviderKind, RenderEngine, RendererCapabilities, StylePreset, VideoExportJob, VideoExportPreset, VoicePool, VoicePreset } from './types';
 import type { RendererConfig } from './presentation/types';
 
 export const apiBase = () => {
@@ -54,6 +54,11 @@ export async function copyText(value: string): Promise<boolean> {
 }
 
 export const getMatch = (id: string) => api<MatchArchive>(`/api/matches/${id}`);
+export const configureProvider = (provider: ProviderKind, apiKey: string, baseUrl: string | null = null) =>
+  api<{ provider: ProviderKind; configured: boolean; source: string }>('/api/providers/configure', {
+    method: 'POST',
+    body: JSON.stringify({ provider, api_key: apiKey || null, base_url: baseUrl || null })
+  });
 /** The Showdown format registry, served by the pinned local Showdown build. */
 export const getFormatCatalog = (signal?: AbortSignal) =>
   api<FormatCatalog>('/api/formats', { signal });

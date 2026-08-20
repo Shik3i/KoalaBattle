@@ -6,9 +6,17 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from koalabattle.agents import RandomAgent
+from koalabattle.agents.providers import DeepSeekProvider
 from koalabattle.api.main import create_app
 from koalabattle.config import Settings
-from koalabattle.core.models import AgentRequest, BattleEvent, MatchConfig
+from koalabattle.core.models import (
+    AgentRequest,
+    BattleEvent,
+    MatchConfig,
+    PlayerConfig,
+    ProviderKind,
+    Side,
+)
 from koalabattle.storage import BattleRepository, Database
 
 
@@ -128,6 +136,43 @@ def test_provider_status_never_returns_credentials_and_missing_key_is_actionable
         )
         assert missing.status_code == 422
         assert "KOALABATTLE_ANTHROPIC_API_KEY" in missing.json()["detail"]
+
+
+def test_browser_provider_configuration_enables_deepseek_without_leaking_key(
+    tmp_path: Path, match_config: MatchConfig
+) -> None:
+    settings = Settings(
+        _env_file=None,
+        database_url=f"sqlite+aiosqlite:///{tmp_path / 'runtime-provider.db'}",
+    )
+    create_test_schema(settings.database_url)
+    secret = "sk-deepseek-runtime-secret"
+    with TestClient(create_app(settings)) as client:
+        configured = client.post(
+            "/api/providers/configure",
+            json={"provider": "deepseek", "api_key": secret},
+        )
+        assert configured.status_code == 200, configured.text
+        assert configured.json() == {
+            "provider": "deepseek",
+            "configured": True,
+            "source": "runtime",
+        }
+        status_response = client.get("/api/providers")
+        assert secret not in status_response.text
+        deepseek = next(
+            item for item in status_response.json()["providers"] if item["id"] == "deepseek"
+        )
+        assert deepseek["configured"] is True
+        service = client.app.state.service
+        player = PlayerConfig(
+            side=Side.P1,
+            display_name="DeepSeek",
+            agent_type="api",
+            provider=ProviderKind.DEEPSEEK.value,
+            model="deepseek-chat",
+        )
+        assert isinstance(service._provider_for(player), DeepSeekProvider)
 
 
 def test_tournament_crud_uses_summaries_and_sanitized_presentation(tmp_path: Path) -> None:
@@ -323,4 +368,3 @@ def test_resume_re_enqueues_interrupted_match(tmp_path: Path) -> None:
 
         not_found = client.post("/api/matches/00000000-0000-0000-0000-000000000000/resume")
         assert not_found.status_code == 404
-

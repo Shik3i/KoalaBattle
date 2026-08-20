@@ -78,6 +78,11 @@ class BattleService:
         self.formats = FormatCatalogService(settings.team_validator_url)
         self.hub = RealtimeHub()
         self.pricing = PricingTable(settings.pricing_table_json, settings.pricing_version)
+        # Browser-configured credentials are deliberately process-local. They are never written
+        # to MatchConfig, the database, logs, or an API response. The settings page rehydrates
+        # them from its browser-local vault after a backend restart.
+        self._runtime_provider_keys: dict[ProviderKind, str] = {}
+        self._runtime_provider_base_urls: dict[ProviderKind, str] = {}
         self.supervisor = MatchSupervisor(
             repository,
             self.hub,
@@ -227,18 +232,28 @@ class BattleService:
             raise ValueError("API agent provider is missing")
         kind = ProviderKind(player.provider)
         if kind is ProviderKind.OPENAI:
-            return OpenAIProvider(self._required_key(kind, self.settings.openai_api_key))
+            key = self._required_key(kind, self._provider_key(kind, self.settings.openai_api_key))
+            return OpenAIProvider(key)
         if kind is ProviderKind.GEMINI:
-            return GeminiProvider(self._required_key(kind, self.settings.gemini_api_key))
+            key = self._required_key(kind, self._provider_key(kind, self.settings.gemini_api_key))
+            return GeminiProvider(key)
         if kind is ProviderKind.ANTHROPIC:
-            return AnthropicProvider(self._required_key(kind, self.settings.anthropic_api_key))
+            key = self._required_key(
+                kind, self._provider_key(kind, self.settings.anthropic_api_key)
+            )
+            return AnthropicProvider(key)
         if kind is ProviderKind.DEEPSEEK:
-            return DeepSeekProvider(self._required_key(kind, self.settings.deepseek_api_key))
+            key = self._required_key(kind, self._provider_key(kind, self.settings.deepseek_api_key))
+            return DeepSeekProvider(key)
         if kind is ProviderKind.OPENAI_COMPATIBLE:
-            assert player.configuration.base_url is not None
+            base_url = player.configuration.base_url or self._runtime_provider_base_urls.get(kind)
+            if not base_url:
+                raise ValueError(
+                    "openai-compatible is missing a base URL; configure it in Settings or the match"
+                )
             return OpenAICompatibleProvider(
-                player.configuration.base_url,
-                self.settings.openai_compatible_api_key,
+                base_url,
+                self._provider_key(kind, self.settings.openai_compatible_api_key),
             )
         if not self.settings.enable_fake_provider:
             raise ValueError("Fake provider is disabled; set KOALABATTLE_ENABLE_FAKE_PROVIDER=true")
@@ -251,13 +266,111 @@ class BattleService:
             raise ValueError(f"{kind.value} is not configured; set {variable}")
         return value
 
+    def _provider_key(self, kind: ProviderKind, environment_value: str | None) -> str | None:
+        return self._runtime_provider_keys.get(kind) or environment_value
+
+    def configure_provider(
+        self,
+        provider: ProviderKind,
+        api_key: str | None,
+        base_url: str | None,
+    ) -> dict[str, object]:
+        normalized_base_url: str | None = None
+        if base_url is not None:
+            normalized_base_url = base_url.strip().rstrip("/")
+            if normalized_base_url:
+                # Reuse AgentConfiguration's URL validation without persisting the value in a
+                # player or match archive.
+                AgentConfiguration(base_url=normalized_base_url)
+
+        key = api_key.strip() if api_key else ""
+        if key:
+            self._runtime_provider_keys[provider] = key
+        else:
+            self._runtime_provider_keys.pop(provider, None)
+
+        if base_url is not None:
+            if normalized_base_url:
+                self._runtime_provider_base_urls[provider] = normalized_base_url
+            else:
+                self._runtime_provider_base_urls.pop(provider, None)
+
+        status = next(item for item in self.provider_status() if item["id"] == provider.value)
+        return {
+            "provider": provider.value,
+            "configured": status["configured"],
+            "source": status["source"],
+        }
+
     def provider_status(self) -> tuple[dict[str, object], ...]:
+        catalog = {
+            ProviderKind.OPENAI: {
+                "label": "OpenAI",
+                "default_model": "gpt-5-mini",
+                "default_base_url": "https://api.openai.com/v1",
+                "requires_api_key": True,
+                "environment_variable": "OPENAI_API_KEY",
+            },
+            ProviderKind.GEMINI: {
+                "label": "Google Gemini",
+                "default_model": "gemini-2.5-flash",
+                "default_base_url": None,
+                "requires_api_key": True,
+                "environment_variable": "GEMINI_API_KEY",
+            },
+            ProviderKind.ANTHROPIC: {
+                "label": "Anthropic",
+                "default_model": "claude-sonnet-4-5",
+                "default_base_url": None,
+                "requires_api_key": True,
+                "environment_variable": "ANTHROPIC_API_KEY",
+            },
+            ProviderKind.DEEPSEEK: {
+                "label": "DeepSeek",
+                "default_model": "deepseek-chat",
+                "default_base_url": "https://api.deepseek.com",
+                "requires_api_key": True,
+                "environment_variable": "DEEPSEEK_API_KEY",
+            },
+            ProviderKind.OPENAI_COMPATIBLE: {
+                "label": "OpenAI-compatible",
+                "default_model": "local-model",
+                "default_base_url": self._runtime_provider_base_urls.get(
+                    ProviderKind.OPENAI_COMPATIBLE
+                ),
+                "requires_api_key": False,
+                "environment_variable": "KOALABATTLE_OPENAI_COMPATIBLE_API_KEY",
+            },
+            ProviderKind.FAKE: {
+                "label": "Deterministic Fake",
+                "default_model": "fake-battle-v1",
+                "default_base_url": None,
+                "requires_api_key": False,
+                "environment_variable": None,
+            },
+        }
         configured = {
+            ProviderKind.OPENAI: bool(
+                self._provider_key(ProviderKind.OPENAI, self.settings.openai_api_key)
+            ),
+            ProviderKind.GEMINI: bool(
+                self._provider_key(ProviderKind.GEMINI, self.settings.gemini_api_key)
+            ),
+            ProviderKind.ANTHROPIC: bool(
+                self._provider_key(ProviderKind.ANTHROPIC, self.settings.anthropic_api_key)
+            ),
+            ProviderKind.DEEPSEEK: bool(
+                self._provider_key(ProviderKind.DEEPSEEK, self.settings.deepseek_api_key)
+            ),
+            ProviderKind.OPENAI_COMPATIBLE: True,
+            ProviderKind.FAKE: self.settings.enable_fake_provider,
+        }
+        environment_configured = {
             ProviderKind.OPENAI: bool(self.settings.openai_api_key),
             ProviderKind.GEMINI: bool(self.settings.gemini_api_key),
             ProviderKind.ANTHROPIC: bool(self.settings.anthropic_api_key),
             ProviderKind.DEEPSEEK: bool(self.settings.deepseek_api_key),
-            ProviderKind.OPENAI_COMPATIBLE: True,
+            ProviderKind.OPENAI_COMPATIBLE: bool(self.settings.openai_compatible_api_key),
             ProviderKind.FAKE: self.settings.enable_fake_provider,
         }
         capabilities = {
@@ -271,16 +384,29 @@ class BattleService:
         return tuple(
             {
                 "id": kind.value,
+                **catalog[kind],
                 "configured": configured[kind],
+                "source": self._provider_source(kind, environment_configured[kind]),
                 "capabilities": capabilities[kind].model_dump(mode="json"),
             }
             for kind in ProviderKind
         )
 
+    def _provider_source(self, kind: ProviderKind, environment_configured: bool) -> str:
+        if kind in self._runtime_provider_keys or kind in self._runtime_provider_base_urls:
+            return "runtime"
+        if environment_configured:
+            return "environment"
+        if kind is ProviderKind.OPENAI_COMPATIBLE:
+            return "custom-url"
+        return "none"
+
     async def list_provider_models(
         self, provider: ProviderKind, base_url: str | None = None
     ) -> tuple[ProviderModel, ...]:
-        configuration = AgentConfiguration(base_url=base_url)
+        configuration = AgentConfiguration(
+            base_url=base_url or self._runtime_provider_base_urls.get(provider)
+        )
         player = PlayerConfig(
             side=Side.P1,
             display_name="Model discovery",

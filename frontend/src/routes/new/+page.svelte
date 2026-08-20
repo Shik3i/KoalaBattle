@@ -8,6 +8,7 @@
     localEndpointPreset
   } from '$lib/local-endpoints';
   import { api, copyText, getFormatGroups } from '$lib/api';
+  import { hydrateStoredProviderSettings } from '$lib/provider-settings';
   import type {
     AgentType,
     FormatDescriptor,
@@ -81,19 +82,32 @@
 
   onMount(() => {
     const controller = new AbortController();
-    void Promise.all([
-      api<{ providers: ProviderStatus[] }>('/api/providers', { signal: controller.signal }),
-      api<TeamSnapshot[]>('/api/teams', { signal: controller.signal }),
-      getFormatGroups(false, controller.signal)
-    ]).then(([providerResult, teamResult, groups]) => {
-      providers = providerResult.providers; teams = teamResult; formatGroups = groups;
-      formatsLoading = false;
-    }).catch((caught) => {
-      if (!controller.signal.aborted) {
-        error = caught instanceof Error ? caught.message : String(caught);
+    void (async () => {
+      try {
+        await hydrateStoredProviderSettings();
+        const [providerResult, teamResult, groups] = await Promise.all([
+          api<{ providers: ProviderStatus[] }>('/api/providers', { signal: controller.signal }),
+          api<TeamSnapshot[]>('/api/teams', { signal: controller.signal }),
+          getFormatGroups(false, controller.signal)
+        ]);
+        providers = providerResult.providers; teams = teamResult; formatGroups = groups;
+        const configured = providers.filter((provider) => provider.configured && provider.id !== 'fake');
+        if (configured.length) {
+          players = players.map((player) => {
+            const current = providers.find((provider) => provider.id === player.provider);
+            if (current?.configured) return player;
+            const next = configured[0];
+            return { ...player, provider: next.id, model: next.default_model, baseUrl: next.default_base_url || '' };
+          });
+        }
         formatsLoading = false;
+      } catch (caught) {
+        if (!controller.signal.aborted) {
+          error = caught instanceof Error ? caught.message : String(caught);
+          formatsLoading = false;
+        }
       }
-    });
+    })();
     return () => controller.abort();
   });
 
@@ -171,10 +185,11 @@
   }
   function selectProvider(index: number, value: ProviderKind) {
     players[index].provider = value;
-    players[index].model = defaultModels[value];
+    const status = providers.find((provider) => provider.id === value);
+    players[index].model = status?.default_model || defaultModels[value];
     players[index].endpointPreset = CUSTOM_ENDPOINT_PRESET_ID;
-    players[index].baseUrl = '';
-    if (value === 'openai-compatible') applyEndpointPreset(index, 'lm-studio-gemma-4', false);
+    players[index].baseUrl = status?.default_base_url || '';
+    if (value === 'openai-compatible' && !players[index].baseUrl) applyEndpointPreset(index, 'lm-studio-gemma-4', false);
     players = [...players];
   }
   function selectAgentType(index: number, value: AgentType) {
@@ -292,7 +307,7 @@
         {#if player.agentType === 'api'}
           <label>Provider
             <select value={player.provider} on:change={(event) => selectProvider(index, event.currentTarget.value as ProviderKind)}>
-              <optgroup label="Providers">{#each providers.filter((status) => status.id !== 'fake') as status}<option value={status.id} disabled={!status.configured && status.id !== 'openai-compatible'}>{providerLabels[status.id]}{status.configured ? ' · ready' : status.id === 'openai-compatible' ? ' · configure URL below' : ' · not configured'}</option>{/each}</optgroup>
+              <optgroup label="Configured providers">{#each providers.filter((status) => status.id !== 'fake' && status.configured) as status}<option value={status.id}>{status.label || providerLabels[status.id]} · ready</option>{/each}{#if !providers.some((status) => status.id !== 'fake' && status.configured)}<option disabled>Open Settings to configure a provider</option>{/if}</optgroup>
               {#if providers.some((status) => status.id === 'fake')}<optgroup label="Development / Testing">{#each providers.filter((status) => status.id === 'fake') as status}<option value={status.id} disabled={!status.configured}>{providerLabels[status.id]}{status.configured ? ' · enabled' : ' · disabled'}</option>{/each}</optgroup>{/if}
             </select>
           </label>

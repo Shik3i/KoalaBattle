@@ -137,6 +137,13 @@ class ProviderModelsInput(BaseModel):
     base_url: str | None = Field(default=None, max_length=500)
 
 
+class ProviderConfigurationInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    provider: ProviderKind
+    api_key: str | None = Field(default=None, max_length=1_000)
+    base_url: str | None = Field(default=None, max_length=500)
+
+
 class StoredTemplateInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str = Field(min_length=1, max_length=120)

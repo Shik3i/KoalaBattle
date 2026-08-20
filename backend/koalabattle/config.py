@@ -30,6 +30,8 @@ class Settings(BaseSettings):
     cors_origins: Annotated[tuple[str, ...], NoDecode] = (
         "http://localhost:5173",
         "http://localhost:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3001",
     )
     log_level: str = "INFO"
     openai_api_key: str | None = Field(
