@@ -68,6 +68,9 @@
     if (player.agent_type === 'random') return 'Random agent';
     return [player.provider, player.model].filter(Boolean).join(' · ');
   }
+  function isManual(side: Side) {
+    return playerFor(side)?.agent_type === 'manual';
+  }
   function tabState(side: Side) {
     if (submitting[side]) return 'Submitting…';
     if (pending[side]) return 'Waiting for response';
@@ -211,6 +214,14 @@
     } catch (caught) { validation = { ...validation, [side]: caught instanceof Error ? caught.message : String(caught) }; }
     finally { submitting = { ...submitting, [side]: false }; }
   }
+  function chooseAction(side: Side, action: BattleAction) {
+    responses = {
+      ...responses,
+      [side]: JSON.stringify({ action: action.id, commentary: '', strategy_memory: null }, null, 2)
+    };
+    validation = { ...validation, [side]: `Selected ${action.name} · submitting…` };
+    void submit(side);
+  }
   function actionSummary(action: BattleAction) {
     if (action.type === 'switch') {
       return `${action.species || action.name}${action.hp_fraction != null ? ` · ${Math.round(action.hp_fraction * 100)}%` : ''}`;
@@ -228,6 +239,51 @@
     responses = {
       ...responses,
       [side]: JSON.stringify({ action: action.id, commentary: '', strategy_memory: null }, null, 2)
+    };
+  }
+  function ownsEvent(event: BattleEvent, side: Side, field: 'side' | 'actor' | 'target') {
+    const value = event.payload[field];
+    return typeof value === 'string' && value.startsWith(`${side}a:`);
+  }
+  function interviewFor(side: Side) {
+    const archive = match;
+    const decisions = archive?.decisions.filter((record) => record.decision.side === side) || [];
+    const events = archive?.events || [];
+    const opponent = side === 'p1' ? 'p2' : 'p1';
+    const moves = decisions.map((record) => record.decision.action).filter(Boolean);
+    const damageDealt = events.filter(
+      (event) => event.event_type === 'damage' && ownsEvent(event, opponent, 'target')
+    ).length;
+    const knockouts = events.filter(
+      (event) => event.event_type === 'pokemon_fainted' && ownsEvent(event, opponent, 'target')
+    ).length;
+    const ownKnockouts = events.filter(
+      (event) => event.event_type === 'pokemon_fainted' && ownsEvent(event, side, 'target')
+    ).length;
+    const switches = events.filter(
+      (event) => event.event_type === 'pokemon_switched' && ownsEvent(event, side, 'actor')
+    ).length;
+    const criticals = events.filter(
+      (event) => event.event_type === 'critical_hit' && ownsEvent(event, side, 'actor')
+    ).length;
+    const outcome = archive?.winner === side
+      ? 'I won the match.'
+      : archive?.winner
+        ? 'I lost the match.'
+        : 'The match ended without a winner.';
+    const lastMove = moves[moves.length - 1] || 'the final action';
+    return {
+      outcome,
+      good: damageDealt || knockouts || criticals
+        ? `${outcome} The plan created ${damageDealt} visible damage beat${damageDealt === 1 ? '' : 's'}${knockouts ? ` and ${knockouts} knockout${knockouts === 1 ? '' : 's'}` : ''}. ${criticals ? 'The critical hit was a real momentum swing.' : 'The pressure sequence was the clearest success.'}`
+        : `${outcome} I kept the decision path consistent, but the archive shows no decisive damage swing to celebrate.`,
+      bad: ownKnockouts || switches > 2
+        ? `${ownKnockouts ? `${ownKnockouts} of my Pokémon went down` : 'The match forced several switches'}; that cost tempo and made the plan reactive.`
+        : 'I avoided a major collapse, but I still left room to make the mid-game plan more decisive.',
+      change: moves.length
+        ? `I would revisit ${lastMove} first and change the setup around it before the next match.`
+        : 'I would make the opening plan more explicit before the next match.',
+      detail: `${decisions.length} decisions · ${switches} switches · ${moves.slice(0, 3).join(' · ') || 'no recorded move names'}`
     };
   }
   function previousDecision(record: MatchArchive['decisions'][number]) {
@@ -395,6 +451,23 @@
           </header>
 
           <div class="manual-grid">
+            {#if isManual(side)}
+              <section class="action-picker" aria-label="Choose a legal battle action">
+                <div class="column-head">
+                  <h3>Choose your action</h3>
+                  <span class="meta">Clicking submits immediately</span>
+                </div>
+                <div class="action-grid">
+                  {#each request.legal_actions as action (action.id)}
+                    <button type="button" class="action-choice" disabled={Boolean(submitting[side])} on:click={() => chooseAction(side, action)}>
+                      <span class="action-kind">{action.type === 'move' ? 'MOVE' : 'SWITCH'}</span>
+                      <strong>{action.name}</strong>
+                      <small>{actionSummary(action)}</small>
+                    </button>
+                  {/each}
+                </div>
+              </section>
+            {/if}
             <section class="column">
               <div class="column-head">
                 <h3>Prompt</h3>
@@ -443,6 +516,25 @@
         </article>
       {/if}
     {/each}
+  </section>
+{/if}
+{#if match && match.status === 'completed'}
+  <section class="interview panel">
+    <header class="interview-head">
+      <div><span class="eyebrow">Post-match interview</span><h2>Players reflect on the battle</h2></div>
+      <p>Replay-based reflections from each player’s recorded perspective.</p>
+    </header>
+    <div class="interview-grid">
+      {#each (['p1', 'p2'] as Side[]) as side (side)}
+        {@const interview = interviewFor(side)}
+        <article class="interview-card" data-side={side}>
+          <header><h3>{agentLabel(side)}</h3><span>{interview.detail}</span></header>
+          <div><b>What worked?</b><p>{interview.good}</p></div>
+          <div><b>What was weak?</b><p>{interview.bad}</p></div>
+          <div><b>What would you change?</b><p>{interview.change}</p></div>
+        </article>
+      {/each}
+    </div>
   </section>
 {/if}
 {#if error}<p class="error" role="alert">{error}</p>{/if}
@@ -527,6 +619,14 @@
   .manual header p{margin:.15rem 0 0;color:var(--muted);font:.72rem var(--mono);text-transform:uppercase}
   /* Constrained readable columns: prompt and response never stretch to an ultra-wide monitor. */
   .manual-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem;max-width:1180px}
+  .action-picker{grid-column:1/-1;display:grid;gap:.6rem;padding:.9rem;border:1px solid color-mix(in srgb,var(--accent) 38%,var(--border));border-radius:.75rem;background:color-mix(in srgb,var(--accent) 5%,var(--panel))}
+  .action-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:.55rem}
+  .action-choice{display:grid;gap:.14rem;min-height:76px;padding:.7rem .75rem;border:1px solid var(--border);border-left:3px solid var(--side-color);border-radius:.6rem;background:var(--panel-strong);color:var(--text);text-align:left;cursor:pointer;transition:border-color .16s ease,transform .16s ease,background .16s ease}
+  .action-choice:hover:not(:disabled){border-color:var(--side-color);background:color-mix(in srgb,var(--side-color) 12%,var(--panel-strong));transform:translateY(-1px)}
+  .action-choice:disabled{cursor:wait;opacity:.55}
+  .action-kind{color:var(--side-color);font:800 .58rem var(--mono);letter-spacing:.12em}
+  .action-choice strong{font-size:.92rem}
+  .action-choice small{overflow:hidden;color:var(--muted);font:.62rem var(--mono);text-overflow:ellipsis;white-space:nowrap}
   .column{display:grid;gap:.4rem;min-width:0}
   .column-head{display:flex;align-items:baseline;justify-content:space-between;gap:.6rem}
   .column-head h3{margin:0;font-size:.85rem}
@@ -545,6 +645,21 @@
   .legal-actions code{grid-row:1/3;align-self:center;color:var(--accent);font:.66rem var(--mono)}
   .legal-actions b{font-size:.8rem}
   .legal-actions button span{color:var(--muted);font:.62rem var(--mono)}
+
+  .interview{display:grid;gap:1rem;margin-top:2rem;padding:1.25rem;box-shadow:none}
+  .interview-head{display:flex;align-items:flex-end;justify-content:space-between;gap:1rem;border-bottom:1px solid var(--border);padding-bottom:.8rem}
+  .interview-head h2{margin:.25rem 0 0;font-size:1.35rem}
+  .interview-head p{max-width:44ch;margin:0;color:var(--muted);font-size:.75rem;line-height:1.5;text-align:right}
+  .interview-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.85rem}
+  .interview-card{display:grid;gap:.75rem;padding:1rem;border:1px solid var(--border);border-top:3px solid var(--side-color);border-radius:.75rem;background:var(--panel-strong)}
+  .interview-card[data-side='p1']{--side-color:var(--p1)}
+  .interview-card[data-side='p2']{--side-color:var(--p2)}
+  .interview-card header{display:grid;gap:.16rem}
+  .interview-card h3{margin:0;font-size:1.05rem}
+  .interview-card header span{color:var(--muted);font:.62rem var(--mono)}
+  .interview-card>div{display:grid;gap:.15rem}
+  .interview-card b{color:var(--side-color);font:.64rem var(--mono);letter-spacing:.1em;text-transform:uppercase}
+  .interview-card p{margin:0;color:var(--text);font-size:.78rem;line-height:1.48}
 
   .team-inspector{display:grid;grid-template-columns:1fr 1fr 1fr;gap:1rem;margin-top:2rem;padding:1rem;box-shadow:none}
   .team-inspector h2{margin:.3rem 0}
@@ -575,6 +690,7 @@
   @media(max-width:980px){
     .view-bar{align-items:stretch;flex-direction:column}
     .manual-grid{grid-template-columns:1fr}
+    .interview-grid{grid-template-columns:1fr}
     .team-inspector{grid-template-columns:1fr}
     .audit-head{align-items:stretch;flex-direction:column}
     .decision>summary{grid-template-columns:1fr 1fr}
@@ -586,6 +702,8 @@
     .preview-tools{flex-wrap:wrap}
     .preview-note{width:100%;margin-left:0}
     .manual header{align-items:stretch;flex-direction:column}
+    .interview-head{align-items:stretch;flex-direction:column}
+    .interview-head p{text-align:left}
     .column footer{align-items:stretch;flex-direction:column}
     .column footer div{display:grid;grid-template-columns:1fr 1fr}
     .audit-stats{justify-content:space-between}
