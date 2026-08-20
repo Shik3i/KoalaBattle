@@ -19,6 +19,7 @@
     type TimelineSnapshot
   } from '$lib/presentation/types';
   import type { AgentRequest, BattleEvent, MatchArchive, Side } from '$lib/types';
+  import type { ProductionPlaybackState } from '$lib/production/audio-engine';
 
   export let data: { id: string };
   let timeline: PresentationTimeline | null = null;
@@ -26,6 +27,8 @@
   let config: RendererConfig = defaultRendererConfig({ layout: 'overlay-landscape' });
   let stopSocket: (() => void) | null = null;
   let agentStatus: Partial<Record<Side, AgentPresentationStatus>> = {};
+  let match: MatchArchive | null = null;
+  let productionClockActive = false;
   let connection: 'connecting' | 'live' | 'reconnecting' = 'connecting';
 
   interface StreamMessage {
@@ -63,6 +66,7 @@
 
   async function refresh() {
     const archive = await getPresentationMatch(data.id);
+    match = archive;
     timeline?.destroy();
     timeline = new PresentationTimeline(archive, archive.events, undefined, true);
     timeline.subscribe((value) => (snapshot = value));
@@ -74,7 +78,10 @@
   }
 
   function handleMessage(message: StreamMessage) {
-    if (message.kind === 'battle_event' && message.event) timeline?.append(message.event);
+    if (message.kind === 'battle_event' && message.event) {
+      match = match ? { ...match, events: [...match.events, message.event] } : match;
+      timeline?.append(message.event);
+    }
     if (message.kind === 'agent_waiting' && message.request) {
       agentStatus = { ...agentStatus, [message.request.side]: 'thinking' };
     }
@@ -85,6 +92,18 @@
       config = sanitizeRendererConfig({ ...config, ...message.config });
     }
   }
+
+  function syncProductionPlayback(event: CustomEvent<ProductionPlaybackState>) {
+    const sequence = event.detail.visual?.event_sequence;
+    if (!sequence || !match || !timeline) return;
+    const index = match.events.findIndex((item) => item.sequence === sequence);
+    if (index < 0) return;
+    if (!productionClockActive) {
+      productionClockActive = true;
+      timeline.pause();
+    }
+    if (snapshot?.index !== index + 1) timeline.seek(index + 1);
+  }
 </script>
 
 <svelte:head><title>KoalaBattle · Battle view</title></svelte:head>
@@ -92,7 +111,13 @@
 <div class="battle-view">
   <BattleRenderer presentation={snapshot?.state || null} {config} overlay {agentStatus} />
   <!-- Keeps narration audio available on the viewer tab; no battle controls are exposed. -->
-  <ProductionConsole matchId={data.id} compact overlay />
+  <ProductionConsole
+    matchId={data.id}
+    compact
+    overlay
+    followLive
+    on:playback={syncProductionPlayback}
+  />
   {#if connection !== 'live'}
     <p class="connection" role="status">{connection === 'connecting' ? 'Connecting…' : 'Reconnecting…'}</p>
   {/if}

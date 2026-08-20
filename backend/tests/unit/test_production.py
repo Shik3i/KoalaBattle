@@ -27,7 +27,12 @@ from koalabattle.production.profiles import PRODUCTION_PROFILES
 from koalabattle.production.speech import FakeSpeechProvider, SpeechCache, SpeechGenerationQueue
 from koalabattle.production.speech.cache import speech_cache_key
 from koalabattle.production.speech.system import SystemSpeechProvider
-from koalabattle.production.timeline import build_timeline, retime_for_audio, segment_caption
+from koalabattle.production.timeline import (
+    build_timeline,
+    final_cues,
+    retime_for_audio,
+    segment_caption,
+)
 from koalabattle.storage import BattleRepository, Database
 from koalabattle.video.models import ExportBackend, RendererCapabilities
 from koalabattle.video.service import VideoExportService
@@ -350,6 +355,23 @@ def test_turn_timing_has_no_intra_turn_gaps_and_uses_fixed_slots() -> None:
     assert duration_ms == (
         starts["director-result"] + profile.result_duration_ms + profile.outro_duration_ms
     )
+
+
+@pytest.mark.asyncio
+async def test_final_cues_include_result_sting(
+    tmp_path: Path, match_config: MatchConfig
+) -> None:
+    database, archive = await _archive(tmp_path, match_config)
+    cues = final_cues(archive, start_ms=4_000)
+
+    assert [cue.id for cue in cues] == [
+        "director-result-sting",
+        "director-result",
+        "director-outro",
+    ]
+    assert cues[0].track is Track.SFX
+    assert cues[0].start_ms == cues[1].start_ms == 4_000
+    await database.close()
 
 
 def test_quiet_turns_use_the_compact_slot() -> None:

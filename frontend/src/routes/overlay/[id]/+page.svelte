@@ -13,6 +13,7 @@
     type TimelineSnapshot
   } from '$lib/presentation/types';
   import type { AgentRequest, BattleEvent, MatchArchive, Side } from '$lib/types';
+  import type { ProductionPlaybackState } from '$lib/production/audio-engine';
 
   export let data: { id: string };
   let timeline: PresentationTimeline | null = null;
@@ -23,6 +24,8 @@
   let stopped = false;
   let error = '';
   let agentStatus: Partial<Record<Side, AgentPresentationStatus>> = {};
+  let match: MatchArchive | null = null;
+  let productionClockActive = false;
 
   interface StreamMessage {
     kind: string;
@@ -59,6 +62,7 @@
   async function initialize() {
     try {
       const match = await getPresentationMatch(data.id);
+      setMatch(match);
       timeline?.destroy();
       timeline = new PresentationTimeline(match, match.events, undefined, true);
       timeline.subscribe((value) => (snapshot = value));
@@ -72,6 +76,10 @@
       error = caught instanceof Error ? caught.message : String(caught);
       scheduleReconnect();
     }
+  }
+
+  function setMatch(value: MatchArchive) {
+    match = value;
   }
 
   function connectSocket() {
@@ -93,10 +101,14 @@
 
   function handleMessage(message: StreamMessage) {
     if (message.kind === 'snapshot' && message.match && message.match.events.length > (snapshot?.eventCount || 0)) {
+      setMatch(message.match);
       timeline?.replace(message.match.events, message.match.events.length);
       timeline?.play();
     }
-    if (message.kind === 'battle_event' && message.event) timeline?.append(message.event);
+    if (message.kind === 'battle_event' && message.event) {
+      match = match ? { ...match, events: [...match.events, message.event] } : match;
+      timeline?.append(message.event);
+    }
     if (message.kind === 'agent_waiting' && message.request) {
       agentStatus = { ...agentStatus, [message.request.side]: 'thinking' };
     }
@@ -111,11 +123,29 @@
       config = sanitizeRendererConfig({ ...config, ...message.config });
     }
   }
+
+  function syncProductionPlayback(event: CustomEvent<ProductionPlaybackState>) {
+    const sequence = event.detail.visual?.event_sequence;
+    if (!sequence || !match || !timeline) return;
+    const index = match.events.findIndex((item) => item.sequence === sequence);
+    if (index < 0) return;
+    if (!productionClockActive) {
+      productionClockActive = true;
+      timeline.pause();
+    }
+    if (snapshot?.index !== index + 1) timeline.seek(index + 1);
+  }
 </script>
 
 <svelte:head><title>KoalaBattle OBS Overlay</title></svelte:head>
 <BattleRenderer presentation={snapshot?.state || null} {config} overlay {agentStatus} />
-<ProductionConsole matchId={data.id} compact overlay />
+<ProductionConsole
+  matchId={data.id}
+  compact
+  overlay
+  followLive
+  on:playback={syncProductionPlayback}
+/>
 {#if error}<div class="connection-state" role="status">{error}</div>{/if}
 
 <style>.connection-state{position:fixed;z-index:30;right:1rem;bottom:1rem;padding:.5rem .7rem;border:1px solid rgba(255,255,255,.2);border-radius:999px;background:rgba(8,16,11,.8);color:#ffd26a;font:.65rem var(--mono)}</style>

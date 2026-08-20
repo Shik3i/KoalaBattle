@@ -44,7 +44,7 @@
     <footer><span>{tournament.participants.length} PARTICIPANTS</span><span>{tournament.statistics.matches_played} MATCHES PLAYED</span><span>{tournament.statistics.series_played} SERIES COMPLETE</span><span>KOALABATTLE 0.10.0</span></footer>
   </div>
 {/if}
-{#if activeMatchId}<ProductionConsole matchId={activeMatchId} compact overlay />{/if}
+{#if activeMatchId}<ProductionConsole matchId={activeMatchId} compact overlay followLive />{/if}
 {#if error}<div class="connection">{error}</div>{/if}
 
 <style>

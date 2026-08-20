@@ -281,6 +281,14 @@ def final_cues(
 ) -> tuple[ProductionCue, ...]:
     return (
         ProductionCue(
+            id="director-result-sting",
+            track=Track.SFX,
+            kind="result-sting",
+            start_ms=start_ms,
+            duration_ms=min(result_duration_ms, 1_200),
+            payload={"sound_pack": "broadcast-synth-v1"},
+        ),
+        ProductionCue(
             id="director-result",
             track=Track.DIRECTOR,
             kind="result",

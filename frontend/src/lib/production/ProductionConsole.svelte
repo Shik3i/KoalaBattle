@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { createEventDispatcher, onMount } from 'svelte';
   import {
     createProduction,
     directProduction,
@@ -19,6 +19,7 @@
   export let matchId: string;
   export let compact = false;
   export let overlay = false;
+  export let followLive = false;
 
   let profiles: ProductionProfile[] = [];
   let productions: ProductionTimeline[] = [];
@@ -40,16 +41,23 @@
   let playback: ProductionPlaybackState | null = null;
   let error = '';
   let busy = false;
+  let refreshTimer: ReturnType<typeof setInterval> | null = null;
+  const dispatch = createEventDispatcher<{ playback: ProductionPlaybackState }>();
   $: mixer = playback?.settings || { master: 1, voice: 1, narrator: 1, sfx: 0.65, music: 0.35 };
   const clientId = createClientId();
 
   onMount(() => {
     engine = new ProductionAudioEngine(apiBase());
-    const unsubscribe = engine.subscribe((state) => (playback = state));
+    const unsubscribe = engine.subscribe((state) => {
+      playback = state;
+      dispatch('playback', state);
+    });
     void load();
+    if (compact && followLive) refreshTimer = setInterval(() => void refreshLiveProduction(), 1500);
     return () => {
       unsubscribe();
       engine?.destroy();
+      if (refreshTimer) clearInterval(refreshTimer);
     };
   });
 
@@ -67,6 +75,23 @@
     }
   }
 
+  async function refreshLiveProduction() {
+    try {
+      const existing = await getProductions(matchId);
+      productions = existing;
+      const current = production && existing.find((item) => item.id === production?.id);
+      if (current) {
+        production = current;
+        engine?.update(current);
+      } else if (!production && existing[0]) {
+        select(existing[0]);
+      }
+    } catch {
+      // The battle socket owns connection status; a transient production poll must not
+      // cover the battle renderer with a second error state.
+    }
+  }
+
   function select(value: ProductionTimeline) {
     production = value;
     selectedProfile = value.profile.id;
@@ -80,7 +105,10 @@
     selectedVoicePool = value.voice_pool_id || '';
     voiceSelectionSeed = value.voice_selection_seed;
     engine?.load(value);
-    if (compact) engine?.play();
+    if (compact) {
+      if (followLive) engine?.seek(value.duration_ms);
+      engine?.play();
+    }
   }
 
   async function create() {
