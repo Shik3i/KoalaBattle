@@ -160,10 +160,31 @@ class VoicePreset(FrozenModel):
     speed: float = Field(default=1.0, ge=0.25, le=4.0)
     instructions: str | None = Field(default=None, max_length=500)
     tags: tuple[str, ...] = Field(default=(), max_length=20)
+    voice_mode: str = Field(
+        default="system", pattern=r"^(system|reference-clone|custom-voice|voice-design)$"
+    )
+    persona_id: str | None = Field(
+        default=None, max_length=80, pattern=r"^[a-z0-9][a-z0-9._-]*$"
+    )
+    delivery_profile: str | None = Field(default=None, max_length=60)
+    disclosure_label: str | None = Field(default=None, max_length=180)
     reference_audio_path: str | None = Field(default=None, max_length=260)
     reference_text: str | None = Field(default=None, max_length=1000)
     x_vector_only_mode: bool = False
     enabled: bool = True
+
+
+class VoicePersona(FrozenModel):
+    id: str = Field(min_length=1, max_length=80, pattern=r"^[a-z0-9][a-z0-9._-]*$")
+    display_name: str = Field(min_length=1, max_length=120)
+    description: str = Field(min_length=1, max_length=300)
+    delivery_profile: str = Field(min_length=1, max_length=60)
+    instructions: str = Field(min_length=1, max_length=500)
+    disclosure_label: str = Field(min_length=1, max_length=180)
+    recommended_voice_mode: str = Field(
+        default="reference-clone",
+        pattern=r"^(system|reference-clone|custom-voice|voice-design)$",
+    )
 
 
 class VoiceSelectionMode(StrEnum):

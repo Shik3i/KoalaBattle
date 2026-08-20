@@ -58,6 +58,11 @@ Both `data/assets/` and `data/vendor/` are excluded by `.gitignore` and `.docker
 Docker mounts `data/assets/` read-only into the backend. Supported local image extensions:
 `.webp`, `.png`, `.gif`, `.svg`, `.jpg`, `.jpeg`.
 
+Optional sample SFX use the same ignored local-media boundary. Follow [SFX.md](SFX.md) for
+source/licence guidance and `scripts/setup_sfx.py` for explicit mapping, checksum verification,
+and safe removal. Curated files go below `data/assets/audio/`; the backend serves only exact
+semantic ids through `GET /api/assets/audio/{effect_id}` and never accepts arbitrary paths.
+
 The resolver checks canonical IDs plus legacy installer names and refuses paths that resolve
 outside `KOALABATTLE_ASSET_ROOT`. APIs: `GET /api/assets/status`,
 `POST /api/assets/rescan`, `GET /api/assets/resolve/pokemon/:species`, and the content route

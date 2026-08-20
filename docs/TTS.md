@@ -129,3 +129,22 @@ balanced-random voices. Selection happens once when the production is created; s
 the seed are persisted in the timeline so rebuilds and video exports remain identical. Use
 `POST /api/production/voices/reference` for a validated local WAV reference and
 `POST /api/production/voice-pools` to save a pool.
+
+## Fictional voice direction
+
+`GET /api/production/personas` exposes three built-in fictional delivery profiles:
+
+- `Incumbent Firebrand`: emphatic, competitive, short sentences, controlled excitement.
+- `Measured Statesman`: calm, warm, analytical, deliberate pauses.
+- `Arena Broadcast`: clear sports commentary with tension around decisive moments.
+
+These are delivery instructions, not real-person voice identities. The Settings page creates a
+corresponding disabled Qwen reference-clone preset. Upload a 1–30 second WAV reference there;
+the validated upload enables the preset for Player 1, Player 2, or narrator assignment. The
+reference remains below ignored `data/audio/voices/` and is never committed.
+
+Qwen Base needs the reference WAV and transcript for a stable identity. Instructions improve
+delivery but do not turn Base into a reliable voice designer. For a new fictional voice, create
+one reference clip with Qwen VoiceDesign or another licensed source, then use that clip as the
+stable Base reference. Keep parody labels visible in the production when the format evokes a
+real-world debate.

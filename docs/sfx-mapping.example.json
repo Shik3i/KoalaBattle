@@ -1,0 +1,18 @@
+{
+  "action": [
+    "ui/confirm.wav",
+    "moves/short-whoosh.wav"
+  ],
+  "impact": [
+    "combat/hit-light.wav",
+    "combat/hit-heavy.wav"
+  ],
+  "critical": "combat/critical-hit.wav",
+  "heal": "status/heal-chime.wav",
+  "miss": "combat/miss.wav",
+  "status": "status/status-pulse.wav",
+  "field": "field/elemental-pulse.wav",
+  "switch": "pokemon/switch-whoosh.wav",
+  "faint": "pokemon/faint-drop.wav",
+  "result-sting": "results/victory-sting.wav"
+}

@@ -258,9 +258,9 @@
     </div>
     <div class="setup-row">
       <label>Profile<select bind:value={selectedProfile}>{#each profiles as profile}<option value={profile.id}>{profile.display_name}</option>{/each}</select></label>
-      <label>Player 1 voice<select bind:value={selectedP1}>{#each voices as voice}<option value={voice.id}>{voice.display_name}</option>{/each}</select></label>
+      <label>Player 1 voice<select bind:value={selectedP1}>{#each voices as voice}<option value={voice.id}>{voice.display_name}{voice.delivery_profile ? ` · ${voice.delivery_profile}` : ''}</option>{/each}</select></label>
       <button on:click={() => preview(selectedP1)}><i class="ph ph-waveform" aria-hidden="true"></i>Preview P1</button>
-      <label>Player 2 voice<select bind:value={selectedP2}>{#each voices as voice}<option value={voice.id}>{voice.display_name}</option>{/each}</select></label>
+      <label>Player 2 voice<select bind:value={selectedP2}>{#each voices as voice}<option value={voice.id}>{voice.display_name}{voice.delivery_profile ? ` · ${voice.delivery_profile}` : ''}</option>{/each}</select></label>
       <button on:click={() => preview(selectedP2)}><i class="ph ph-waveform" aria-hidden="true"></i>Preview P2</button>
       <label>Voice pool<select bind:value={selectedVoicePool}><option value="">Explicit voices</option>{#each voicePools.filter((pool) => pool.enabled) as pool}<option value={pool.id}>{pool.display_name}</option>{/each}</select></label>
       <label>Pool selection<select bind:value={voiceSelectionMode} disabled={!selectedVoicePool}><option value="explicit">Explicit</option><option value="random">Random</option><option value="balanced-random">Balanced random</option></select></label>

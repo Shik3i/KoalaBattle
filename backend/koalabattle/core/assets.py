@@ -69,6 +69,7 @@ class LocalAssetProvider:
     """Resolve optional user-supplied media without assuming a copyrighted source."""
 
     _allowed_extensions = (".webp", ".png", ".gif", ".svg", ".jpg", ".jpeg")
+    _audio_extensions = (".wav", ".ogg", ".mp3")
     _category_paths = {
         "pokemon_front": Path("pokemon/front"),
         "pokemon_back": Path("pokemon/back"),
@@ -147,6 +148,16 @@ class LocalAssetProvider:
         )
         return Path(resolution.resolved_path) if resolution.resolved_path else None
 
+    def audio(self, effect_id: str) -> Path | None:
+        """Resolve one curated SFX id without accepting arbitrary local paths."""
+        if not re.fullmatch(r"[a-z0-9][a-z0-9._-]*", effect_id):
+            return None
+        for extension in self._audio_extensions:
+            candidate = (self.root / "audio" / f"{effect_id}{extension}").resolve()
+            if candidate.is_relative_to(self.root) and candidate.is_file():
+                return candidate
+        return None
+
     def scan(self) -> AssetScanReport:
         categories: dict[str, AssetCategoryStatus] = {}
         invalid_files: list[str] = []
@@ -160,7 +171,10 @@ class LocalAssetProvider:
                     if not path.is_file():
                         continue
                     relative_file = path.relative_to(self.root).as_posix()
-                    if path.suffix.casefold() not in self._allowed_extensions:
+                    allowed_extensions = (
+                        self._audio_extensions if name == "audio" else self._allowed_extensions
+                    )
+                    if path.suffix.casefold() not in allowed_extensions:
                         invalid_files.append(relative_file)
                         continue
                     count += 1

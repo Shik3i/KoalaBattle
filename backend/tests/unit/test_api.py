@@ -87,6 +87,9 @@ def test_asset_status_and_resolution_api(tmp_path: Path) -> None:
     front = assets / "pokemon" / "front"
     front.mkdir(parents=True)
     (front / "mrmime.png").write_bytes(b"png")
+    audio = assets / "audio"
+    audio.mkdir(parents=True)
+    (audio / "impact-01.wav").write_bytes(b"RIFF-local-test")
     settings = Settings(
         _env_file=None,
         database_url=f"sqlite+aiosqlite:///{tmp_path / 'assets.db'}",
@@ -100,6 +103,30 @@ def test_asset_status_and_resolution_api(tmp_path: Path) -> None:
         resolution = client.get("/api/assets/resolve/pokemon/Mr.%20Mime")
         assert resolution.status_code == 200
         assert resolution.json()["relative_path"] == "pokemon/front/mrmime.png"
+        sfx = client.get("/api/assets/audio/impact-01")
+        assert sfx.status_code == 200
+        assert sfx.content == b"RIFF-local-test"
+        assert client.get("/api/assets/audio/../secret").status_code in {404, 400}
+
+
+def test_persona_profiles_are_fictional_and_available_for_voice_setup(tmp_path: Path) -> None:
+    settings = Settings(
+        _env_file=None,
+        database_url=f"sqlite+aiosqlite:///{tmp_path / 'personas.db'}",
+    )
+    create_test_schema(settings.database_url)
+    with TestClient(create_app(settings)) as client:
+        response = client.get("/api/production/personas")
+        assert response.status_code == 200
+        personas = response.json()["personas"]
+        assert {persona["id"] for persona in personas} == {
+            "fictional-firebrand",
+            "measured-statesman",
+            "arena-broadcast",
+        }
+        assert all(
+            "Do not imitate any real person" in persona["instructions"] for persona in personas
+        )
 
 
 def test_provider_status_never_returns_credentials_and_missing_key_is_actionable(

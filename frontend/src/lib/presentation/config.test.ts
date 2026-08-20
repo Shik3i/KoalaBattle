@@ -12,7 +12,7 @@ test('renderer configuration rejects unknown declarative values', () => {
     transparentBackground: 'yes'
   });
   assert.equal(config.layout, 'standard-landscape');
-  assert.equal(config.theme, 'koala-dark');
+  assert.equal(config.theme, 'pokemon-route');
   assert.equal(config.playbackSpeed, 1);
   assert.equal(config.transparentBackground, false);
   assert.equal(config.effects, 'standard');

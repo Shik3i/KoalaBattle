@@ -145,6 +145,10 @@ class ProductionRepository:
             row.speed = preset.speed
             row.instructions = preset.instructions
             row.tags_json = json.dumps(preset.tags, sort_keys=True)
+            row.voice_mode = preset.voice_mode
+            row.persona_id = preset.persona_id
+            row.delivery_profile = preset.delivery_profile
+            row.disclosure_label = preset.disclosure_label
             row.reference_audio_path = preset.reference_audio_path
             row.reference_text = preset.reference_text
             row.x_vector_only_mode = preset.x_vector_only_mode
@@ -166,6 +170,10 @@ class ProductionRepository:
                     speed=row.speed,
                     instructions=row.instructions,
                     tags=tuple(json.loads(row.tags_json or "[]")),
+                    voice_mode=row.voice_mode or "system",
+                    persona_id=row.persona_id,
+                    delivery_profile=row.delivery_profile,
+                    disclosure_label=row.disclosure_label,
                     reference_audio_path=row.reference_audio_path,
                     reference_text=row.reference_text,
                     x_vector_only_mode=row.x_vector_only_mode,

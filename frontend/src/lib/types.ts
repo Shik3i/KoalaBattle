@@ -690,10 +690,24 @@ export interface VoicePreset {
   speed: number;
   instructions: string | null;
   tags: string[];
+  voice_mode: 'system' | 'reference-clone' | 'custom-voice' | 'voice-design';
+  persona_id: string | null;
+  delivery_profile: string | null;
+  disclosure_label: string | null;
   reference_audio_path: string | null;
   reference_text: string | null;
   x_vector_only_mode: boolean;
   enabled: boolean;
+}
+
+export interface VoicePersona {
+  id: string;
+  display_name: string;
+  description: string;
+  delivery_profile: string;
+  instructions: string;
+  disclosure_label: string;
+  recommended_voice_mode: 'system' | 'reference-clone' | 'custom-voice' | 'voice-design';
 }
 
 export interface VoicePool {

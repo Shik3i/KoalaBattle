@@ -1,5 +1,6 @@
 import type { ProductionCue, ProductionTimeline } from '../types.ts';
 import { ProductionScheduler } from './scheduler.ts';
+import { sfxVariantFor } from './sfx.ts';
 
 export interface MixerSettings {
   master: number;
@@ -32,6 +33,8 @@ export class ProductionAudioEngine {
   private enabled = false;
   private playing = false;
   private readonly activeVoices = new Map<VoiceChannel, HTMLAudioElement>();
+  private readonly activeSfx = new Set<HTMLAudioElement>();
+  private readonly unavailableSfx = new Set<string>();
   private activeMusic: HTMLAudioElement | null = null;
   private visual: ProductionCue | null = null;
   private caption: ProductionCue | null = null;
@@ -185,7 +188,7 @@ export class ProductionAudioEngine {
       if (this.activeMusic) this.activeMusic.volume = this.musicVolume();
       void audio.play().catch(() => undefined);
     }
-    if (cue.track === 'sfx') this.playSfx(cue.kind);
+    if (cue.track === 'sfx') this.playSfx(cue.kind, cue.id);
     if (cue.track === 'music' && typeof cue.payload.media_url === 'string') {
       this.activeMusic?.pause();
       this.activeMusic = new Audio(`${this.mediaBase}${cue.payload.media_url}`);
@@ -195,7 +198,36 @@ export class ProductionAudioEngine {
     }
   }
 
-  private playSfx(kind: string): void {
+  private playSfx(kind: string, seed: string): void {
+    const variant = sfxVariantFor(kind, seed);
+    if (variant) {
+      const mediaUrl = `${this.mediaBase.replace(/\/$/, '')}/api/assets/audio/${encodeURIComponent(variant)}`;
+      if (!this.unavailableSfx.has(mediaUrl)) {
+        const audio = new Audio(mediaUrl);
+        audio.volume = this.volume('sfx');
+        this.activeSfx.add(audio);
+        let fallbackPlayed = false;
+        const cleanup = () => {
+          this.activeSfx.delete(audio);
+          audio.src = '';
+        };
+        const fallback = () => {
+          if (fallbackPlayed) return;
+          fallbackPlayed = true;
+          this.unavailableSfx.add(mediaUrl);
+          cleanup();
+          this.playSynthSfx(kind);
+        };
+        audio.onended = cleanup;
+        audio.onerror = fallback;
+        void audio.play().catch(fallback);
+        return;
+      }
+    }
+    this.playSynthSfx(kind);
+  }
+
+  private playSynthSfx(kind: string): void {
     if (!this.context) return;
     const now = this.context.currentTime;
     const volume = this.volume('sfx');
@@ -206,6 +238,7 @@ export class ProductionAudioEngine {
       return;
     }
     const frequencies: Record<string, number> = {
+      action: 360,
       impact: 120,
       critical: 720,
       heal: 520,
@@ -262,6 +295,7 @@ export class ProductionAudioEngine {
 
   private stopMedia(): void {
     this.pauseVoices();
+    this.pauseSfx();
     if (this.activeMusic) {
       this.activeMusic.pause();
       this.activeMusic.src = '';
@@ -275,6 +309,14 @@ export class ProductionAudioEngine {
       audio.src = '';
     }
     this.activeVoices.clear();
+  }
+
+  private pauseSfx(): void {
+    for (const audio of this.activeSfx) {
+      audio.pause();
+      audio.src = '';
+    }
+    this.activeSfx.clear();
   }
 
   private channelVolume(channel: VoiceChannel): number {

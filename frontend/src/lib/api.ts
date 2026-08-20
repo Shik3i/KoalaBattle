@@ -1,6 +1,6 @@
 import { env } from '$env/dynamic/public';
 import { errorMessage } from './errors';
-import type { BrandAsset, BrandAssetKind, BrandAssetLibrary, ExportBackend, ExportPreflight, FormatCatalog, FormatDescriptor, FormatGroup, MatchArchive, NarratorProfile, NarratorSettings, ProductionProfile, ProductionStyle, ProductionTimeline, ProviderKind, RenderEngine, RendererCapabilities, StylePreset, VideoExportJob, VideoExportPreset, VoicePool, VoicePreset } from './types';
+import type { BrandAsset, BrandAssetKind, BrandAssetLibrary, ExportBackend, ExportPreflight, FormatCatalog, FormatDescriptor, FormatGroup, MatchArchive, NarratorProfile, NarratorSettings, ProductionProfile, ProductionStyle, ProductionTimeline, ProviderKind, RenderEngine, RendererCapabilities, StylePreset, VideoExportJob, VideoExportPreset, VoicePersona, VoicePool, VoicePreset } from './types';
 import type { RendererConfig } from './presentation/types';
 
 export const apiBase = () => {
@@ -157,13 +157,14 @@ export const directProduction = (id: string, command: string, clientId?: string)
     body: JSON.stringify({ command, client_id: clientId || null })
   });
 export const getProductionSetup = async () => {
-  const [profiles, voices, narratorProfiles, voicePools] = await Promise.all([
+  const [profiles, voices, narratorProfiles, voicePools, personas] = await Promise.all([
     api<{ profiles: ProductionProfile[] }>('/api/production/profiles'),
     api<VoicePreset[]>('/api/production/voices'),
     api<{ profiles: NarratorProfile[] }>('/api/production/narrator-profiles'),
-    api<VoicePool[]>('/api/production/voice-pools')
+    api<VoicePool[]>('/api/production/voice-pools'),
+    api<{ personas: VoicePersona[] }>('/api/production/personas')
   ]);
-  return { profiles: profiles.profiles, voices, narratorProfiles: narratorProfiles.profiles, voicePools };
+  return { profiles: profiles.profiles, voices, narratorProfiles: narratorProfiles.profiles, voicePools, personas: personas.personas };
 };
 export const getVideoSetup = async (matchId: string) => {
   const [presets, capabilities, jobs] = await Promise.all([

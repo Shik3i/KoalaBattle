@@ -3,7 +3,17 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -171,6 +181,10 @@ class VoicePresetRow(Base):
     speed: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
     instructions: Mapped[str | None] = mapped_column(String(500))
     tags_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    voice_mode: Mapped[str] = mapped_column(String(30), nullable=False, default="system")
+    persona_id: Mapped[str | None] = mapped_column(String(80))
+    delivery_profile: Mapped[str | None] = mapped_column(String(60))
+    disclosure_label: Mapped[str | None] = mapped_column(String(180))
     reference_audio_path: Mapped[str | None] = mapped_column(String(260))
     reference_text: Mapped[str | None] = mapped_column(String(1000))
     x_vector_only_mode: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

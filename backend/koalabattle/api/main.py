@@ -52,10 +52,12 @@ from koalabattle.production import (
     SaveStylePreset,
     StylePreset,
     UpdateProduction,
+    VoicePersona,
     VoicePool,
     VoicePreset,
     VoiceReferenceUpload,
     narrator_profiles,
+    persona_profiles,
 )
 from koalabattle.production.models import VoicePreviewRequest
 from koalabattle.service import BattleService
@@ -361,6 +363,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def production_voices(request: Request) -> tuple[VoicePreset, ...]:
         return await _production(request).repository.list_voices()
 
+    @app.get("/api/production/personas", response_model=dict[str, tuple[VoicePersona, ...]])
+    async def production_personas() -> dict[str, tuple[VoicePersona, ...]]:
+        return {"personas": persona_profiles()}
+
     @app.post("/api/production/voices", response_model=VoicePreset)
     async def save_production_voice(payload: VoicePreset, request: Request) -> VoicePreset:
         await _production(request).repository.upsert_voice(payload)
@@ -568,7 +574,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=422, detail=str(error)) from error
 
     @app.post(
-        "/api/matches/{match_id}/rematch", response_model=MatchArchive, status_code=status.HTTP_202_ACCEPTED
+        "/api/matches/{match_id}/rematch",
+        response_model=MatchArchive,
+        status_code=status.HTTP_202_ACCEPTED,
     )
     async def rematch_match(match_id: UUID, request: Request) -> MatchArchive:
         """A runtime session that died with its process (backend restart, crash) has nothing
@@ -584,7 +592,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=422, detail=str(error)) from error
 
     @app.post(
-        "/api/matches/{match_id}/resume", response_model=MatchArchive, status_code=status.HTTP_202_ACCEPTED
+        "/api/matches/{match_id}/resume",
+        response_model=MatchArchive,
+        status_code=status.HTTP_202_ACCEPTED,
     )
     async def resume_match(match_id: UUID, request: Request) -> MatchArchive:
         """Resumes an interrupted or failed match by re-enqueueing it into the supervisor."""
@@ -1042,6 +1052,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         if path is None:
             raise HTTPException(status_code=404, detail="local asset not installed")
+        return FileResponse(path)
+
+    @app.get("/api/assets/audio/{effect_id}")
+    async def audio_asset(effect_id: str, request: Request) -> FileResponse:
+        path = _assets(request).audio(effect_id)
+        if path is None:
+            raise HTTPException(status_code=404, detail="local audio asset not installed")
         return FileResponse(path)
 
     @app.websocket("/api/matches/{match_id}/stream")

@@ -44,6 +44,7 @@ from .models import (
     VoiceSelectionMode,
 )
 from .narrator import build_narrator_plan
+from .personas import PERSONA_PROFILES
 from .profiles import PRODUCTION_PROFILES
 from .repository import ProductionRepository
 from .speech import (
@@ -197,6 +198,7 @@ class ProductionService:
                 model=self.settings.speech_qwen_model,
                 language="en-US",
                 speed=1.0,
+                voice_mode="reference-clone",
                 tags=("local", "clone"),
                 enabled=False,
             ),
@@ -208,6 +210,7 @@ class ProductionService:
                 model=self.settings.speech_qwen_model,
                 language="en-US",
                 speed=1.0,
+                voice_mode="custom-voice",
                 tags=("local", "bright", "clear"),
             ),
             VoicePreset(
@@ -218,7 +221,27 @@ class ProductionService:
                 model=self.settings.speech_qwen_model,
                 language="en-US",
                 speed=1.0,
+                voice_mode="custom-voice",
                 tags=("local", "warm", "dynamic"),
+            ),
+            *(
+                VoicePreset(
+                    id=f"qwen-local-{persona.id}",
+                    display_name=f"Qwen3-TTS · {persona.display_name}",
+                    provider=SpeechProviderKind.QWEN_LOCAL,
+                    voice="qwen-clone",
+                    model=self.settings.speech_qwen_model,
+                    language="en-US",
+                    speed=1.0,
+                    instructions=persona.instructions,
+                    tags=("local", "persona", persona.delivery_profile),
+                    voice_mode="reference-clone",
+                    persona_id=persona.id,
+                    delivery_profile=persona.delivery_profile,
+                    disclosure_label=persona.disclosure_label,
+                    enabled=False,
+                )
+                for persona in PERSONA_PROFILES
             ),
             VoicePreset(
                 id="system-p2",
@@ -304,7 +327,9 @@ class ProductionService:
             except FileNotFoundError:
                 pass
             raise
-        saved = upload.preset.model_copy(update={"reference_audio_path": relative_path})
+        saved = upload.preset.model_copy(
+            update={"reference_audio_path": relative_path, "enabled": True}
+        )
         await self.repository.upsert_voice(saved)
         return saved
 
