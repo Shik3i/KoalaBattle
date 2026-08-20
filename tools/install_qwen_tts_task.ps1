@@ -34,7 +34,12 @@ function Install-ViaTaskScheduler {
 
 function Install-ViaStartupFolder {
     $startupDir = [Environment]::GetFolderPath('Startup')
-    Copy-Item -Path (Join-Path $root 'qwen_tts_startup.vbs') -Destination $startupDir -Force
+    $startupScript = (Get-Content -LiteralPath (Join-Path $root 'qwen_tts_startup.vbs') -Raw).Replace(
+        '__KOALABATTLE_ROOT__',
+        $root
+    )
+    Set-Content -LiteralPath (Join-Path $startupDir 'qwen_tts_startup.vbs') `
+        -Value $startupScript -Encoding Unicode
     Write-Host "Task Scheduler requires admin rights on this machine; installed a Startup-folder"
     Write-Host "launcher instead: $startupDir\qwen_tts_startup.vbs"
     Write-Host "It will start silently at your next logon (no auto-restart on crash, unlike a real task)."

@@ -107,6 +107,30 @@ class ManualDecisionInput(BaseModel):
     raw_response: str = Field(min_length=2, max_length=10_000)
 
 
+class RendererConfigInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    version: Literal["2.0"]
+    layout: Literal["standard-landscape", "standard-vertical", "overlay-landscape"]
+    theme: Literal["pokemon-route", "pokemon-stadium", "koala-dark", "koala-light"]
+    preset: Literal["live", "video", "fast", "instant"]
+    playback_speed: Literal[0.5, 1, 2, 4, "instant"] = Field(alias="playbackSpeed")
+    commentary_mode: Literal["latest", "last-3", "full", "hidden"] = Field(
+        alias="commentaryMode"
+    )
+    show_battle_log: bool = Field(alias="showBattleLog")
+    show_turn: bool = Field(alias="showTurn")
+    show_agent_state: bool = Field(alias="showAgentState")
+    transparent_background: bool = Field(alias="transparentBackground")
+    animated_sprites: bool = Field(alias="animatedSprites")
+    effects: Literal["off", "low", "standard", "high"]
+    reduced_motion: bool = Field(alias="reducedMotion")
+    show_damage_numbers: bool = Field(alias="showDamageNumbers")
+    near_side: Literal["p1", "p2"] = Field(alias="nearSide")
+    show_team_roster: bool = Field(alias="showTeamRoster")
+    hud_scale: float = Field(alias="hudScale", ge=0.8, le=1.6)
+
+
 class ProviderModelsInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     provider: ProviderKind

@@ -96,6 +96,7 @@ from .schemas import (
     ManualDecisionInput,
     PromptRenderInput,
     ProviderModelsInput,
+    RendererConfigInput,
     StoredPresetInput,
     StoredTemplateInput,
     TeamValidationInput,
@@ -655,12 +656,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.post("/api/matches/{match_id}/renderer-config", status_code=status.HTTP_202_ACCEPTED)
     async def broadcast_renderer_config(
-        match_id: UUID, payload: dict[str, object], request: Request
+        match_id: UUID, payload: RendererConfigInput, request: Request
     ) -> dict[str, str]:
         archive = await _repository(request).get_match(match_id)
         if archive is None:
             raise HTTPException(status_code=404, detail="match not found")
-        await _service(request).hub.publish(match_id, {"kind": "renderer_config", "config": payload})
+        await _service(request).hub.publish(
+            match_id,
+            {"kind": "renderer_config", "config": payload.model_dump(mode="json", by_alias=True)},
+        )
         return {"status": "broadcast"}
 
     @app.get("/api/matches/{match_id}/pending")

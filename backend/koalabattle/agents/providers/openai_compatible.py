@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from openai import AsyncOpenAI, BadRequestError
@@ -14,6 +15,8 @@ from .base import (
     TextDeltaCallback,
 )
 from .openai import DECISION_SCHEMA, _openai_error
+
+LOGGER = logging.getLogger(__name__)
 
 
 class OpenAICompatibleProvider:
@@ -47,7 +50,7 @@ class OpenAICompatibleProvider:
         common: dict[str, Any] = {
             "model": request.model,
             "messages": messages,
-            "max_tokens": max(request.max_output_tokens, 2048),
+            "max_tokens": request.max_output_tokens,
             "timeout": request.timeout_seconds,
         }
         if request.temperature is not None:
@@ -66,8 +69,20 @@ class OpenAICompatibleProvider:
                     request_id=response.id,
                     finish_reason=choice.finish_reason,
                 )
-        except Exception:
-            pass
+        except Exception as error:
+            LOGGER.warning(
+                "OpenAI-compatible standard completion failed; model=%s error_type=%s",
+                request.model,
+                type(error).__name__,
+                exc_info=True,
+            )
+        else:
+            LOGGER.warning(
+                "OpenAI-compatible standard completion returned empty text; model=%s; "
+                "trying structured response negotiation",
+                request.model,
+            )
+            # Structured negotiation is intentional: an empty standard response cannot yield a legal action.
 
         # 2. Structured JSON schema completion
         formats: tuple[dict[str, Any] | None, ...] = (
@@ -97,6 +112,11 @@ class OpenAICompatibleProvider:
                         request_id=response.id,
                         finish_reason=choice.finish_reason,
                     )
+                LOGGER.warning(
+                    "OpenAI-compatible completion returned empty text; model=%s response_format=%s",
+                    request.model,
+                    "json_schema" if response_format is not None else "none",
+                )
             except Exception as error:
                 if response_format is None:
                     raise _openai_error(error) from error

@@ -458,25 +458,28 @@
           <article
             class={`combatant combatant-${slot.place}`}
             data-side={slot.side}
+            aria-label={`${slot.data.active.name}: ${formatExactHp(slot.data.active)} HP (${hpPercent(slot.data.active)}%)`}
           >
             <div class="sprite-slot">
               <div class="platform" aria-hidden="true"><i class="pedestal-surface"></i><i class="pedestal-rim"></i></div>
               <div class="contact-shadow" aria-hidden="true"></div>
-              <div
-                style={spriteStyle(presentation.players[slot.side].motion, slot.place === 'near')}
-                class={`sprite ${presentation.players[slot.side].motion}`}
-              >
-                {#if !failedAssets.has(assetKey(slot.data, slot.perspective))}
-                  <img
-                    src={spriteUrl(slot.data.active.species, slot.perspective)}
-                    alt={slot.data.active.name}
-                    on:load={onAssetLoad}
-                    on:error={() => slot.data && onAssetError(assetKey(slot.data, slot.perspective))}
-                  />
-                {:else}
-                  <div class="sprite-missing"><span class="pokeball" aria-hidden="true"><i></i></span><small>SPRITE</small></div>
-                {/if}
-              </div>
+              {#key `${slot.data.active.species}:${presentation.players[slot.side].motion}:${presentation.eventSequence}`}
+                <div
+                  style={spriteStyle(presentation.players[slot.side].motion, slot.place === 'near')}
+                  class={`sprite ${presentation.players[slot.side].motion}`}
+                >
+                  {#if !failedAssets.has(assetKey(slot.data, slot.perspective))}
+                    <img
+                      src={spriteUrl(slot.data.active.species, slot.perspective)}
+                      alt={slot.data.active.name}
+                      on:load={onAssetLoad}
+                      on:error={() => slot.data && onAssetError(assetKey(slot.data, slot.perspective))}
+                    />
+                  {:else}
+                    <div class="sprite-missing"><span class="pokeball" aria-hidden="true"><i></i></span><small>SPRITE</small></div>
+                  {/if}
+                </div>
+              {/key}
               {#if config.showDamageNumbers && presentation.impacts[slot.side]}
                 {#key presentation.impacts[slot.side]?.sequence}
                   <strong
