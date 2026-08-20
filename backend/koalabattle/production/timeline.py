@@ -125,7 +125,7 @@ def cues_for_event(
     # Snapshots are state checkpoints for deterministic replay. They must be applied at the
     # current clock position, but they must not create a visible beat or an inter-event pause.
     if event.event_type == "state_snapshot":
-        return (
+        cues = [
             ProductionCue(
                 id=f"event-{event.sequence}-state",
                 track=Track.VISUAL,
@@ -135,21 +135,24 @@ def cues_for_event(
                 event_sequence=event.sequence,
                 turn=cue_turn,
             ),
-        ), 0
-    duration = _EVENT_DURATIONS.get(event.event_type, 120)
-    base = f"event-{event.sequence}"
-    cues = [
-        ProductionCue(
-            id=f"{base}-visual",
-            track=Track.VISUAL,
-            kind=event.event_type,
-            start_ms=start_ms,
-            duration_ms=duration,
-            event_sequence=event.sequence,
-            turn=cue_turn,
-            payload={"priority": event_priority_score(event, narrator_candidate)},
-        )
-    ]
+        ]
+        duration = 0
+        base = f"event-{event.sequence}"
+    else:
+        duration = _EVENT_DURATIONS.get(event.event_type, 120)
+        base = f"event-{event.sequence}"
+        cues = [
+            ProductionCue(
+                id=f"{base}-visual",
+                track=Track.VISUAL,
+                kind=event.event_type,
+                start_ms=start_ms,
+                duration_ms=duration,
+                event_sequence=event.sequence,
+                turn=cue_turn,
+                payload={"priority": event_priority_score(event, narrator_candidate)},
+            )
+        ]
     if profile.sfx_enabled and event.event_type in _SFX_EVENTS:
         cues.append(
             ProductionCue(

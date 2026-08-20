@@ -25,6 +25,7 @@ _HIGHLIGHT_EVENTS: Final = {
     "resisted",
     "immune",
     "status_applied",
+    "state_snapshot",
     "pokemon_fainted",
 }
 
@@ -157,6 +158,31 @@ def _switch_count(events: tuple[BattleEvent, ...], current: BattleEvent) -> int:
     )
 
 
+def _standing_count(side: object) -> int | None:
+    if not isinstance(side, dict):
+        return None
+    team = side.get("team")
+    if not isinstance(team, list) or len(team) < 6:
+        return None
+    members = [member for member in team if isinstance(member, dict)]
+    if len(members) != len(team):
+        return None
+    return sum(not bool(member.get("fainted")) for member in members)
+
+
+def _is_final_pokemon_snapshot(event: BattleEvent) -> bool:
+    if event.event_type != "state_snapshot":
+        return False
+    state = event.payload.get("state")
+    if not isinstance(state, dict):
+        return False
+    counts = (
+        _standing_count(state.get("player")),
+        _standing_count(state.get("opponent")),
+    )
+    return counts == (1, 1)
+
+
 def _candidate(
     events: tuple[BattleEvent, ...], index: int, settings: NarratorSettings
 ) -> tuple[str, str, int] | None:
@@ -169,6 +195,8 @@ def _candidate(
 
     if event_type == "battle_started":
         return "battle-start", "The battle is underway!", 60
+    if event_type == "state_snapshot" and _is_final_pokemon_snapshot(event):
+        return "final-pokemon", "Both trainers are down to their final Pokémon!", 115
     if event_type == "battle_finished":
         if winner:
             return "battle-finished", f"The battle is decided — {winner} takes the victory!", 120
@@ -275,7 +303,10 @@ def build_narrator_plan(
     for candidate in selected_candidates:
         event = next(event for event in events if event.sequence == candidate.event_sequence)
         timestamp = _event_time(event)
-        if timestamp - last_emitted_at < settings.cooldown_ms:
+        if (
+            candidate.rule_id != "final-pokemon"
+            and timestamp - last_emitted_at < settings.cooldown_ms
+        ):
             continue
         if (
             candidate.rule_id == last_rule

@@ -489,6 +489,38 @@ def test_narrator_plan_is_deterministic_and_prioritizes_highlights(
     assert 7 not in first
 
 
+def test_narrator_plan_announces_final_pokemon_from_full_roster_snapshot(
+    match_config: MatchConfig,
+) -> None:
+    match_id = uuid4()
+
+    def member(index: int, fainted: bool) -> dict[str, object]:
+        return {"id": f"p{index}", "fainted": fainted}
+
+    events = (
+        BattleEvent(
+            match_id=match_id,
+            sequence=1,
+            turn=8,
+            event_type="state_snapshot",
+            payload={
+                "state": {
+                    "player": {"team": [member(index, index < 5) for index in range(6)]},
+                    "opponent": {"team": [member(index, index < 5) for index in range(6)]},
+                }
+            },
+        ),
+    )
+
+    plan = build_narrator_plan(
+        events,
+        NarratorSettings(enabled=True, cooldown_ms=20_000, minimum_priority=45),
+    )
+
+    assert plan[1].rule_id == "final-pokemon"
+    assert plan[1].priority == 115
+
+
 def test_narrator_profile_applies_recommendations_without_overwriting_custom_values(
     match_config: MatchConfig,
 ) -> None:
