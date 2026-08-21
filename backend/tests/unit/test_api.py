@@ -232,13 +232,15 @@ def test_browser_provider_configuration_enables_deepseek_without_leaking_key(
             item for item in status_response.json()["providers"] if item["id"] == "deepseek"
         )
         assert deepseek["configured"] is True
+        assert deepseek["default_model"] == "deepseek-v4-flash"
+        assert deepseek["known_models"] == ["deepseek-v4-flash", "deepseek-v4-pro"]
         service = client.app.state.service
         player = PlayerConfig(
             side=Side.P1,
             display_name="DeepSeek",
             agent_type="api",
             provider=ProviderKind.DEEPSEEK.value,
-            model="deepseek-chat",
+            model="deepseek-v4-flash",
         )
         assert isinstance(service._provider_for(player), DeepSeekProvider)
 

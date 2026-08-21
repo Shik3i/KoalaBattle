@@ -84,6 +84,21 @@ Optional reproducible offline renderer (Chromium, Playwright, FFmpeg):
 docker compose --profile renderer up --build
 ```
 
+### DeepSeek
+
+Put `KOALABATTLE_DEEPSEEK_API_KEY` in the ignored project `.env`, then recreate the backend:
+
+```bash
+docker compose up -d --build --force-recreate backend frontend
+```
+
+Settings reports DeepSeek as `Configured · environment` without returning the key. Match, team,
+tournament, and Challenge setup offer both current official models: `deepseek-v4-flash` (default,
+faster and lower cost) and `deepseek-v4-pro` (maximum capability). The adapter uses DeepSeek's
+OpenAI-compatible `https://api.deepseek.com` endpoint, documented `json_object` response mode,
+and V4 thinking controls. Provider calls remain explicit and paid; startup and status checks do
+not call DeepSeek.
+
 ## First run
 
 1. Open `/new` for a standalone match or `/tournaments/new` for the ten-step tournament

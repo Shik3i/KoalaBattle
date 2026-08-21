@@ -354,7 +354,8 @@ class BattleService:
             },
             ProviderKind.DEEPSEEK: {
                 "label": "DeepSeek",
-                "default_model": "deepseek-chat",
+                "default_model": "deepseek-v4-flash",
+                "known_models": ["deepseek-v4-flash", "deepseek-v4-pro"],
                 "default_base_url": "https://api.deepseek.com",
                 "requires_api_key": True,
                 "environment_variable": "DEEPSEEK_API_KEY",
@@ -362,6 +363,7 @@ class BattleService:
             ProviderKind.OPENAI_COMPATIBLE: {
                 "label": "OpenAI-compatible",
                 "default_model": "local-model",
+                "known_models": [],
                 "default_base_url": self._runtime_provider_base_urls.get(
                     ProviderKind.OPENAI_COMPATIBLE
                 ),
@@ -371,11 +373,14 @@ class BattleService:
             ProviderKind.FAKE: {
                 "label": "Deterministic Fake",
                 "default_model": "fake-battle-v1",
+                "known_models": ["fake-battle-v1"],
                 "default_base_url": None,
                 "requires_api_key": False,
                 "environment_variable": None,
             },
         }
+        for item in catalog.values():
+            item.setdefault("known_models", [])
         configured = {
             ProviderKind.OPENAI: bool(
                 self._provider_key(ProviderKind.OPENAI, self.settings.openai_api_key)

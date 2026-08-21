@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+from types import SimpleNamespace
 
 import pytest
 
 from koalabattle.agents import ApiAgent, ManualAgent, ManualDecisionBroker, RandomAgent
 from koalabattle.agents.api_agent import _CommentaryPreview
-from koalabattle.agents.providers import FakeProvider
+from koalabattle.agents.providers import DeepSeekProvider, FakeProvider
+from koalabattle.agents.providers.base import ProviderRequest
 from koalabattle.core.models import (
     AgentConfiguration,
     AgentLifecycleState,
@@ -24,6 +26,56 @@ def test_streamed_preview_exposes_only_public_commentary() -> None:
         preview.feed('the safe line.","strategy_memory":"Keep this private."}')
         == "Choose the safe line."
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("model", ["deepseek-v4-flash", "deepseek-v4-pro"])
+async def test_deepseek_v4_models_use_documented_json_and_thinking_controls(
+    model: str,
+) -> None:
+    provider = DeepSeekProvider("sk-deepseek-test-only")
+    calls: list[dict[str, object]] = []
+
+    async def create(**arguments: object) -> object:
+        calls.append(arguments)
+        return SimpleNamespace(
+            id="deepseek-request",
+            model=model,
+            usage=None,
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(content='{"action":"move:1"}'),
+                    finish_reason="stop",
+                )
+            ],
+        )
+
+    provider._client = SimpleNamespace(  # type: ignore[assignment]
+        chat=SimpleNamespace(completions=SimpleNamespace(create=create))
+    )
+    response = await provider.generate(
+        ProviderRequest(
+            prompt="Return JSON.",
+            model=model,
+            timeout_seconds=30,
+            max_output_tokens=256,
+            temperature=0.7,
+            reasoning_effort="max",
+        )
+    )
+
+    assert response.model == model
+    assert calls == [
+        {
+            "model": model,
+            "messages": [{"role": "user", "content": "Return JSON."}],
+            "max_tokens": 256,
+            "timeout": 30.0,
+            "extra_body": {"thinking": {"type": "enabled"}},
+            "reasoning_effort": "max",
+            "response_format": {"type": "json_object"},
+        }
+    ]
 
 
 @pytest.mark.asyncio

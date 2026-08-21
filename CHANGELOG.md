@@ -11,7 +11,10 @@
   retry, complete battle history, keyboard drafting, and completion UI; and
 - hardened pricing integrity verification, AI draft failure boundaries, opponent-team redaction,
   multi-process revision checks, paginated restart recovery, real Showdown content CI, and the
-  patched `pip 26.2` runtime build tool.
+  patched `pip 26.2` runtime build tool; and
+- updated DeepSeek for the current `deepseek-v4-flash` and `deepseek-v4-pro` API models after
+  retirement of the legacy aliases, with explicit web selectors, documented JSON mode, and V4
+  thinking-effort mapping.
 
 ## 0.11.0 - 2026-08-20
 

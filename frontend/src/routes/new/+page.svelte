@@ -9,6 +9,7 @@
   } from '$lib/local-endpoints';
   import { api, copyText, getFormatGroups } from '$lib/api';
   import { hydrateStoredProviderSettings } from '$lib/provider-settings';
+  import { deepSeekModelLabel, knownProviderModels } from '$lib/provider-models';
   import type {
     AgentType,
     FormatDescriptor,
@@ -33,7 +34,7 @@
   };
   const defaultModels: Record<ProviderKind, string> = {
     openai: 'gpt-5-mini', gemini: 'gemini-2.5-flash', anthropic: 'claude-sonnet-4-5',
-    deepseek: 'deepseek-chat', 'openai-compatible': 'local-model', fake: 'fake-battle-v1'
+    deepseek: 'deepseek-v4-flash', 'openai-compatible': 'local-model', fake: 'fake-battle-v1'
   };
   const draft = (name: string): PlayerDraft => ({
     name, agentType: 'random', provider: 'openai', model: defaultModels.openai, baseUrl: '',
@@ -73,6 +74,13 @@
   let promptCopied: number | null = null;
   let promptFallback: Record<number, string> = {};
   let teamPanelOpen = false;
+
+  function selectableModels(index: number): string[] {
+    return [...new Set([
+      ...knownProviderModels(players[index].provider, providers),
+      ...(discoveredModels[index] || [])
+    ])];
+  }
 
   $: allFormats = formatGroups.flatMap((group) => group.formats);
   $: descriptor = allFormats.find((item) => item.id === format) || descriptor;
@@ -329,9 +337,13 @@
             {/if}
           {/if}
           <label>Model
-            <input bind:value={player.model} required list={`models-${index}`} />
+            {#if selectableModels(index).length}
+              <select bind:value={player.model} required>{#each selectableModels(index) as model}<option value={model}>{player.provider === 'deepseek' ? deepSeekModelLabel(model) : model}</option>{/each}</select>
+            {:else}
+              <input bind:value={player.model} required list={`models-${index}`} />
+            {/if}
           </label>
-          <datalist id={`models-${index}`}>{#each discoveredModels[index] || [] as model}<option value={model}></option>{/each}</datalist>
+          {#if !selectableModels(index).length}<datalist id={`models-${index}`}>{#each discoveredModels[index] || [] as model}<option value={model}></option>{/each}</datalist>{/if}
           {#if player.provider === 'openai-compatible'}<label>Base URL<input type="url" bind:value={player.baseUrl} required placeholder="http://host.docker.internal:1234/v1" /></label>{/if}
           <button type="button" class="link-button" on:click={() => discover(index)} disabled={discovering === index}>{discovering === index ? 'Discovering…' : 'Discover models'}</button>
         {:else}

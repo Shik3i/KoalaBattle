@@ -19,6 +19,7 @@ export interface ProviderStatus {
   id: ProviderKind;
   label: string;
   default_model: string;
+  known_models: string[];
   default_base_url: string | null;
   requires_api_key: boolean;
   environment_variable: string | null;

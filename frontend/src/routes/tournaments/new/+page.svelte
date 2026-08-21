@@ -3,16 +3,22 @@
   import { onMount } from 'svelte';
   import FormatSelector from '$lib/FormatSelector.svelte';
   import { api, copyText, getFormatGroups } from '$lib/api';
+  import { DEEPSEEK_V4_MODELS, deepSeekModelLabel } from '$lib/provider-models';
   import type {
     AgentType,
     FormatDescriptor,
     FormatGroup,
+    ProviderKind,
     TeamSnapshot,
     TeamValidationResult,
     TournamentArchive
   } from '$lib/types';
 
-  interface ParticipantDraft { name: string; seed: number; agentType: AgentType; provider: string; model: string; teamSnapshotId: string }
+  interface ParticipantDraft { name: string; seed: number; agentType: AgentType; provider: ProviderKind; model: string; teamSnapshotId: string }
+  const providerDefaults: Partial<Record<ProviderKind, string>> = {
+    openai: 'gpt-5-mini', gemini: 'gemini-2.5-flash', anthropic: 'claude-sonnet-4-5',
+    deepseek: 'deepseek-v4-flash', fake: 'fake-battle-v1'
+  };
   const participant = (index: number): ParticipantDraft => ({ name: `Competitor ${index}`, seed: index, agentType: 'random', provider: 'openai', model: 'gpt-5-mini', teamSnapshotId: '' });
   const steps = ['Name', 'Format', 'Match template', 'Series', 'Participants', 'Agent presets', 'Seeding', 'Concurrency', 'Safety & presentation', 'Review'];
   let step = 1;
@@ -41,6 +47,11 @@
   // Shared across participants: the import panels open and close together, so a long roster
   // never becomes a mix of expanded and collapsed cards.
   let teamPanelOpen = false;
+
+  function chooseParticipantProvider(index: number, provider: ProviderKind) {
+    participants[index].provider = provider;
+    participants[index].model = providerDefaults[provider] || '';
+  }
 
   $: allFormats = formatGroups.flatMap((group) => group.formats);
   $: descriptor = allFormats.find((item) => item.id === battleFormat) || descriptor;
@@ -210,7 +221,7 @@
     </section>
   {:else if step === 4}<section><span class="eyebrow">Series rules</span><h2>Best-of-N</h2><div class="choice-grid three">{#each [1,3,5] as value}<button type="button" class:chosen={bestOf === value} on:click={() => (bestOf = value)}><strong>Best of {value}</strong><span>First to {Math.floor(value / 2) + 1} wins.</span></button>{/each}</div><label>Custom odd value<input type="number" min="1" max="99" step="2" bind:value={bestOf} /></label></section>
   {:else if step === 5}<section><span class="eyebrow"><i class="ph ph-users-three" aria-hidden="true"></i> Roster</span><h2>Add participants</h2><div class="participant-list">{#each participants as entry, index}<div><span>{index + 1}</span><input bind:value={entry.name} maxlength="120" required /><button type="button" aria-label={`Remove ${entry.name}`} on:click={() => removeParticipant(index)}><i class="ph ph-trash" aria-hidden="true"></i></button></div>{/each}</div><button type="button" class="button secondary" on:click={addParticipant}><i class="ph ph-user-plus" aria-hidden="true"></i>Add participant</button></section>
-  {:else if step === 6}<section><span class="eyebrow">Agent snapshots</span><h2>Choose control mode</h2><div class="agent-list">{#each participants as entry, index}<article><strong>{entry.name}</strong><label>Agent preset<select value={entry.agentType} on:change={(event) => setAgent(index, event.currentTarget.value as AgentType)}><option value="random">Random baseline</option><option value="manual">Manual Web Chat</option><option value="api">Provider API</option></select></label>{#if entry.agentType === 'api'}<label>Provider<select bind:value={entry.provider}><option value="openai">OpenAI</option><option value="gemini">Gemini</option><option value="anthropic">Anthropic</option><option value="deepseek">DeepSeek</option><option value="fake">Fake (development)</option></select></label><label>Model<input bind:value={entry.model} required /></label>{/if}
+  {:else if step === 6}<section><span class="eyebrow">Agent snapshots</span><h2>Choose control mode</h2><div class="agent-list">{#each participants as entry, index}<article><strong>{entry.name}</strong><label>Agent preset<select value={entry.agentType} on:change={(event) => setAgent(index, event.currentTarget.value as AgentType)}><option value="random">Random baseline</option><option value="manual">Manual Web Chat</option><option value="api">Provider API</option></select></label>{#if entry.agentType === 'api'}<label>Provider<select value={entry.provider} on:change={(event) => chooseParticipantProvider(index, event.currentTarget.value as ProviderKind)}><option value="openai">OpenAI</option><option value="gemini">Gemini</option><option value="anthropic">Anthropic</option><option value="deepseek">DeepSeek</option><option value="fake">Fake (development)</option></select></label><label>Model{#if entry.provider === 'deepseek'}<select bind:value={entry.model}>{#each DEEPSEEK_V4_MODELS as model}<option value={model}>{deepSeekModelLabel(model)}</option>{/each}</select>{:else}<input bind:value={entry.model} required />{/if}</label>{/if}
       {#if needsCustomTeam}
         <label class="team-slot">Team
           <select bind:value={entry.teamSnapshotId} required>

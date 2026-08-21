@@ -37,6 +37,29 @@ class OpenAICompatibleProvider:
             max_retries=0,
         )
 
+    def _request_arguments(
+        self, request: ProviderRequest, arguments: dict[str, Any]
+    ) -> dict[str, Any]:
+        return arguments
+
+    def _preferred_response_format(self, request: ProviderRequest) -> dict[str, Any] | None:
+        return None
+
+    def _fallback_response_formats(
+        self, request: ProviderRequest
+    ) -> tuple[dict[str, Any] | None, ...]:
+        return (
+            {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": request.output_schema_name,
+                    "strict": True,
+                    "schema": request.output_schema or DECISION_SCHEMA,
+                },
+            },
+            None,
+        )
+
     async def generate(
         self,
         request: ProviderRequest,
@@ -55,8 +78,13 @@ class OpenAICompatibleProvider:
         }
         if request.temperature is not None:
             common["temperature"] = request.temperature
+        common = self._request_arguments(request, common)
+        preferred_format = self._preferred_response_format(request)
+        if preferred_format is not None:
+            common["response_format"] = preferred_format
 
-        # 1. Standard completion (compatible with 100% of OpenAI-compatible servers)
+        # 1. Provider-preferred completion. Generic endpoints use no response format;
+        # specialized adapters can opt into their documented JSON mode.
         try:
             response = await self._client.chat.completions.create(**common)
             choice = response.choices[0]
@@ -85,23 +113,14 @@ class OpenAICompatibleProvider:
             # Structured negotiation is intentional: an empty standard response
             # cannot yield a legal action.
 
-        # 2. Structured JSON schema completion
-        formats: tuple[dict[str, Any] | None, ...] = (
-            {
-                "type": "json_schema",
-                "json_schema": {
-                    "name": request.output_schema_name,
-                    "strict": True,
-                    "schema": request.output_schema or DECISION_SCHEMA,
-                },
-            },
-            None,
-        )
-        for response_format in formats:
+        # 2. Compatibility fallbacks after an error or empty response.
+        for response_format in self._fallback_response_formats(request):
             try:
                 arguments = dict(common)
                 if response_format is not None:
                     arguments["response_format"] = response_format
+                else:
+                    arguments.pop("response_format", None)
                 response = await self._client.chat.completions.create(**arguments)
                 choice = response.choices[0]
                 text = choice.message.content or ""
@@ -168,9 +187,41 @@ class OpenAICompatibleProvider:
 
 class DeepSeekProvider(OpenAICompatibleProvider):
     name = "deepseek"
+    capabilities = ProviderCapabilities(
+        structured_output=True,
+        model_listing=True,
+        temperature=False,
+        reasoning_control=True,
+        usage_reporting=True,
+        streaming=False,
+    )
 
     def __init__(self, api_key: str) -> None:
         super().__init__("https://api.deepseek.com", api_key)
+
+    def _request_arguments(
+        self, request: ProviderRequest, arguments: dict[str, Any]
+    ) -> dict[str, Any]:
+        prepared = dict(arguments)
+        # DeepSeek V4 enables thinking by default. It ignores temperature in thinking mode,
+        # so omit that misleading control and map KoalaBattle's portable effort levels to the
+        # two values the current OpenAI-compatible DeepSeek API accepts.
+        prepared.pop("temperature", None)
+        prepared["extra_body"] = {"thinking": {"type": "enabled"}}
+        if request.reasoning_effort is not None:
+            prepared["reasoning_effort"] = (
+                "max" if request.reasoning_effort == "max" else "high"
+            )
+        return prepared
+
+    def _preferred_response_format(self, request: ProviderRequest) -> dict[str, Any]:
+        # DeepSeek documents json_object rather than OpenAI's json_schema format.
+        return {"type": "json_object"}
+
+    def _fallback_response_formats(
+        self, request: ProviderRequest
+    ) -> tuple[dict[str, Any] | None, ...]:
+        return (None,)
 
 
 def _provider_usage(usage_object: Any) -> ProviderUsage | None:

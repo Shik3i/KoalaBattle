@@ -18,6 +18,10 @@ compatible Chromium/WebCodecs path or the documented FFmpeg fallback.
 Paid LLM or speech providers are never called by startup or by Random/Manual workflows. Provider
 credentials are optional backend-only configuration. The deterministic Fake provider is disabled
 by default and appears only as a Development / Testing choice when explicitly enabled.
+DeepSeek uses the current `deepseek-v4-flash` and `deepseek-v4-pro` model IDs; the retired
+`deepseek-chat` and `deepseek-reasoner` aliases are not offered. Contract tests cover both V4
+models, JSON mode, thinking effort mapping, environment status, and credential redaction without
+making a paid provider call.
 
 ## External dependencies and assets
 

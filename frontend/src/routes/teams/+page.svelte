@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { api } from '$lib/api';
   import { hydrateStoredProviderSettings } from '$lib/provider-settings';
+  import { deepSeekModelLabel, knownProviderModels } from '$lib/provider-models';
   import type { ProviderKind, ProviderStatus, TeamBuildAudit, TeamSnapshot, TeamValidationResult } from '$lib/types';
 
   let teams: TeamSnapshot[] = [];
@@ -14,6 +15,11 @@
   let model = 'fake-battle-v1';
   let busy = false;
   let error = '';
+
+  function chooseProvider(value: ProviderKind) {
+    provider = value;
+    model = providers.find((item) => item.id === value)?.default_model || '';
+  }
 
   onMount(() => {
     const controller = new AbortController();
@@ -86,8 +92,8 @@
   <article class="panel builder">
     <span class="eyebrow">AI team builder</span><h2>Generate, validate, repair</h2>
     <p>No provider is called until this button is selected. Fake is deterministic and costs nothing.</p>
-  <label>Provider<select bind:value={provider}>{#each providers.filter((item) => item.configured) as item}<option value={item.id}>{item.label || item.id} · ready</option>{/each}{#if !providers.some((item) => item.configured)}<option disabled>No configured provider — use Settings</option>{/if}</select></label>
-    <label>Model<input bind:value={model} maxlength="200" /></label>
+  <label>Provider<select value={provider} on:change={(event) => chooseProvider(event.currentTarget.value as ProviderKind)}>{#each providers.filter((item) => item.configured) as item}<option value={item.id}>{item.label || item.id} · ready</option>{/each}{#if !providers.some((item) => item.configured)}<option disabled>No configured provider — use Settings</option>{/if}</select></label>
+    <label>Model{#if knownProviderModels(provider, providers).length}<select bind:value={model}>{#each knownProviderModels(provider, providers) as item}<option value={item}>{provider === 'deepseek' ? deepSeekModelLabel(item) : item}</option>{/each}</select>{:else}<input bind:value={model} maxlength="200" />{/if}</label>
     <button class="button secondary" disabled={busy || !model.trim()} on:click={generate}><i class="ph ph-sparkle" aria-hidden="true"></i>{busy ? 'Working…' : 'Generate team explicitly'}</button>
     {#if buildAudit}<div class:valid={buildAudit.success} class="result"><strong>{buildAudit.success ? '✓ Generated team is legal' : 'Generation failed'}</strong><p>{buildAudit.repair_attempts} repair attempt(s) · {buildAudit.latency_ms} ms</p>{#each buildAudit.validation_errors.flat() as item}<p>{item}</p>{/each}</div>{/if}
   </article>
