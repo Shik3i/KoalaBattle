@@ -27,6 +27,22 @@ export function draftChoiceIndexForKey(key: string): number | null {
   return /^[1-8]$/.test(key) ? Number(key) - 1 : null;
 }
 
+export type DraftRollMode = 'both' | 'type' | 'generation';
+
+export function draftRollTransitionMode(
+  outcome: 'picked' | 'rerolled' | 'pokemon_rerolled' | 'type_rerolled' | 'generation_rerolled' | undefined,
+  firstRoll = false
+): DraftRollMode | null {
+  if (firstRoll || outcome === 'picked') return 'both';
+  if (outcome === 'type_rerolled') return 'type';
+  if (outcome === 'generation_rerolled') return 'generation';
+  return null;
+}
+
+export function campaignBattleLabel(index: number, total: number, opponent: string): string {
+  return `Battle ${Math.min(total, Math.max(1, index + 1))} of ${total} · ${opponent}`;
+}
+
 export interface EvLimits {
   pokemon: number;
   stat: number;

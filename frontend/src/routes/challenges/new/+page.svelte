@@ -76,8 +76,9 @@
         battle_controller: controller(battleType, battleProvider, battleModel),
         opponent_controller: controller(opponentType, opponentProvider, opponentModel),
         battle_experience: battleExperience,
-        draft_rules: { roster_size: 6, rerolls: 1, type_rerolls: 1, generation_rerolls: 1, choice_count: Number(choiceCount), species_clause: true }
+        draft_rules: { roster_size: 6, rerolls: 3, type_rerolls: 1, generation_rerolls: 1, choice_count: Number(choiceCount), species_clause: true }
       }) });
+      if (view.run.current_offer) sessionStorage.setItem(`draft-first-roll:${view.run.id}`, view.run.current_offer.fingerprint);
       await goto(`/challenges/${view.run.id}`);
     } catch (caught) {
       error = challengeErrorMessage(caught instanceof Error ? caught.message : String(caught));

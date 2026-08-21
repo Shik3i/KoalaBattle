@@ -76,8 +76,8 @@ class BattleControllerSnapshot(FrozenModel):
 
 class DraftRules(FrozenModel):
     roster_size: int = Field(default=6, ge=1, le=12)
-    # Persisted name retained for Draft V2 saves; this is the one-use Pokemon power.
-    rerolls: int = Field(default=1, ge=0, le=20)
+    # Persisted name retained for Draft V2 saves; this is the Pokemon-only reroll power.
+    rerolls: int = Field(default=3, ge=0, le=20)
     type_rerolls: int = Field(default=1, ge=0, le=20)
     generation_rerolls: int = Field(default=1, ge=0, le=20)
     choice_count: int = Field(default=3, ge=2, le=8)
@@ -243,6 +243,14 @@ class ChallengeStageResult(FrozenModel):
     completed_at: datetime
 
 
+class ChallengeBattleSummary(FrozenModel):
+    match_id: UUID
+    player_participants: tuple[str, ...] = ()
+    opponent_participants: tuple[str, ...] = ()
+    player_fainted: tuple[str, ...] = ()
+    opponent_fainted: tuple[str, ...] = ()
+
+
 class ChallengeRun(FrozenModel):
     id: UUID
     schema_version: str = CHALLENGE_SCHEMA_VERSION
@@ -260,7 +268,7 @@ class ChallengeRun(FrozenModel):
     battle_controller: BattleControllerSnapshot
     opponent_controller: BattleControllerSnapshot
     battle_experience: Literal["quick-sim", "fast-watch", "normal"] = "quick-sim"
-    rerolls_remaining: int = Field(ge=0)
+    rerolls_remaining: int = Field(default=3, ge=0)
     type_rerolls_remaining: int = Field(default=1, ge=0)
     generation_rerolls_remaining: int = Field(default=1, ge=0)
     offer_nonce: int = Field(default=0, ge=0)
@@ -274,6 +282,8 @@ class ChallengeRun(FrozenModel):
     current_stage_index: int = Field(default=0, ge=0)
     active_match_id: UUID | None = None
     stage_results: tuple[ChallengeStageResult, ...] = ()
+    auto_run_paused: bool = False
+    auto_advance_at: datetime | None = None
     error: str | None = Field(default=None, max_length=1000)
     compatibility_notice: str | None = Field(default=None, max_length=1000)
     created_at: datetime
@@ -312,6 +322,7 @@ class ChallengeRunView(FrozenModel):
     stages: tuple[PublicChallengeStage, ...]
     statistics: ChallengeRunStats
     current_stage: PublicChallengeStage | None = None
+    latest_battle_summary: ChallengeBattleSummary | None = None
     team_export_scaffold: str | None = None
     can_reroll: bool = False
     can_reroll_type: bool = False

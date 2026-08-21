@@ -2,9 +2,11 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  campaignBattleLabel,
   challengeErrorMessage,
   challengeStatusLabel,
   draftChoiceIndexForKey,
+  draftRollTransitionMode,
   emptyEvSpread,
   evAllocationTotal,
   evSpreadTotal,
@@ -88,6 +90,19 @@ test('draft shortcuts accept only visible one-based choice keys', () => {
   assert.equal(draftChoiceIndexForKey('8'), 7);
   assert.equal(draftChoiceIndexForKey('0'), null);
   assert.equal(draftChoiceIndexForKey('9'), null);
+});
+
+test('draft roll animation distinguishes automatic, type, generation, and Pokemon rerolls', () => {
+  assert.equal(draftRollTransitionMode(undefined, true), 'both');
+  assert.equal(draftRollTransitionMode('picked'), 'both');
+  assert.equal(draftRollTransitionMode('type_rerolled'), 'type');
+  assert.equal(draftRollTransitionMode('generation_rerolled'), 'generation');
+  assert.equal(draftRollTransitionMode('pokemon_rerolled'), null);
+});
+
+test('campaign position is one-based and capped at the final battle', () => {
+  assert.equal(campaignBattleLabel(3, 13, 'Erika'), 'Battle 4 of 13 · Erika');
+  assert.equal(campaignBattleLabel(13, 13, 'Champion Blue'), 'Battle 13 of 13 · Champion Blue');
 });
 
 test('status and duration labels are user-facing', () => {

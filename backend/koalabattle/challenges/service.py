@@ -4,7 +4,7 @@ import asyncio
 import hashlib
 import json
 import re
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal
 from uuid import UUID, uuid4
@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 from koalabattle.agents.providers import ProviderRequest
 from koalabattle.agents.providers.base import safe_error_detail
 from koalabattle.core.models import (
+    AgentType,
     MatchArchive,
     MatchConfig,
     MatchStatus,
@@ -33,6 +34,7 @@ from .domain import (
 from .models import (
     DRAFT_RULES_VERSION,
     BattleControllerSnapshot,
+    ChallengeBattleSummary,
     ChallengeDefinition,
     ChallengeRun,
     ChallengeRunStats,
@@ -53,6 +55,55 @@ from .repository import ChallengeRepository
 from .species import ShowdownSpeciesCatalog, SpeciesMetadata, showdown_id
 
 CONTENT_ROOT = Path(__file__).with_name("content")
+AUTO_ADVANCE_DELAYS = {"quick-sim": 3.0, "fast-watch": 4.5, "normal": 3.0}
+
+
+def _event_pokemon(value: object) -> tuple[str, str] | None:
+    if not isinstance(value, str):
+        return None
+    match = re.match(r"^(p[12])[a-z]?:\s*(.+)$", value)
+    if match is None:
+        return None
+    return match.group(1), match.group(2).strip()
+
+
+def derive_battle_summary(archive: MatchArchive) -> ChallengeBattleSummary:
+    """Derive post-battle participation from immutable Showdown events."""
+    aliases: dict[tuple[str, str], str] = {}
+    participants: dict[str, list[str]] = {"p1": [], "p2": []}
+    fainted: dict[str, list[str]] = {"p1": [], "p2": []}
+
+    def append_unique(items: list[str], value: str) -> None:
+        if value not in items:
+            items.append(value)
+
+    for event in archive.events:
+        if event.event_type == "pokemon_switched":
+            actor = _event_pokemon(event.payload.get("actor"))
+            if actor is None:
+                continue
+            side, nickname = actor
+            details = event.payload.get("details")
+            species = (
+                str(details).split(",", 1)[0].strip()
+                if isinstance(details, str) and details.strip()
+                else nickname
+            )
+            aliases[(side, nickname)] = species
+            append_unique(participants[side], species)
+        elif event.event_type == "pokemon_fainted":
+            target = _event_pokemon(event.payload.get("target"))
+            if target is None:
+                continue
+            side, nickname = target
+            append_unique(fainted[side], aliases.get((side, nickname), nickname))
+    return ChallengeBattleSummary(
+        match_id=archive.id,
+        player_participants=tuple(participants["p1"]),
+        opponent_participants=tuple(participants["p2"]),
+        player_fainted=tuple(fainted["p1"]),
+        opponent_fainted=tuple(fainted["p2"]),
+    )
 
 
 class _AgentDraftAction(BaseModel):
@@ -109,16 +160,8 @@ def _recommended_ev_spread(candidate: DraftCandidate) -> EvSpread:
         return EvSpread.model_validate({"hp": 252, "def": 4, "spd": 252})
     is_fast = stats.spe >= 90 or stats.spe >= defensive
     if physical:
-        return (
-            EvSpread(atk=252, spd=4, spe=252)
-            if is_fast
-            else EvSpread(hp=252, atk=252, spd=4)
-        )
-    return (
-        EvSpread(spa=252, spd=4, spe=252)
-        if is_fast
-        else EvSpread(hp=252, spa=252, spd=4)
-    )
+        return EvSpread(atk=252, spd=4, spe=252) if is_fast else EvSpread(hp=252, atk=252, spd=4)
+    return EvSpread(spa=252, spd=4, spe=252) if is_fast else EvSpread(hp=252, spa=252, spd=4)
 
 
 def _team_scaffold(run: ChallengeRun) -> str | None:
@@ -137,9 +180,7 @@ def _team_scaffold(run: ChallengeRun) -> str | None:
         ability = next((item for item in pick.candidate.abilities if item.id == selected), None)
         if ability is not None:
             lines.append(f"Ability: {ability.name}")
-        lines.extend(
-            f"- {move}" for move in (pick.candidate.recommended_moves or ("Tackle",))
-        )
+        lines.extend(f"- {move}" for move in (pick.candidate.recommended_moves or ("Tackle",)))
         blocks.append("\n".join(lines))
     return "\n\n".join(blocks)
 
@@ -256,6 +297,60 @@ class ChallengeService:
         self.repository = repository
         self.species = species
         self.battles = battles
+        self._auto_tasks: dict[UUID, asyncio.Task[None]] = {}
+
+    @staticmethod
+    def auto_run_available(run: ChallengeRun) -> bool:
+        interactive = {AgentType.HUMAN, AgentType.MANUAL}
+        return (
+            run.battle_controller.agent_type not in interactive
+            and run.opponent_controller.agent_type not in interactive
+        )
+
+    def _schedule_auto_run(self, run: ChallengeRun) -> None:
+        if (
+            not self.auto_run_available(run)
+            or run.auto_run_paused
+            or run.auto_advance_at is None
+            or run.status not in {ChallengeStatus.READY, ChallengeStatus.STAGE_RESULT}
+            or run.id in self._auto_tasks
+        ):
+            return
+        task = asyncio.create_task(
+            self._wait_and_auto_advance(run.id), name=f"challenge-auto-run-{run.id}"
+        )
+        self._auto_tasks[run.id] = task
+
+        def forget(completed: asyncio.Task[None]) -> None:
+            self._auto_tasks.pop(run.id, None)
+            if not completed.cancelled():
+                completed.exception()
+
+        task.add_done_callback(forget)
+
+    async def _wait_and_auto_advance(self, run_id: UUID) -> None:
+        run = await self.require(run_id)
+        if run.auto_advance_at is None:
+            return
+        delay = (run.auto_advance_at - datetime.now(UTC)).total_seconds()
+        if delay > 0:
+            await asyncio.sleep(delay)
+        try:
+            await self.auto_advance(run_id)
+        except ValueError as error:
+            async with self.repository.lock(run_id):
+                current = await self.require(run_id)
+                if current.active_match_id is None and not current.auto_run_paused:
+                    await self.repository.save(
+                        current.model_copy(
+                            update={
+                                "auto_run_paused": True,
+                                "auto_advance_at": None,
+                                "error": f"Automatic progression paused: {error}",
+                            }
+                        ),
+                        expected_revision=current.revision,
+                    )
 
     @staticmethod
     def _candidates(
@@ -391,6 +486,13 @@ class ChallengeService:
                     if prepared.revision != run.revision:
                         reconciled.append(run.id)
                     continue
+                if (
+                    run.active_match_id is None
+                    and run.status in {ChallengeStatus.READY, ChallengeStatus.STAGE_RESULT}
+                    and run.auto_advance_at is not None
+                ):
+                    self._schedule_auto_run(run)
+                    continue
                 if run.active_match_id is None:
                     continue
                 refreshed = await self._refresh_active(run)
@@ -456,9 +558,20 @@ class ChallengeService:
 
     async def get(self, run_id: UUID) -> ChallengeRunView:
         run = await self.require(run_id)
-        return self.view(await self._refresh_active(run))
+        run = await self._refresh_active(run)
+        summary = None
+        if run.stage_results and self.battles is not None:
+            archive = await self.battles.repository.get_match(run.stage_results[-1].match_id)
+            if archive is not None and archive.status is MatchStatus.COMPLETED:
+                summary = derive_battle_summary(archive)
+        return self.view(run, latest_battle_summary=summary)
 
-    def view(self, run: ChallengeRun) -> ChallengeRunView:
+    def view(
+        self,
+        run: ChallengeRun,
+        *,
+        latest_battle_summary: ChallengeBattleSummary | None = None,
+    ) -> ChallengeRunView:
         stages = tuple(_public_stage(stage) for stage in run.definition.stages)
         current = stages[run.current_stage_index] if run.current_stage_index < len(stages) else None
         wins = sum(item.status == "won" for item in run.stage_results)
@@ -509,6 +622,7 @@ class ChallengeService:
             ),
             stages=stages,
             current_stage=current,
+            latest_battle_summary=latest_battle_summary,
             team_export_scaffold=_team_scaffold(run),
             can_reroll=(
                 run.status is ChallengeStatus.DRAFTING
@@ -613,9 +727,7 @@ class ChallengeService:
                         if run.draft_pool.abilities_supported and pick.candidate.abilities
                         else None
                     )
-                    ev_allocations[pick.candidate.entry_id] = _recommended_ev_spread(
-                        pick.candidate
-                    )
+                    ev_allocations[pick.candidate.entry_id] = _recommended_ev_spread(pick.candidate)
             updated = run.model_copy(
                 update={
                     "picks": picks,
@@ -672,16 +784,24 @@ class ChallengeService:
                 submitted_text=submitted,
                 validation=validation,
             )
-            return await self.repository.save(
+            auto_advance_at = (
+                datetime.now(UTC) + timedelta(seconds=1)
+                if self.auto_run_available(run) and not run.auto_run_paused
+                else None
+            )
+            stored = await self.repository.save(
                 run.model_copy(
                     update={
                         "team_snapshot_id": snapshot.id,
                         "status": ChallengeStatus.READY,
+                        "auto_advance_at": auto_advance_at,
                         "error": None,
                     }
                 ),
                 expected_revision=run.revision,
             )
+            self._schedule_auto_run(stored)
+            return stored
 
     async def reroll(
         self,
@@ -720,11 +840,15 @@ class ChallengeService:
                     "generation_rerolls_remaining": run.generation_rerolls_remaining - 1
                 },
             }[kind]
-            history_outcome = {
-                "pokemon": "pokemon_rerolled",
-                "type": "type_rerolled",
-                "generation": "generation_rerolled",
-            }[kind]
+            history_outcome: Literal[
+                "pokemon_rerolled", "type_rerolled", "generation_rerolled"
+            ]
+            if kind == "pokemon":
+                history_outcome = "pokemon_rerolled"
+            elif kind == "type":
+                history_outcome = "type_rerolled"
+            else:
+                history_outcome = "generation_rerolled"
             updated = run.model_copy(
                 update={
                     **counter_update,
@@ -919,7 +1043,12 @@ class ChallengeService:
             ):
                 raise ValueError("advanced team setup is available only before the first stage")
             return await self.repository.save(
-                run.model_copy(update={"status": ChallengeStatus.TEAM_REVIEW}),
+                run.model_copy(
+                    update={
+                        "status": ChallengeStatus.TEAM_REVIEW,
+                        "auto_advance_at": None,
+                    }
+                ),
                 expected_revision=run.revision,
             )
 
@@ -1000,10 +1129,16 @@ class ChallengeService:
                 submitted_text=submitted_team,
                 validation=validation,
             )
-            updated = run.model_copy(
-                update={"team_snapshot_id": snapshot.id, "status": ChallengeStatus.READY}
-            )
-            return await self.repository.save(updated, expected_revision=run.revision)
+            update: dict[str, object] = {
+                "team_snapshot_id": snapshot.id,
+                "status": ChallengeStatus.READY,
+            }
+            if self.auto_run_available(run) and not run.auto_run_paused:
+                update["auto_advance_at"] = datetime.now(UTC) + timedelta(seconds=1)
+            updated = run.model_copy(update=update)
+            saved = await self.repository.save(updated, expected_revision=run.revision)
+            self._schedule_auto_run(saved)
+            return saved
 
     @staticmethod
     def _player(
@@ -1085,6 +1220,7 @@ class ChallengeService:
                 update={
                     "status": ChallengeStatus.BATTLE_QUEUED,
                     "active_match_id": match.id,
+                    "auto_advance_at": None,
                     "error": None,
                 }
             )
@@ -1153,6 +1289,14 @@ class ChallengeService:
             won = outcome == "won"
             next_index = stage_index + 1 if won else stage_index
             completed = won and next_index == len(run.definition.stages)
+            auto_advance_at = (
+                datetime.now(UTC) + timedelta(seconds=AUTO_ADVANCE_DELAYS[run.battle_experience])
+                if won
+                and not completed
+                and self.auto_run_available(run)
+                and not run.auto_run_paused
+                else None
+            )
             updated = run.model_copy(
                 update={
                     "status": ChallengeStatus.COMPLETED
@@ -1161,11 +1305,78 @@ class ChallengeService:
                     "current_stage_index": next_index,
                     "active_match_id": None,
                     "stage_results": (*run.stage_results, result),
+                    "auto_advance_at": auto_advance_at,
                     "completed_at": datetime.now(UTC) if completed else None,
                     "error": archive.error if outcome in {"failed", "interrupted"} else None,
                 }
             )
-            await self.repository.save(updated, expected_revision=run.revision)
+            stored = await self.repository.save(updated, expected_revision=run.revision)
+        self._schedule_auto_run(stored)
+
+    async def auto_advance(self, run_id: UUID) -> tuple[ChallengeRun, MatchArchive | None]:
+        """Idempotently launch the next stage when the persisted deadline is due."""
+        run = await self.require(run_id)
+        if (
+            not self.auto_run_available(run)
+            or run.auto_run_paused
+            or run.auto_advance_at is None
+            or run.status not in {ChallengeStatus.READY, ChallengeStatus.STAGE_RESULT}
+            or run.current_stage_index >= len(run.definition.stages)
+        ):
+            match = (
+                await self.battles.repository.get_match(run.active_match_id)
+                if run.active_match_id is not None
+                else None
+            )
+            return run, match
+        if run.auto_advance_at > datetime.now(UTC):
+            self._schedule_auto_run(run)
+            return run, None
+        try:
+            return await self.launch_stage(run.id, run.revision)
+        except ValueError:
+            current = await self.require(run.id)
+            if current.active_match_id is not None:
+                return current, await self.battles.repository.get_match(current.active_match_id)
+            raise
+
+    async def pause_auto_run(self, run_id: UUID, expected_revision: int) -> ChallengeRun:
+        async with self.repository.lock(run_id):
+            run = await self.require(run_id)
+            if not self.auto_run_available(run):
+                raise ValueError("this run requires player-controlled battles")
+            # Pause is a monotonic safety command: a concurrent terminal update or launch must
+            # never discard the user's request to stop after the active match. Keep the revision
+            # in the API contract for diagnostics, but apply the current persisted revision.
+            if run.auto_run_paused:
+                return run
+            return await self.repository.save(
+                run.model_copy(update={"auto_run_paused": True, "auto_advance_at": None}),
+                expected_revision=run.revision,
+            )
+
+    async def continue_auto_run(
+        self, run_id: UUID, expected_revision: int
+    ) -> tuple[ChallengeRun, MatchArchive | None]:
+        async with self.repository.lock(run_id):
+            run = await self.require(run_id)
+            if run.revision != expected_revision:
+                raise ValueError(f"stale challenge revision: current {run.revision}")
+            if not self.auto_run_available(run):
+                raise ValueError("this run requires player-controlled battles")
+            launchable = run.status in {ChallengeStatus.READY, ChallengeStatus.STAGE_RESULT}
+            stored = await self.repository.save(
+                run.model_copy(
+                    update={
+                        "auto_run_paused": False,
+                        "auto_advance_at": datetime.now(UTC) if launchable else None,
+                    }
+                ),
+                expected_revision=run.revision,
+            )
+        if launchable:
+            return await self.auto_advance(stored.id)
+        return stored, None
 
     async def cancel(self, run_id: UUID, expected_revision: int) -> ChallengeRun:
         active_match_id: UUID | None
@@ -1177,7 +1388,11 @@ class ChallengeService:
                 raise ValueError(f"challenge is already {run.status.value}")
             active_match_id = run.active_match_id
             updated = run.model_copy(
-                update={"status": ChallengeStatus.CANCELLED, "active_match_id": None}
+                update={
+                    "status": ChallengeStatus.CANCELLED,
+                    "active_match_id": None,
+                    "auto_advance_at": None,
+                }
             )
             stored = await self.repository.save(updated, expected_revision=run.revision)
         if active_match_id is not None:

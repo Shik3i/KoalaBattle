@@ -1,6 +1,6 @@
 {
   "id": "kanto-gym-gauntlet",
-  "version": "7.0.0",
+  "version": "8.0.0",
   "name": "Kanto Gym Gauntlet",
   "description": "The exact Pokémon Red and Blue Gym Leader, Elite Four, and Champion rosters and moves, adapted only where the modern battle engine requires it.",
   "format": "gen9koalabattlecanonicalnatdexdraft",
@@ -24,7 +24,7 @@
   },
   "draft_rules": {
     "roster_size": 6,
-    "rerolls": 1,
+    "rerolls": 3,
     "type_rerolls": 1,
     "generation_rerolls": 1,
     "choice_count": 3,

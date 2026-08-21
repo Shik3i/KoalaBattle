@@ -910,6 +910,52 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
 
+    @app.post("/api/challenges/{run_id}/auto/advance")
+    async def challenge_auto_advance(run_id: UUID, request: Request) -> dict[str, object]:
+        try:
+            run, match = await _challenges(request).auto_advance(run_id)
+            return {
+                "run": _challenges(request).view(run).model_dump(mode="json"),
+                "match": (
+                    redact_challenge_match(match).model_dump(mode="json") if match else None
+                ),
+            }
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="challenge not found") from error
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.post("/api/challenges/{run_id}/auto/pause", response_model=ChallengeRunView)
+    async def challenge_pause_auto_run(
+        run_id: UUID, payload: RevisionInput, request: Request
+    ) -> ChallengeRunView:
+        try:
+            run = await _challenges(request).pause_auto_run(run_id, payload.expected_revision)
+            return _challenges(request).view(run)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="challenge not found") from error
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+
+    @app.post("/api/challenges/{run_id}/auto/continue")
+    async def challenge_continue_auto_run(
+        run_id: UUID, payload: RevisionInput, request: Request
+    ) -> dict[str, object]:
+        try:
+            run, match = await _challenges(request).continue_auto_run(
+                run_id, payload.expected_revision
+            )
+            return {
+                "run": _challenges(request).view(run).model_dump(mode="json"),
+                "match": (
+                    redact_challenge_match(match).model_dump(mode="json") if match else None
+                ),
+            }
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="challenge not found") from error
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+
     @app.post("/api/challenges/{run_id}/cancel", response_model=ChallengeRunView)
     async def challenge_cancel(
         run_id: UUID, payload: RevisionInput, request: Request

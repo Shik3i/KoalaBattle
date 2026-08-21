@@ -465,6 +465,8 @@ export interface ChallengeRunView {
     current_stage_index: number;
     active_match_id: string | null;
     stage_results: Array<{ stage_id: string; stage_index: number; match_id: string; status: 'won' | 'lost' | 'draw' | 'failed' | 'cancelled' | 'interrupted'; winner: string | null; turns: number; duration_seconds: number; estimated_cost: number; average_decision_latency_ms: number | null; decision_count: number; started_at: string; completed_at: string }>;
+    auto_run_paused: boolean;
+    auto_advance_at: string | null;
     error: string | null;
     compatibility_notice: string | null;
     created_at: string;
@@ -473,6 +475,7 @@ export interface ChallengeRunView {
   };
   stages: ChallengeStageSummary[];
   current_stage: ChallengeStageSummary | null;
+  latest_battle_summary: { match_id: string; player_participants: string[]; opponent_participants: string[]; player_fainted: string[]; opponent_fainted: string[] } | null;
   statistics: { stages_cleared: number; wins: number; losses: number; draws: number; total_battles: number; technical_failures: number; total_turns: number; duration_seconds: number; estimated_cost: number; average_decision_latency_ms: number | null; rerolls_used: number; ev_used: number };
   team_export_scaffold: string | null;
   can_reroll: boolean;

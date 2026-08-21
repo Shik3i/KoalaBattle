@@ -53,8 +53,8 @@ def _source_snapshot() -> list[dict[str, object]]:
 def test_kanto_content_uses_sourced_red_blue_rosters() -> None:
     definition = _definition("kanto-gym-gauntlet")
 
-    assert definition.version == "7.0.0"
-    assert definition.draft_rules.rerolls == 1
+    assert definition.version == "8.0.0"
+    assert definition.draft_rules.rerolls == 3
     assert definition.draft_rules.type_rerolls == 1
     assert definition.draft_rules.generation_rerolls == 1
     assert definition.source.game == "Pokémon Red and Blue"

@@ -5,7 +5,7 @@ definition is **Kanto Gym Gauntlet**: six drafted Pokémon with automatic recomm
 Pokémon Red/Blue rosters and moves for all eight Kanto Gym Leaders, the Elite Four, and Champion
 Blue. Every stage creates a normal immutable KoalaBattle match and replay.
 
-The V7 content pack uses the English Pokémon Red/Blue teams. Champion Blue uses the documented
+The V8 content pack uses the English Pokémon Red/Blue teams. Champion Blue uses the documented
 variant for a player who chose Bulbasaur. Species order, source levels, and moves are sourced
 from Bisafans and Serebii and regression-locked. Source levels remain stored in the private team
 definitions; the actual Draft fight applies the campaign's equal level curve to both sides.
@@ -27,8 +27,11 @@ Learnsets, abilities, forms, Species Clause, EVs, and the finalized roster remai
 5. The sixth pick automatically applies Pokémon-specific recommended EVs and abilities, generates
    up to four practical legal moves, validates the team, and prepares the first stage. Advanced
    team setup remains optional before Brock.
-6. Launch the current stage. A win advances; loss, draw, cancellation, interruption, or engine
-   failure records a stage result and leaves that same stage retryable.
+6. Fully automatic controllers launch the first stage immediately and continue after each short
+   result countdown. Pause Auto-Run stops before the next match; Continue Run resumes exactly once.
+   Human or Manual Web Chat controllers always retain their explicit launch and turn controls.
+7. A win advances; loss, draw, cancellation, interruption, or engine failure records a stage
+   result and leaves that same stage retryable. Every result links to an interactive browser replay.
 
 Number keys `1`–`8` select visible draft choices. A refresh or backend restart restores the exact
 offer, consumed identities, selections, controller decisions, and draft history. A failed AI
@@ -37,7 +40,7 @@ draft. The optimistic revision check rejects late AI responses after takeover.
 
 ## Draft Rules V2
 
-Bundled defaults: six picks, one Pokémon reroll, one Type reroll, one Generation reroll,
+Bundled defaults: six picks, three Pokémon rerolls, one Type reroll, one Generation reroll,
 three choices per round, Species Clause, 510 EVs per
 Pokémon, and 252 EVs per stat. There is no shared team EV pool. No Draft Credits, Pokémon prices,
 pricing board, tier conversion, or pricing prerequisite exists.
@@ -87,7 +90,8 @@ the run's source recommended EV allocation.
 
 Challenge state lives in `challenge_runs`; each stage match stores `challenge_run_id` and
 `challenge_stage_id`. Startup resumes interrupted automatic team preparation and reconciles
-terminal, interrupted, or missing linked matches. Runs
+terminal, interrupted, or missing linked matches. Auto-Run deadlines and paused state are persisted;
+the backend performs the idempotent next-stage launch, while browser countdowns are presentation only. Runs
 use database-level optimistic revisions plus per-run locks, so stale or duplicate
 pick/reroll/training/ability/finalize/launch requests are rejected across application processes.
 Cancelling a run cancels its active normal match through the existing supervisor.
@@ -103,7 +107,7 @@ rules, stages, levels, or teams change; existing V2 runs retain their complete d
 pool snapshots. Every regional pack must declare one exact source game, generation, and battle
 variant; teams from different appearances or rematches must never be merged.
 
-The V7 stage metadata maps each opponent to its exact Red/Blue trainer sprite identifier.
+The V8 stage metadata maps each opponent to its exact Red/Blue trainer sprite identifier.
 `scripts/setup_assets.py install --profile full` installs those 13 portraits below ignored
 `data/assets/trainers/`. The UI animates installed sprites and retains a deterministic fallback
 when optional local media is absent.

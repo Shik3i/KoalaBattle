@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import UTC, datetime
 from pathlib import Path
@@ -40,10 +41,12 @@ from koalabattle.challenges.repository import (
     _deserialize_run,
 )
 from koalabattle.challenges.service import (
+    AUTO_ADVANCE_DELAYS,
     ChallengeService,
     _team_scaffold,
     _with_level,
     _with_zero_ev_confirmation,
+    derive_battle_summary,
     redact_challenge_match,
 )
 from koalabattle.challenges.service import (
@@ -52,6 +55,7 @@ from koalabattle.challenges.service import (
 from koalabattle.challenges.species import ShowdownSpeciesCatalog, SpeciesMetadata
 from koalabattle.core.models import (
     AgentType,
+    BattleEvent,
     MatchArchive,
     MatchConfig,
     MatchStatus,
@@ -640,6 +644,59 @@ def _won_archive(run: ChallengeRun, match_id: UUID, stage_id: str) -> MatchArchi
     )
 
 
+def test_battle_summary_uses_only_participants_and_authoritative_faints() -> None:
+    run = _run()
+    match_id = uuid4()
+    archive = _won_archive(run, match_id, "stage-one").model_copy(
+        update={
+            "events": (
+                BattleEvent(
+                    match_id=match_id,
+                    sequence=1,
+                    turn=0,
+                    event_type="pokemon_switched",
+                    payload={"actor": "p1a: Sparky", "details": "Pikachu, L50"},
+                ),
+                BattleEvent(
+                    match_id=match_id,
+                    sequence=2,
+                    turn=0,
+                    event_type="pokemon_switched",
+                    payload={"actor": "p2a: Rocky", "details": "Geodude, L12"},
+                ),
+                BattleEvent(
+                    match_id=match_id,
+                    sequence=3,
+                    turn=3,
+                    event_type="pokemon_switched",
+                    payload={"actor": "p1a: Shell", "details": "Blastoise, L50"},
+                ),
+                BattleEvent(
+                    match_id=match_id,
+                    sequence=4,
+                    turn=4,
+                    event_type="pokemon_fainted",
+                    payload={"target": "p2a: Rocky"},
+                ),
+                BattleEvent(
+                    match_id=match_id,
+                    sequence=5,
+                    turn=7,
+                    event_type="pokemon_fainted",
+                    payload={"target": "p1a: Sparky"},
+                ),
+            )
+        }
+    )
+
+    summary = derive_battle_summary(archive)
+
+    assert summary.player_participants == ("Pikachu", "Blastoise")
+    assert summary.opponent_participants == ("Geodude",)
+    assert summary.player_fainted == ("Pikachu",)
+    assert summary.opponent_fainted == ("Geodude",)
+
+
 def _auto_match_config() -> MatchConfig:
     return MatchConfig(
         players=(
@@ -784,6 +841,69 @@ async def test_final_team_enforces_abilities_then_creates_first_campaign_match(
     assert launched.active_match_id == match.id
     assert match.challenge_run_id == run.id
     assert match.challenge_stage_id == "stage-one"
+    await database.close()
+
+
+@pytest.mark.asyncio
+async def test_auto_run_pause_continue_and_duplicate_advance_create_one_match(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'auto-run.db'}")
+    await database.create_schema()
+    repository = ChallengeRepository(database)
+    base = _picked_run()
+    second_stage = base.definition.stages[0].model_copy(
+        update={"id": "stage-two", "name": "Second Leader"}
+    )
+    run = base.model_copy(
+        update={
+            "battle_controller": BattleControllerSnapshot(agent_type=AgentType.RANDOM),
+            "definition": base.definition.model_copy(
+                update={"stages": (*base.definition.stages, second_stage)}
+            ),
+        }
+    )
+    await repository.create(run)
+    structured = tuple(
+        {"species": f"Mon {index}", "ability": f"Ability {index} A", "evs": {"hp": 1}}
+        for index in range(1, 4)
+    )
+    battles = _Battles(structured, BattleRepository(database))
+    service = ChallengeService(
+        repository, ShowdownSpeciesCatalog("http://127.0.0.1:9"), cast(Any, battles)
+    )
+    export = "\n\n".join(
+        f"Mon {index}\nAbility: Ability {index} A\n- Tackle" for index in range(1, 4)
+    )
+    finalized = await service.finalize_team(run.id, export, run.revision)
+    assert finalized.auto_advance_at is not None
+
+    paused = await service.pause_auto_run(run.id, finalized.revision - 1)
+    assert paused.auto_run_paused is True
+    assert paused.auto_advance_at is None
+    await asyncio.sleep(1.05)
+    assert (await service.require(run.id)).active_match_id is None
+
+    continued, first_match = await service.continue_auto_run(run.id, paused.revision)
+    assert first_match is not None
+    duplicate, duplicate_match = await service.auto_advance(run.id)
+    assert duplicate.active_match_id == continued.active_match_id == first_match.id
+    assert duplicate_match is not None
+    assert duplicate_match.id == first_match.id
+
+    monkeypatch.setitem(AUTO_ADVANCE_DELAYS, "quick-sim", 0.01)
+    await service.on_match_terminal(
+        first_match.id, _won_archive(duplicate, first_match.id, "stage-one")
+    )
+    for _ in range(20):
+        advanced = await service.require(run.id)
+        if advanced.active_match_id not in {None, first_match.id}:
+            break
+        await asyncio.sleep(0.05)
+    assert advanced.current_stage_index == 1
+    assert advanced.active_match_id is not None
+    assert advanced.active_match_id != first_match.id
     await database.close()
 
 

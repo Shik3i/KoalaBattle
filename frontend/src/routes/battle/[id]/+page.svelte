@@ -21,6 +21,7 @@
   let copied: string | null = null;
   let copyTimer: ReturnType<typeof setTimeout> | null = null;
   let configBroadcastTimer: ReturnType<typeof setTimeout> | null = null;
+  let draftReturnTimer: ReturnType<typeof setTimeout> | null = null;
   let configSyncError = '';
   let error = ''; let stopSocket: (() => void) | null = null;
   let timeline: PresentationTimeline | null = null; let snapshot: TimelineSnapshot | null = null;
@@ -111,6 +112,7 @@
       stopSocket?.(); timeline?.destroy();
       if (copyTimer) clearTimeout(copyTimer);
       if (configBroadcastTimer) clearTimeout(configBroadcastTimer);
+      if (draftReturnTimer) clearTimeout(draftReturnTimer);
     };
   });
   async function connect() {
@@ -182,7 +184,7 @@
       if (match && Object.keys(pending).length === 0) match.status = 'running';
     }
     if (message.kind === 'match_completed') {
-      if (match) match.status = 'completed'; lifecycle = { p1: 'finished', p2: 'finished' }; void refreshMetadata();
+      if (match) match.status = 'completed'; lifecycle = { p1: 'finished', p2: 'finished' }; void finishMatch();
     }
     if (message.kind === 'match_cancelled') { if (match) match.status = 'cancelled'; }
     if (message.kind === 'match_paused') { if (match) match.status = 'paused'; }
@@ -192,6 +194,14 @@
   async function refreshMetadata() {
     const archive = await getMatch(data.id);
     if (match) match = { ...archive, events: match.events };
+  }
+  async function finishMatch() {
+    await refreshMetadata();
+    const fastDraftWatch = new URLSearchParams(window.location.search).get('speed') === '4';
+    if (!fastDraftWatch || !match?.challenge_run_id) return;
+    draftReturnTimer = setTimeout(() => {
+      void goto(`/challenges/${match?.challenge_run_id}#latest-result`);
+    }, 650);
   }
   function updateConfig(patch: Partial<RendererConfig>) {
     config = { ...config, ...patch }; saveRendererConfig(config);

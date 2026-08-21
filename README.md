@@ -37,9 +37,9 @@ Pokémon Showdown. No Pokémon artwork, sprites, audio, or other third-party med
 
 ## Replay any recorded match, then render it again
 
-A recorded battle is a reusable source, not a one-shot video. Open a replay, press **Create
-Video**, and the Video Studio gives you a live preview of the real compositor plus the
-settings that shape it:
+A recorded battle is a reusable source, not a one-shot video. Open a replay to watch it directly
+in the browser with Play/Pause, previous/next turn, previous/next event, timeline seeking, and
+speed controls. **Create Video** remains an optional export workflow:
 
 ```text
 Recorded match → Video Studio → choose a style → customize → preview → render → MP4
@@ -122,10 +122,11 @@ are stored in SQLite.
 Open `/challenges/new` to draft a persistent six-Pokémon roster and carry it through the exact
 Pokémon Red/Blue rosters and moves of eight Kanto Gym Leaders, the Elite Four, and Champion Blue.
 The sixth pick automatically applies Pokémon-specific recommended EVs, abilities, and legal moves,
-then validates the team. Tactical Auto needs no provider; Quick Sim returns the real result and
-replay in-place, while Fast Watch opens the same battle at accelerated presentation speed.
+then validates the team. Tactical Auto needs no provider; Quick Sim continuously resolves the real
+campaign in-place, while Fast Watch opens each battle at accelerated presentation speed and returns
+to the compact result countdown. Pause Auto-Run stops before the next match.
 
-Draft Rules V2 provide one Pokémon, one Type, and one Generation reroll. They consume every species
+Draft Rules V2 provide three Pokémon, one Type, and one Generation reroll. They consume every species
 shown in an offer, whether selected, rejected, or rerolled.
 The run snapshots its exact Showdown-backed species/form and ability pool, so offers and history
 remain deterministic across reloads and backend restarts. Rules, form exclusions, controller
