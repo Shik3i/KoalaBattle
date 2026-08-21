@@ -112,7 +112,13 @@ function dexNames() {
 let cachedCatalog = null;
 const cachedSpecies = new Map();
 
-function recommendedMove(formatDex, validator, entry, abilityName, requiredItem) {
+function recommendedMoves(formatDex, validator, entry, abilityName, requiredItem) {
+  const unreliable = new Set([
+    'belch', 'bide', 'counter', 'dreameater', 'electroball', 'endeavor', 'eruption',
+    'flail', 'focuspunch', 'frustration', 'grassknot', 'gyroball', 'heavyslam',
+    'lastresort', 'lowkick', 'mirrorcoat', 'poltergeist', 'present', 'return',
+    'reversal', 'storedpower', 'trumpcard', 'waterspout'
+  ]);
   const moveSources = new Map();
   for (const { learnset } of formatDex.species.getFullLearnset(entry.id)) {
     for (const [moveId, sources] of Object.entries(learnset || {})) {
@@ -127,15 +133,21 @@ function recommendedMove(formatDex, validator, entry, abilityName, requiredItem)
       return Number.parseInt(source.slice(2), 10) <= 50;
     }))
     .map(([moveId]) => formatDex.moves.get(moveId))
-    .filter((move) => move && move.exists !== false && (!move.isNonstandard || move.isNonstandard === 'Past'))
+    .filter((move) => move && move.exists !== false &&
+      (!move.isNonstandard || move.isNonstandard === 'Past') && !unreliable.has(move.id))
     .sort((left, right) => {
       const leftDamaging = left.category !== 'Status' && Number(left.basePower) > 0 ? 1 : 0;
       const rightDamaging = right.category !== 'Status' && Number(right.basePower) > 0 ? 1 : 0;
       const leftStab = entry.types.includes(left.type) ? 1 : 0;
       const rightStab = entry.types.includes(right.type) ? 1 : 0;
-      return rightDamaging - leftDamaging || rightStab - leftStab ||
-        Number(right.basePower || 0) - Number(left.basePower || 0) || left.name.localeCompare(right.name);
+      const leftReliablePower = Number(left.basePower || 0) * Number(left.accuracy === true ? 100 : left.accuracy || 0);
+      const rightReliablePower = Number(right.basePower || 0) * Number(right.accuracy === true ? 100 : right.accuracy || 0);
+      const leftPenalty = left.selfdestruct || left.recoil || left.hasCrashDamage ? 1 : 0;
+      const rightPenalty = right.selfdestruct || right.recoil || right.hasCrashDamage ? 1 : 0;
+      return rightDamaging - leftDamaging || rightStab - leftStab || leftPenalty - rightPenalty ||
+        rightReliablePower - leftReliablePower || left.name.localeCompare(right.name);
     });
+  const selected = [];
   for (const move of candidates) {
     const heading = entry.name + (requiredItem ? ` @ ${requiredItem}` : '');
     const team = [
@@ -145,9 +157,12 @@ function recommendedMove(formatDex, validator, entry, abilityName, requiredItem)
       'EVs: 1 HP',
       `- ${move.name}`
     ].join('\n');
-    if (!(validator.validateTeam(Teams.import(team)) || []).length) return move.name;
+    if (!(validator.validateTeam(Teams.import(team)) || []).length) {
+      selected.push(move.name);
+      if (selected.length === 4) break;
+    }
   }
-  return null;
+  return selected;
 }
 
 /** Draft metadata comes directly from the same pinned Dex that validates the final team. */
@@ -191,7 +206,7 @@ function speciesCatalog(formatId) {
           spe: Number(entry.baseStats.spe)
         } : null,
         abilities,
-        recommended_move: recommendedMove(formatDex, validator, entry, abilities[0] && abilities[0].name, requiredItem),
+        recommended_moves: recommendedMoves(formatDex, validator, entry, abilities[0] && abilities[0].name, requiredItem),
         required_item: requiredItem,
         battle_only: Boolean(entry.battleOnly),
         cosmetic: Boolean(base.cosmeticFormes && base.cosmeticFormes.includes(entry.name)),

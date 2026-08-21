@@ -1,5 +1,5 @@
 export type Side = 'p1' | 'p2';
-export type AgentType = 'random' | 'manual' | 'human' | 'api';
+export type AgentType = 'tactical-auto' | 'random' | 'manual' | 'human' | 'api';
 export type ProviderKind = 'openai' | 'gemini' | 'anthropic' | 'deepseek' | 'openai-compatible' | 'fake';
 export type AgentLifecycleState = 'idle' | 'waiting' | 'thinking' | 'retrying' | 'decided' | 'executing' | 'error' | 'finished';
 
@@ -381,7 +381,7 @@ export interface MatchArchive {
   }>;
 }
 
-export type ChallengeStatus = 'drafting' | 'training' | 'team_review' | 'ready' | 'battle_queued' | 'battling' | 'stage_result' | 'completed' | 'failed' | 'cancelled' | 'abandoned';
+export type ChallengeStatus = 'drafting' | 'preparing' | 'training' | 'team_review' | 'ready' | 'battle_queued' | 'battling' | 'stage_result' | 'completed' | 'failed' | 'cancelled' | 'abandoned';
 
 export interface DraftCandidate {
   entry_id: string;
@@ -394,6 +394,7 @@ export interface DraftCandidate {
   base_stat_total: number | null;
   base_stats: PokemonBaseStats | null;
   abilities: PokemonAbility[];
+  recommended_moves: string[];
 }
 
 export interface PokemonAbility {
@@ -450,12 +451,13 @@ export interface ChallengeRunView {
     draft_controller_history: Array<{ kind: 'human' | 'agent' | 'random'; provider?: ProviderKind | null; model?: string | null }>;
     battle_controller: { agent_type: AgentType; provider?: ProviderKind | null; model?: string | null };
     opponent_controller: { agent_type: AgentType; provider?: ProviderKind | null; model?: string | null };
+    battle_experience: 'quick-sim' | 'fast-watch' | 'normal';
     rerolls_remaining: number;
     type_rerolls_remaining: number;
     generation_rerolls_remaining: number;
     consumed_species_ids: string[];
     current_offer: { round: number; nonce: number; generation: number; type: string; options: DraftCandidate[]; fingerprint: string } | null;
-    draft_history: Array<{ offer: { round: number; nonce: number; generation: number; type: string; options: DraftCandidate[]; fingerprint: string }; outcome: 'picked' | 'rerolled' | 'type_rerolled' | 'generation_rerolled'; selected_entry_id: string | null; decided_by: 'human' | 'agent' | 'random'; created_at: string }>;
+    draft_history: Array<{ offer: { round: number; nonce: number; generation: number; type: string; options: DraftCandidate[]; fingerprint: string }; outcome: 'picked' | 'rerolled' | 'pokemon_rerolled' | 'type_rerolled' | 'generation_rerolled'; selected_entry_id: string | null; decided_by: 'human' | 'agent' | 'random'; created_at: string }>;
     picks: Array<{ round: number; candidate: DraftCandidate; selected_by: 'human' | 'agent' | 'random'; created_at: string }>;
     ev_allocations: Record<string, EvSpread>;
     ability_selections: Record<string, string | null>;

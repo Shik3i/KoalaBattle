@@ -137,10 +137,8 @@ def _team_scaffold(run: ChallengeRun) -> str | None:
         ability = next((item for item in pick.candidate.abilities if item.id == selected), None)
         if ability is not None:
             lines.append(f"Ability: {ability.name}")
-        lines.append(
-            f"- {pick.candidate.recommended_move}"
-            if pick.candidate.recommended_move
-            else "- [choose at least one legal move]"
+        lines.extend(
+            f"- {move}" for move in (pick.candidate.recommended_moves or ("Tackle",))
         )
         blocks.append("\n".join(lines))
     return "\n\n".join(blocks)
@@ -302,7 +300,7 @@ class ChallengeService:
                     base_stat_total=species.base_stat_total,
                     base_stats=species.base_stats,
                     abilities=species.abilities,
-                    recommended_move=species.recommended_move,
+                    recommended_moves=species.recommended_moves,
                     required_item=species.required_item,
                 )
             )
@@ -358,6 +356,7 @@ class ChallengeService:
             draft_controller=payload.draft_controller,
             battle_controller=payload.battle_controller,
             opponent_controller=payload.opponent_controller,
+            battle_experience=payload.battle_experience,
             rerolls_remaining=definition.draft_rules.rerolls,
             type_rerolls_remaining=definition.draft_rules.type_rerolls,
             generation_rerolls_remaining=definition.draft_rules.generation_rerolls,
@@ -385,7 +384,14 @@ class ChallengeService:
         while summaries := await self.repository.list(limit=250, offset=offset):
             for summary in summaries:
                 run = await self.repository.get(summary.id)
-                if run is None or run.active_match_id is None:
+                if run is None:
+                    continue
+                if run.status is ChallengeStatus.PREPARING:
+                    prepared = await self._auto_prepare_team(run.id)
+                    if prepared.revision != run.revision:
+                        reconciled.append(run.id)
+                    continue
+                if run.active_match_id is None:
                     continue
                 refreshed = await self._refresh_active(run)
                 if refreshed.revision != run.revision:
@@ -508,7 +514,12 @@ class ChallengeService:
                 run.status is ChallengeStatus.DRAFTING
                 and run.current_offer is not None
                 and run.rerolls_remaining > 0
-                and can_generate_offer(run, nonce=run.offer_nonce + 1)
+                and can_generate_offer(
+                    run,
+                    nonce=run.offer_nonce + 1,
+                    fixed_generation=run.current_offer.generation,
+                    fixed_type=run.current_offer.type,
+                )
             ),
             can_reroll_type=(
                 run.status is ChallengeStatus.DRAFTING
@@ -619,14 +630,58 @@ class ChallengeService:
                     ),
                     "ability_selections": ability_selections,
                     "ev_allocations": ev_allocations,
-                    "status": ChallengeStatus.TRAINING if complete else ChallengeStatus.DRAFTING,
+                    "status": ChallengeStatus.PREPARING if complete else ChallengeStatus.DRAFTING,
                     "current_offer": None,
                     "offer_nonce": 0,
                 }
             )
             if not complete:
                 updated = attach_offer(updated)
-            return await self.repository.save(updated, expected_revision=run.revision)
+            stored = await self.repository.save(updated, expected_revision=run.revision)
+        if complete:
+            return await self._auto_prepare_team(stored.id)
+        return stored
+
+    async def _auto_prepare_team(self, run_id: UUID) -> ChallengeRun:
+        """Validate and persist recommended sets without a mandatory setup screen."""
+        async with self.repository.lock(run_id):
+            run = await self.require(run_id)
+            if run.status is not ChallengeStatus.PREPARING:
+                return run
+            scaffold = _team_scaffold(run)
+            if scaffold is None:
+                raise ValueError("complete draft has no team scaffold")
+            submitted = _with_zero_ev_confirmation(_apply_selected_abilities(scaffold, run))
+            validation = await self.battles.team_validator.validate(
+                submitted, run.definition.format
+            )
+            if not validation.valid:
+                return await self.repository.save(
+                    run.model_copy(
+                        update={
+                            "status": ChallengeStatus.TEAM_REVIEW,
+                            "error": "Automatic team preparation failed: "
+                            + "; ".join(validation.errors),
+                        }
+                    ),
+                    expected_revision=run.revision,
+                )
+            snapshot = await self.battles.teams.create_snapshot(
+                name=f"{run.name} · recommended roster",
+                source=TeamSource.PRESET,
+                submitted_text=submitted,
+                validation=validation,
+            )
+            return await self.repository.save(
+                run.model_copy(
+                    update={
+                        "team_snapshot_id": snapshot.id,
+                        "status": ChallengeStatus.READY,
+                        "error": None,
+                    }
+                ),
+                expected_revision=run.revision,
+            )
 
     async def reroll(
         self,
@@ -634,7 +689,7 @@ class ChallengeService:
         fingerprint: str,
         expected_revision: int,
         *,
-        kind: Literal["all", "type", "generation"] = "all",
+        kind: Literal["pokemon", "type", "generation"] = "pokemon",
         selected_by: DraftControllerKind | None = None,
     ) -> ChallengeRun:
         async with self.repository.lock(run_id):
@@ -650,7 +705,7 @@ class ChallengeService:
             if run.current_offer.fingerprint != fingerprint:
                 raise ValueError("draft offer is stale")
             counter = {
-                "all": run.rerolls_remaining,
+                "pokemon": run.rerolls_remaining,
                 "type": run.type_rerolls_remaining,
                 "generation": run.generation_rerolls_remaining,
             }[kind]
@@ -659,14 +714,14 @@ class ChallengeService:
             offer = run.current_offer
             nonce = run.offer_nonce + 1
             counter_update = {
-                "all": {"rerolls_remaining": run.rerolls_remaining - 1},
+                "pokemon": {"rerolls_remaining": run.rerolls_remaining - 1},
                 "type": {"type_rerolls_remaining": run.type_rerolls_remaining - 1},
                 "generation": {
                     "generation_rerolls_remaining": run.generation_rerolls_remaining - 1
                 },
             }[kind]
             history_outcome = {
-                "all": "rerolled",
+                "pokemon": "pokemon_rerolled",
                 "type": "type_rerolled",
                 "generation": "generation_rerolled",
             }[kind]
@@ -700,7 +755,12 @@ class ChallengeService:
                     excluded_generation=offer.generation,
                 )
             else:
-                updated = attach_offer(updated, nonce=nonce)
+                updated = attach_offer(
+                    updated,
+                    nonce=nonce,
+                    fixed_generation=offer.generation,
+                    fixed_type=offer.type,
+                )
             return await self.repository.save(updated, expected_revision=run.revision)
 
     async def agent_action(self, run_id: UUID, expected_revision: int) -> ChallengeRun:
@@ -711,7 +771,12 @@ class ChallengeService:
             raise ValueError("run is not waiting for an agent draft action")
         provider = self.battles.provider_for_draft(run.draft_controller)
         legal = [f"pick:{item.entry_id}" for item in run.current_offer.options]
-        if run.rerolls_remaining and can_generate_offer(run, nonce=run.offer_nonce + 1):
+        if run.rerolls_remaining and can_generate_offer(
+            run,
+            nonce=run.offer_nonce + 1,
+            fixed_generation=run.current_offer.generation,
+            fixed_type=run.current_offer.type,
+        ):
             legal.append("reroll")
         prompt = json.dumps(
             {
@@ -840,6 +905,23 @@ class ChallengeService:
                 }
             )
             return await self.repository.save(updated, expected_revision=run.revision)
+
+    async def open_team_editor(self, run_id: UUID, expected_revision: int) -> ChallengeRun:
+        async with self.repository.lock(run_id):
+            run = await self.require(run_id)
+            if run.revision != expected_revision:
+                raise ValueError(f"stale challenge revision: current {run.revision}")
+            if (
+                run.status is not ChallengeStatus.READY
+                or run.current_stage_index != 0
+                or run.stage_results
+                or run.active_match_id is not None
+            ):
+                raise ValueError("advanced team setup is available only before the first stage")
+            return await self.repository.save(
+                run.model_copy(update={"status": ChallengeStatus.TEAM_REVIEW}),
+                expected_revision=run.revision,
+            )
 
     async def save_abilities(
         self,
@@ -1016,8 +1098,17 @@ class ChallengeService:
             run = await self.require(archive.challenge_run_id)
             if run.active_match_id != match_id:
                 return
+            if any(result.match_id == match_id for result in run.stage_results):
+                return
+            if run.current_stage_index >= len(run.definition.stages):
+                return
             stage_index = run.current_stage_index
             stage = run.definition.stages[stage_index]
+            if archive.challenge_stage_id != stage.id:
+                raise ValueError(
+                    f"challenge match stage mismatch: expected {stage.id}, got "
+                    f"{archive.challenge_stage_id}"
+                )
             outcome: Literal["won", "lost", "draw", "failed", "cancelled", "interrupted"]
             if archive.status is MatchStatus.COMPLETED:
                 outcome = (

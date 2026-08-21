@@ -46,6 +46,9 @@ from koalabattle.challenges.service import (
     _with_zero_ev_confirmation,
     redact_challenge_match,
 )
+from koalabattle.challenges.service import (
+    _definition as load_definition,
+)
 from koalabattle.challenges.species import ShowdownSpeciesCatalog, SpeciesMetadata
 from koalabattle.core.models import (
     AgentType,
@@ -267,7 +270,7 @@ async def test_pick_and_reroll_never_reoffer_consumed_species_and_survive_restar
     assert {item.base_species_id for item in original.options}.isdisjoint(
         {item.base_species_id for item in rerolled.current_offer.options}
     )
-    assert rerolled.draft_history[-1].outcome == "rerolled"
+    assert rerolled.draft_history[-1].outcome == "pokemon_rerolled"
     selected_offer = rerolled.current_offer
     picked = await service.pick(
         run.id,
@@ -299,10 +302,18 @@ async def test_type_and_generation_rerolls_preserve_one_axis_and_consume_offers(
     candidates = tuple(
         _candidate(index, generation=generation, types=(type_name,))
         for index, generation, type_name in (
-            (1, 1, "Water"), (2, 1, "Water"), (3, 1, "Water"),
-            (4, 1, "Fire"), (5, 1, "Fire"), (6, 1, "Fire"),
-            (7, 2, "Water"), (8, 2, "Water"), (9, 2, "Water"),
-            (10, 2, "Fire"), (11, 2, "Fire"), (12, 2, "Fire"),
+            (1, 1, "Water"),
+            (2, 1, "Water"),
+            (3, 1, "Water"),
+            (4, 1, "Fire"),
+            (5, 1, "Fire"),
+            (6, 1, "Fire"),
+            (7, 2, "Water"),
+            (8, 2, "Water"),
+            (9, 2, "Water"),
+            (10, 2, "Fire"),
+            (11, 2, "Fire"),
+            (12, 2, "Fire"),
         )
     )
     rules = DraftRules(
@@ -318,14 +329,12 @@ async def test_type_and_generation_rerolls_preserve_one_axis_and_consume_offers(
     repository = ChallengeRepository(database)
     await repository.create(run)
     service = ChallengeService(
-        repository, ShowdownSpeciesCatalog("http://127.0.0.1:9"), cast(Any, None)
+        repository, ShowdownSpeciesCatalog("http://127.0.0.1:9"), cast(Any, _Battles(()))
     )
     original = run.current_offer
     assert original is not None
 
-    type_rerolled = await service.reroll(
-        run.id, original.fingerprint, run.revision, kind="type"
-    )
+    type_rerolled = await service.reroll(run.id, original.fingerprint, run.revision, kind="type")
     type_offer = type_rerolled.current_offer
     assert type_offer is not None
     assert type_offer.generation == original.generation
@@ -368,7 +377,7 @@ async def test_complete_draft_has_no_repeated_offer_and_initializes_abilities(
     run = attach_offer(_run())
     await repository.create(run)
     service = ChallengeService(
-        repository, ShowdownSpeciesCatalog("http://127.0.0.1:9"), cast(Any, None)
+        repository, ShowdownSpeciesCatalog("http://127.0.0.1:9"), cast(Any, _Battles(()))
     )
     while run.status is ChallengeStatus.DRAFTING:
         offer = run.current_offer
@@ -380,16 +389,15 @@ async def test_complete_draft_has_no_repeated_offer_and_initializes_abilities(
         for candidate in history.offer.options
     ]
     assert len(offered) == len(set(offered))
-    assert run.status is ChallengeStatus.TRAINING
+    assert run.status is ChallengeStatus.READY
+    assert run.team_snapshot_id is not None
     assert len(run.picks) == 3
     assert run.ability_selections == {
         pick.candidate.entry_id: pick.candidate.abilities[0].id for pick in run.picks
     }
     assert set(run.ev_allocations) == {pick.candidate.entry_id for pick in run.picks}
     assert all(spread.total == 508 for spread in run.ev_allocations.values())
-    trained = await service.save_training(run.id, run.ev_allocations, run.revision)
-    assert trained.status is ChallengeStatus.TEAM_REVIEW
-    assert sum(spread.total for spread in trained.ev_allocations.values()) == 1524
+    assert sum(spread.total for spread in run.ev_allocations.values()) == 1524
     public = service.view(run)
     assert {item.entry_id for item in public.run.draft_pool.candidates} == {
         candidate.entry_id for history in run.draft_history for candidate in history.offer.options
@@ -412,7 +420,7 @@ async def test_single_legal_ability_is_selected_automatically(tmp_path: Path) ->
     repository = ChallengeRepository(database)
     await repository.create(run)
     service = ChallengeService(
-        repository, ShowdownSpeciesCatalog("http://127.0.0.1:9"), cast(Any, None)
+        repository, ShowdownSpeciesCatalog("http://127.0.0.1:9"), cast(Any, _Battles(()))
     )
     offer = run.current_offer
     assert offer is not None
@@ -426,7 +434,7 @@ async def test_single_legal_ability_is_selected_automatically(tmp_path: Path) ->
 
 def test_team_scaffold_includes_pinned_legal_defaults() -> None:
     candidate = _candidate(1).model_copy(
-        update={"recommended_move": "Thunderbolt", "required_item": "Magnet"}
+        update={"recommended_moves": ("Thunderbolt", "Volt Switch"), "required_item": "Magnet"}
     )
     run = _run(
         candidates=(candidate,),
@@ -448,6 +456,7 @@ def test_team_scaffold_includes_pinned_legal_defaults() -> None:
 
     assert scaffold.startswith(f"{candidate.species} @ Magnet")
     assert "- Thunderbolt" in scaffold
+    assert "- Volt Switch" in scaffold
 
 
 def _simulate(seed: int) -> tuple[tuple[str, ...], ...]:
@@ -604,6 +613,142 @@ class _Battles:
         match = await self.repository.get_match(match_id)
         assert match is not None
         return match
+
+
+def _won_archive(run: ChallengeRun, match_id: UUID, stage_id: str) -> MatchArchive:
+    now = datetime.now(UTC)
+    return MatchArchive(
+        id=match_id,
+        created_at=now,
+        updated_at=now,
+        status=MatchStatus.COMPLETED,
+        winner=Side.P1,
+        turns=7,
+        config=MatchConfig(
+            players=(
+                PlayerConfig(
+                    side=Side.P1, display_name="Player", agent_type=AgentType.TACTICAL_AUTO
+                ),
+                PlayerConfig(
+                    side=Side.P2, display_name="Leader", agent_type=AgentType.TACTICAL_AUTO
+                ),
+            )
+        ),
+        engine="test",
+        challenge_run_id=run.id,
+        challenge_stage_id=stage_id,
+    )
+
+
+def _auto_match_config() -> MatchConfig:
+    return MatchConfig(
+        players=(
+            PlayerConfig(side=Side.P1, display_name="Player", agent_type=AgentType.TACTICAL_AUTO),
+            PlayerConfig(side=Side.P2, display_name="Leader", agent_type=AgentType.TACTICAL_AUTO),
+        )
+    )
+
+
+@pytest.mark.asyncio
+async def test_brock_victory_advances_to_misty_once_and_survives_restart(tmp_path: Path) -> None:
+    url = f"sqlite+aiosqlite:///{tmp_path / 'brock.db'}"
+    database = Database(url)
+    await database.create_schema()
+    repository = ChallengeRepository(database)
+    definition = load_definition("kanto-gym-gauntlet")
+    match_id = uuid4()
+    run = _run(status=ChallengeStatus.READY).model_copy(update={"definition": definition})
+    await repository.create(run)
+    await BattleRepository(database).create_match(
+        match_id,
+        _auto_match_config(),
+        engine="test",
+        engine_version="unit-test",
+        showdown_version="unit-test",
+        poke_env_version="unit-test",
+        challenge_run_id=run.id,
+        challenge_stage_id="brock",
+    )
+    run = await repository.save(
+        run.model_copy(update={"status": ChallengeStatus.BATTLING, "active_match_id": match_id}),
+        expected_revision=run.revision,
+    )
+    service = ChallengeService(
+        repository, ShowdownSpeciesCatalog("http://127.0.0.1:9"), cast(Any, None)
+    )
+    archive = _won_archive(run, match_id, "brock")
+    await service.on_match_terminal(match_id, archive)
+    await service.on_match_terminal(match_id, archive)
+    advanced = await service.require(run.id)
+    assert advanced.current_stage_index == 1
+    assert advanced.definition.stages[advanced.current_stage_index].id == "misty"
+    assert [result.stage_id for result in advanced.stage_results] == ["brock"]
+    await database.close()
+
+    reopened = Database(url)
+    restored = await ChallengeRepository(reopened).get(run.id)
+    assert restored is not None
+    assert restored.current_stage_index == 1
+    assert restored.definition.stages[restored.current_stage_index].id == "misty"
+    await reopened.close()
+
+
+@pytest.mark.asyncio
+async def test_complete_kanto_stage_chain_is_strict_and_idempotent(tmp_path: Path) -> None:
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'chain.db'}")
+    await database.create_schema()
+    repository = ChallengeRepository(database)
+    definition = load_definition("kanto-gym-gauntlet")
+    expected = (
+        "brock",
+        "misty",
+        "lt-surge",
+        "erika",
+        "koga",
+        "sabrina",
+        "blaine",
+        "giovanni",
+        "lorelei",
+        "bruno",
+        "agatha",
+        "lance",
+        "champion-blue",
+    )
+    assert tuple(stage.id for stage in definition.stages) == expected
+    run = _run(status=ChallengeStatus.READY).model_copy(update={"definition": definition})
+    await repository.create(run)
+    service = ChallengeService(
+        repository, ShowdownSpeciesCatalog("http://127.0.0.1:9"), cast(Any, None)
+    )
+    for index, stage_id in enumerate(expected):
+        current = await service.require(run.id)
+        match_id = uuid4()
+        await BattleRepository(database).create_match(
+            match_id,
+            _auto_match_config(),
+            engine="test",
+            engine_version="unit-test",
+            showdown_version="unit-test",
+            poke_env_version="unit-test",
+            challenge_run_id=run.id,
+            challenge_stage_id=stage_id,
+        )
+        current = await repository.save(
+            current.model_copy(
+                update={"status": ChallengeStatus.BATTLING, "active_match_id": match_id}
+            ),
+            expected_revision=current.revision,
+        )
+        archive = _won_archive(current, match_id, stage_id)
+        await service.on_match_terminal(match_id, archive)
+        await service.on_match_terminal(match_id, archive)
+        advanced = await service.require(run.id)
+        assert advanced.current_stage_index == index + 1
+        assert len(advanced.stage_results) == index + 1
+    completed = await service.require(run.id)
+    assert completed.status is ChallengeStatus.COMPLETED
+    assert tuple(result.stage_id for result in completed.stage_results) == expected
+    await database.close()
 
 
 @pytest.mark.asyncio

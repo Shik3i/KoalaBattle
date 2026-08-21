@@ -867,6 +867,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
 
+    @app.post("/api/challenges/{run_id}/team/advanced", response_model=ChallengeRunView)
+    async def challenge_open_team_editor(
+        run_id: UUID, payload: RevisionInput, request: Request
+    ) -> ChallengeRunView:
+        try:
+            run = await _challenges(request).open_team_editor(
+                run_id, payload.expected_revision
+            )
+            return _challenges(request).view(run)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="challenge not found") from error
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+
     @app.post("/api/challenges/{run_id}/team/abilities", response_model=ChallengeRunView)
     async def challenge_team_abilities(
         run_id: UUID, payload: TeamAbilityInput, request: Request

@@ -28,7 +28,7 @@ class SpeciesMetadata(BaseModel):
     base_stat_total: int | None = Field(default=None, ge=1, le=2000)
     base_stats: PokemonBaseStats | None = None
     abilities: tuple[PokemonAbility, ...] = ()
-    recommended_move: str | None = Field(default=None, min_length=1, max_length=120)
+    recommended_moves: tuple[str, ...] = Field(default=(), max_length=4)
     required_item: str | None = Field(default=None, min_length=1, max_length=120)
     battle_only: bool = False
     cosmetic: bool = False

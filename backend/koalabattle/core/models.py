@@ -32,6 +32,7 @@ class Side(StrEnum):
 
 
 class AgentType(StrEnum):
+    TACTICAL_AUTO = "tactical-auto"
     RANDOM = "random"
     MANUAL = "manual"
     HUMAN = "human"

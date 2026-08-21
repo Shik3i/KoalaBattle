@@ -5,15 +5,26 @@ from types import SimpleNamespace
 
 import pytest
 
-from koalabattle.agents import ApiAgent, ManualAgent, ManualDecisionBroker, RandomAgent
+from koalabattle.agents import (
+    ApiAgent,
+    ManualAgent,
+    ManualDecisionBroker,
+    RandomAgent,
+    TacticalAgent,
+)
 from koalabattle.agents.api_agent import _CommentaryPreview
 from koalabattle.agents.providers import DeepSeekProvider, FakeProvider
 from koalabattle.agents.providers.base import ProviderRequest
 from koalabattle.core.models import (
+    ActionType,
     AgentConfiguration,
     AgentLifecycleState,
     AgentRequest,
+    BattleAction,
+    BattleSide,
     MemoryPolicyId,
+    MoveState,
+    PokemonState,
     Side,
 )
 from koalabattle.core.pricing import PricingTable
@@ -84,6 +95,215 @@ async def test_random_agent_always_returns_legal_action(agent_request: AgentRequ
     agent = RandomAgent(seed=7)
     for _ in range(50):
         assert (await agent.decide(agent_request)).action in legal
+
+
+@pytest.mark.asyncio
+async def test_tactical_agent_prefers_stab_super_effective_damage(
+    agent_request: AgentRequest,
+) -> None:
+    opponent = agent_request.state.opponent.active
+    assert opponent is not None
+    state = agent_request.state.model_copy(
+        update={
+            "opponent": agent_request.state.opponent.model_copy(
+                update={"active": opponent.model_copy(update={"types": ("water",)})}
+            )
+        }
+    )
+    actions = (
+        agent_request.legal_actions[0].model_copy(
+            update={"move_type": "electric", "category": "special", "power": 90, "accuracy": 100}
+        ),
+        agent_request.legal_actions[0].model_copy(
+            update={
+                "id": "move:2",
+                "slot": 2,
+                "name": "Quick Attack",
+                "move_type": "normal",
+                "category": "physical",
+                "power": 40,
+                "accuracy": 100,
+            }
+        ),
+    )
+    decision = await TacticalAgent().decide(
+        agent_request.model_copy(update={"state": state, "legal_actions": actions})
+    )
+    assert decision.action == "move:1"
+    assert decision.estimated_cost.amount in {None, 0}
+    assert decision.provider_metadata == {"agent": "tactical-auto", "local": True, "cost": 0}
+
+
+@pytest.mark.asyncio
+async def test_tactical_agent_uses_recovery_only_when_low(agent_request: AgentRequest) -> None:
+    active = agent_request.state.player.active
+    assert active is not None
+    low_state = agent_request.state.model_copy(
+        update={
+            "player": agent_request.state.player.model_copy(
+                update={"active": active.model_copy(update={"hp_fraction": 0.2})}
+            )
+        }
+    )
+    actions = (
+        agent_request.legal_actions[0].model_copy(
+            update={"name": "Recover", "category": "status", "power": 0, "accuracy": 100}
+        ),
+        agent_request.legal_actions[0].model_copy(
+            update={
+                "id": "move:2",
+                "slot": 2,
+                "name": "Tackle",
+                "move_type": "normal",
+                "category": "physical",
+                "power": 40,
+                "accuracy": 100,
+            }
+        ),
+    )
+    decision = await TacticalAgent().decide(
+        agent_request.model_copy(update={"state": low_state, "legal_actions": actions})
+    )
+    assert decision.action == "move:1"
+
+
+def _brock_matchup(agent_request: AgentRequest, *, active_fainted: bool = False) -> AgentRequest:
+    pikachu = PokemonState(
+        id="p1: Pikachu",
+        name="Pikachu",
+        species="Pikachu",
+        hp_fraction=0 if active_fainted else 1,
+        fainted=active_fainted,
+        active=True,
+        types=("electric",),
+        moves=(
+            MoveState(
+                id="thunderbolt",
+                name="Thunderbolt",
+                type="electric",
+                category="special",
+                power=90,
+                accuracy=100,
+            ),
+        ),
+    )
+    charizard = PokemonState(
+        id="p1: Charizard",
+        name="Charizard",
+        species="Charizard",
+        hp_fraction=1,
+        types=("fire", "flying"),
+        moves=(
+            MoveState(
+                id="flamethrower",
+                name="Flamethrower",
+                type="fire",
+                category="special",
+                power=90,
+                accuracy=100,
+            ),
+        ),
+    )
+    blastoise = PokemonState(
+        id="p1: Blastoise",
+        name="Blastoise",
+        species="Blastoise",
+        hp_fraction=1,
+        types=("water",),
+        moves=(
+            MoveState(
+                id="surf",
+                name="Surf",
+                type="water",
+                category="special",
+                power=90,
+                accuracy=100,
+            ),
+        ),
+    )
+    onix = PokemonState(
+        id="p2: Onix",
+        name="Onix",
+        species="Onix",
+        hp_fraction=1,
+        active=True,
+        types=("rock", "ground"),
+        moves=(
+            MoveState(
+                id="rockthrow",
+                name="Rock Throw",
+                type="rock",
+                category="physical",
+                power=50,
+                accuracy=90,
+            ),
+        ),
+    )
+    state = agent_request.state.model_copy(
+        update={
+            "player": BattleSide(
+                side=Side.P1,
+                display_name="Draft",
+                active=pikachu,
+                team=(pikachu, charizard, blastoise),
+            ),
+            "opponent": BattleSide(
+                side=Side.P2,
+                display_name="Brock",
+                active=onix,
+                team=(onix,),
+            ),
+        }
+    )
+    actions = (
+        BattleAction(
+            id="move:1",
+            type=ActionType.MOVE,
+            name="Thunderbolt",
+            slot=1,
+            move_type="electric",
+            category="special",
+            power=90,
+            accuracy=100,
+        ),
+        BattleAction(
+            id="switch:1",
+            type=ActionType.SWITCH,
+            name="Charizard",
+            species="Charizard",
+            slot=1,
+            hp_fraction=1,
+        ),
+        BattleAction(
+            id="switch:2",
+            type=ActionType.SWITCH,
+            name="Blastoise",
+            species="Blastoise",
+            slot=2,
+            hp_fraction=1,
+        ),
+    )
+    if active_fainted:
+        actions = actions[1:]
+    return agent_request.model_copy(update={"state": state, "legal_actions": actions})
+
+
+@pytest.mark.asyncio
+async def test_tactical_agent_switches_pikachu_out_of_brock_matchup(
+    agent_request: AgentRequest,
+) -> None:
+    decision = await TacticalAgent().decide(_brock_matchup(agent_request))
+    assert decision.action == "switch:2"
+
+
+@pytest.mark.asyncio
+async def test_tactical_agent_uses_matchup_scoring_for_forced_switch_and_lead(
+    agent_request: AgentRequest,
+) -> None:
+    request = _brock_matchup(agent_request, active_fainted=True)
+    first = await TacticalAgent().decide(request)
+    second = await TacticalAgent().decide(request)
+    assert first.action == second.action == "switch:2"
 
 
 @pytest.mark.asyncio

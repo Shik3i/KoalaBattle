@@ -15,6 +15,7 @@ from koalabattle.agents import (
     ManualDecisionBroker,
     MatchCostBudget,
     RandomAgent,
+    TacticalAgent,
 )
 from koalabattle.agents.providers import (
     AnthropicProvider,
@@ -226,6 +227,8 @@ class BattleService:
             seed = None if config.random_seed is None else config.random_seed + index
             if player.agent_type is AgentType.RANDOM:
                 agents[player.side] = RandomAgent(seed)
+            elif player.agent_type is AgentType.TACTICAL_AUTO:
+                agents[player.side] = TacticalAgent()
             elif player.agent_type in {AgentType.MANUAL, AgentType.HUMAN}:
                 agents[player.side] = ManualAgent(manual_broker)
             else:

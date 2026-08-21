@@ -116,16 +116,17 @@ export function legalEvValue(
 export function challengeStatusLabel(status: ChallengeStatus): string {
   const labels: Record<ChallengeStatus, string> = {
     drafting: 'Draft in progress',
-    training: 'Training Camp',
+    preparing: 'Preparing team',
+    training: 'EV review',
     team_review: 'Team review',
     ready: 'Ready for the first stage',
     battle_queued: 'Battle queued',
     battling: 'Battle in progress',
     stage_result: 'Stage result',
-    completed: 'Challenge complete',
-    failed: 'Challenge failed',
-    cancelled: 'Challenge cancelled',
-    abandoned: 'Challenge abandoned'
+    completed: 'Draft run complete',
+    failed: 'Draft run failed',
+    cancelled: 'Draft run cancelled',
+    abandoned: 'Draft run retired'
   };
   return labels[status];
 }
@@ -133,7 +134,7 @@ export function challengeStatusLabel(status: ChallengeStatus): string {
 export function challengeErrorMessage(message: string): string {
   const normalized = message.toLowerCase();
   if (normalized.includes('stale challenge revision') || normalized.includes('draft offer is stale')) {
-    return 'This Challenge changed in another tab or while the request was running. The latest saved state has been restored.';
+    return 'This Draft run changed in another tab or while the request was running. The latest saved state has been restored.';
   }
   if (normalized.includes('draft controller changed')) {
     return 'The draft was taken over manually before that AI decision finished. The late AI response was ignored.';

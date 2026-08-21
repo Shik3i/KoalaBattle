@@ -136,7 +136,7 @@
 </script>
 
 <div class="replay-head">
-  <div><span class="eyebrow">{match?.challenge_run_id ? `Challenge replay · ${match.challenge_stage_id || 'stage'}` : 'Deterministic production replay'}</span><h1>{match ? (match.config.name || `${match.config.players[0].display_name} vs ${match.config.players[1].display_name}`) : 'Loading replay…'}</h1>{#if match?.challenge_run_id}<a class="challenge-back" href={`/challenges/${match.challenge_run_id}`}><i class="ph ph-map-trifold" aria-hidden="true"></i>Back to Challenge progression</a>{/if}</div>
+  <div><span class="eyebrow">{match?.challenge_run_id ? `Draft replay · ${match.challenge_stage_id || 'stage'}` : 'Deterministic production replay'}</span><h1>{match ? (match.config.name || `${match.config.players[0].display_name} vs ${match.config.players[1].display_name}`) : 'Loading replay…'}</h1>{#if match?.challenge_run_id}<a class="challenge-back" href={`/challenges/${match.challenge_run_id}`}><i class="ph ph-map-trifold" aria-hidden="true"></i>Back to Draft progression</a>{/if}</div>
   {#if snapshot}<span>TURN {snapshot.currentTurn} · EVENT {snapshot.index}/{snapshot.eventCount}</span>{/if}
 </div>
 

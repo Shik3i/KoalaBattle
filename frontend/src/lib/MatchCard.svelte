@@ -26,7 +26,7 @@
 <article class="match-card panel">
   <header>
     <div>
-      <span class="eyebrow">{match.challenge_run_id ? `Challenge · ${match.challenge_stage_id || 'stage'}` : match.tournament_id ? 'Tournament match' : 'Standalone match'}</span>
+      <span class="eyebrow">{match.challenge_run_id ? `Draft · ${match.challenge_stage_id || 'stage'}` : match.tournament_id ? 'Tournament match' : 'Standalone match'}</span>
       <h3>{title}</h3>
     </div>
     <span class={`status-pill ${match.status}`}>{statusLabel}</span>
@@ -39,7 +39,7 @@
   </div>
   {#if match.error}<p class="failure">{match.error}</p>{/if}
   <footer>
-    {#if match.challenge_run_id}<a class="challenge-link" href={`/challenges/${match.challenge_run_id}`}><i class="ph ph-map-trifold" aria-hidden="true"></i>Challenge</a>{/if}
+    {#if match.challenge_run_id}<a class="challenge-link" href={`/challenges/${match.challenge_run_id}`}><i class="ph ph-map-trifold" aria-hidden="true"></i>Draft</a>{/if}
     <a href={`/matches/${match.id}/control`}><i class="ph ph-sliders-horizontal" aria-hidden="true"></i>Control</a>
     <a href={`/watch/${match.id}`}><i class="ph ph-eye" aria-hidden="true"></i>Watch</a>
     <button on:click={copyOverlay}><i class={`ph ${copied ? 'ph-check' : 'ph-copy'}`} aria-hidden="true"></i>{copied ? 'Copied' : 'Copy OBS URL'}</button>

@@ -34,10 +34,10 @@
 <div class="page-head challenge-head">
   <div>
     <span class="eyebrow">Draft · train · battle · progress</span>
-    <h1>Challenges</h1>
+    <h1>Draft</h1>
     <p>Build one roster from disappearing offers, tune automatic recommended EVs, then clear a recorded campaign at fair, equal stage levels.</p>
   </div>
-  <a class="button" href="/challenges/new"><i class="ph ph-plus" aria-hidden="true"></i>New Challenge</a>
+  <a class="button" href="/challenges/new"><i class="ph ph-plus" aria-hidden="true"></i>New Draft</a>
 </div>
 
 <section class="mode-intro panel" aria-labelledby="challenge-intro-title">
@@ -53,7 +53,7 @@
     <span><i class="ph ph-record" aria-hidden="true"></i><strong>Recorded matches</strong><small>Play yourself or use AI; every stage gets a replay.</small></span>
   </div>
   <details>
-    <summary>How a Challenge works</summary>
+    <summary>How Draft works</summary>
     <ol>
       <li>Choose who drafts and who battles. These choices are independent.</li>
       <li>Choose one Pokémon from each deterministic offer. All shown options are consumed.</li>
@@ -64,13 +64,13 @@
 </section>
 
 <section class="history" aria-labelledby="history-title">
-  <header><div><span class="eyebrow">Durable run history</span><h2 id="history-title">Your Challenges</h2></div>{#if runs.length}<span>{runs.length} saved {runs.length === 1 ? 'run' : 'runs'}</span>{/if}</header>
+  <header><div><span class="eyebrow">Durable run history</span><h2 id="history-title">Your Draft runs</h2></div>{#if runs.length}<span>{runs.length} saved {runs.length === 1 ? 'run' : 'runs'}</span>{/if}</header>
   {#if historyLoading}
-    <p class="lede" role="status">Loading Challenge history…</p>
+    <p class="lede" role="status">Loading Draft history…</p>
   {:else if historyError}
     <section class="empty panel" role="alert"><h3>History could not be loaded</h3><p>{historyError}</p><button class="button secondary" on:click={loadHistory}>Retry</button></section>
   {:else if !runs.length}
-    <section class="empty panel"><i class="ph ph-map-trifold" aria-hidden="true"></i><h3>No Challenges yet</h3><p>Create a Kanto run. Your draft, consumed offers, stage matches, results, and replays will stay here.</p><a class="button" href="/challenges/new">Start the Kanto Gauntlet</a></section>
+    <section class="empty panel"><i class="ph ph-map-trifold" aria-hidden="true"></i><h3>No Draft runs yet</h3><p>Create a Kanto run. Your draft, consumed offers, stage matches, results, and replays will stay here.</p><a class="button" href="/challenges/new">Start the Kanto Gauntlet</a></section>
   {:else}
     <div class="run-list">
       {#each runs as run}

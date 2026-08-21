@@ -2,13 +2,13 @@
 
 ## Unreleased
 
-- added persistent Draft Challenge runs with deterministic budget-safe offers, Training Camp EV
-  allocation, pinned-Showdown team validation, direct Human Player control, and a versioned Kanto
+- added persistent Draft runs with deterministic consumed offers, three distinct one-use rerolls,
+  automatic Pokémon-specific EV/team preparation, pinned-Showdown validation, and a strict Kanto
   Gym Gauntlet campaign built on normal immutable matches and replays;
 - added explicit local CSV/TSV/XLSX draft-board import, provenance hashes, strict form coverage,
   restart recovery, optimistic revisions, and operator documentation; and
-- added a first-class Challenge setup, campaign map, draft, roster, training, team-review, stage,
-  retry, complete battle history, keyboard drafting, and completion UI; and
+- added Tactical Auto as the free local default plus Quick Sim, Fast Watch, Human/LLM alternatives,
+  campaign progression, retry, battle history, keyboard drafting, and completion UI; and
 - hardened pricing integrity verification, AI draft failure boundaries, opponent-team redaction,
   multi-process revision checks, paginated restart recovery, real Showdown content CI, and the
   patched `pip 26.2` runtime build tool; and

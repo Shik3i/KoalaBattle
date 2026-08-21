@@ -92,6 +92,7 @@ test('draft shortcuts accept only visible one-based choice keys', () => {
 
 test('status and duration labels are user-facing', () => {
   assert.equal(challengeStatusLabel('team_review'), 'Team review');
+  assert.equal(challengeStatusLabel('completed'), 'Draft run complete');
   assert.equal(formatDuration(0), '0s');
   assert.equal(formatDuration(3670), '1h 1m');
 });

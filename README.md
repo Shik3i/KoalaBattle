@@ -117,14 +117,16 @@ Global concurrency defaults to two active matches. Additional work remains durab
 Tournament templates, presets, participants, series, results, costs, and bracket dependencies
 are stored in SQLite.
 
-## Draft Challenge
+## Draft
 
 Open `/challenges/new` to draft a persistent six-Pokémon roster and carry it through the exact
 Pokémon Red/Blue rosters and moves of eight Kanto Gym Leaders, the Elite Four, and Champion Blue.
-Drafting, Training Camp, team validation, stage
-history, retries, normal-match control, and replays survive reloads and backend restarts.
+The sixth pick automatically applies Pokémon-specific recommended EVs, abilities, and legal moves,
+then validates the team. Tactical Auto needs no provider; Quick Sim returns the real result and
+replay in-place, while Fast Watch opens the same battle at accelerated presentation speed.
 
-Draft Rules V2 consume every species shown in an offer, whether selected, rejected, or rerolled.
+Draft Rules V2 provide one Pokémon, one Type, and one Generation reroll. They consume every species
+shown in an offer, whether selected, rejected, or rerolled.
 The run snapshots its exact Showdown-backed species/form and ability pool, so offers and history
 remain deterministic across reloads and backend restarts. Rules, form exclusions, controller
 modes, mechanics assumptions, and recovery behavior: [Draft Challenge](docs/CHALLENGES.md).
@@ -274,7 +276,7 @@ Details: [Development](docs/DEVELOPMENT.md). Documentation index: [docs/README.m
 
 - `backend/koalabattle/orchestration`: queue, isolated sessions, lifecycle, real-time hub
 - `backend/koalabattle/tournaments`: engine-independent brackets, standings, persistence
-- `backend/koalabattle/challenges`: draft-pool snapshots, training domain, campaign ownership
+- `backend/koalabattle/challenges`: draft-pool snapshots, automatic team preparation, campaign ownership
 - `backend/koalabattle/engines/showdown`: the only `poke-env` boundary
 - `backend/koalabattle/storage`: SQLite match archive and ordering guarantees
 - `backend/koalabattle/replay`: pure recorded-event reducer

@@ -19,6 +19,7 @@ class FrozenModel(BaseModel):
 
 class ChallengeStatus(StrEnum):
     DRAFTING = "drafting"
+    PREPARING = "preparing"
     TRAINING = "training"
     TEAM_REVIEW = "team_review"
     READY = "ready"
@@ -75,7 +76,8 @@ class BattleControllerSnapshot(FrozenModel):
 
 class DraftRules(FrozenModel):
     roster_size: int = Field(default=6, ge=1, le=12)
-    rerolls: int = Field(default=3, ge=0, le=20)
+    # Persisted name retained for Draft V2 saves; this is the one-use Pokemon power.
+    rerolls: int = Field(default=1, ge=0, le=20)
     type_rerolls: int = Field(default=1, ge=0, le=20)
     generation_rerolls: int = Field(default=1, ge=0, le=20)
     choice_count: int = Field(default=3, ge=2, le=8)
@@ -167,8 +169,17 @@ class DraftCandidate(FrozenModel):
     base_stat_total: int | None = Field(default=None, ge=1, le=2000)
     base_stats: PokemonBaseStats | None = None
     abilities: tuple[PokemonAbility, ...] = ()
-    recommended_move: str | None = Field(default=None, min_length=1, max_length=120)
+    recommended_moves: tuple[str, ...] = Field(default=(), max_length=4)
+    recommended_move: str | None = Field(
+        default=None, min_length=1, max_length=120, exclude=True
+    )
     required_item: str | None = Field(default=None, min_length=1, max_length=120)
+
+    @model_validator(mode="after")
+    def migrate_single_recommended_move(self) -> DraftCandidate:
+        if not self.recommended_moves and self.recommended_move:
+            return self.model_copy(update={"recommended_moves": (self.recommended_move,)})
+        return self
 
 
 class DraftPoolSnapshot(FrozenModel):
@@ -200,7 +211,9 @@ class DraftPick(FrozenModel):
 
 class DraftHistoryEntry(FrozenModel):
     offer: DraftOffer
-    outcome: Literal["picked", "rerolled", "type_rerolled", "generation_rerolled"]
+    outcome: Literal[
+        "picked", "rerolled", "pokemon_rerolled", "type_rerolled", "generation_rerolled"
+    ]
     selected_entry_id: str | None = None
     decided_by: DraftControllerKind
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
@@ -246,6 +259,7 @@ class ChallengeRun(FrozenModel):
     draft_controller_history: tuple[DraftControllerSnapshot, ...] = ()
     battle_controller: BattleControllerSnapshot
     opponent_controller: BattleControllerSnapshot
+    battle_experience: Literal["quick-sim", "fast-watch", "normal"] = "quick-sim"
     rerolls_remaining: int = Field(ge=0)
     type_rerolls_remaining: int = Field(default=1, ge=0)
     generation_rerolls_remaining: int = Field(default=1, ge=0)
@@ -325,6 +339,7 @@ class CreateChallengeRun(FrozenModel):
     draft_controller: DraftControllerSnapshot
     battle_controller: BattleControllerSnapshot
     opponent_controller: BattleControllerSnapshot
+    battle_experience: Literal["quick-sim", "fast-watch", "normal"] = "quick-sim"
     draft_rules: DraftRules | None = None
     training_rules: TrainingRules | None = None
 
@@ -338,7 +353,7 @@ class DraftPickInput(FrozenModel):
 class DraftRerollInput(FrozenModel):
     offer_fingerprint: str = Field(min_length=64, max_length=64)
     expected_revision: int = Field(ge=1)
-    kind: Literal["all", "type", "generation"] = "all"
+    kind: Literal["pokemon", "type", "generation"] = "pokemon"
 
 
 class TrainingInput(FrozenModel):

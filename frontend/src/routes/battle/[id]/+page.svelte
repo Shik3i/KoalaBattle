@@ -6,7 +6,7 @@
   import { loadRendererConfig, saveRendererConfig } from '$lib/presentation/config';
   import { PresentationTimeline } from '$lib/presentation/timeline';
   import { connectLiveSocket } from '$lib/presentation/live-socket';
-  import { defaultRendererConfig, HUD_SCALE_RANGE, type AgentPresentationStatus, type CommentaryMode, type EffectQuality, type MoveEffectSkin, type RendererConfig, type RendererLayout, type RendererTheme, type TimelineSnapshot } from '$lib/presentation/types';
+  import { defaultRendererConfig, HUD_SCALE_RANGE, type AgentPresentationStatus, type CommentaryMode, type EffectQuality, type MoveEffectSkin, type PlaybackSpeed, type RendererConfig, type RendererLayout, type RendererTheme, type TimelineSnapshot } from '$lib/presentation/types';
   import type { AgentLifecycleState, AgentRequest, BattleAction, BattleEvent, MatchArchive, Side } from '$lib/types';
   import { actionIndexForKey, actionPreview, isForcedSwitch, shortcutFor } from '$lib/manual-action';
   import { challengeErrorMessage } from '$lib/challenge';
@@ -101,6 +101,8 @@
 
   onMount(() => {
     config = loadRendererConfig();
+    const requestedSpeed = new URLSearchParams(window.location.search).get('speed');
+    if (requestedSpeed === '4') config = { ...config, playbackSpeed: 4 };
     activeMatchId = data.id;
     window.addEventListener('keydown', handleManualShortcut);
     void connect();
@@ -382,10 +384,10 @@
 
 <div class="live-head">
   <div>
-    <span class="eyebrow">{match?.challenge_run_id ? `Challenge stage · ${match.challenge_stage_id || 'campaign'}` : 'Match control'} · {data.id.slice(0, 8)}</span>
+    <span class="eyebrow">{match?.challenge_run_id ? `Draft stage · ${match.challenge_stage_id || 'campaign'}` : 'Match control'} · {data.id.slice(0, 8)}</span>
     <h1>{match ? (match.config.name || `${match.config.players[0].display_name} vs ${match.config.players[1].display_name}`) : 'Loading battle…'}</h1>
   </div>
-  {#if match}<div class="battle-context">{#if match.challenge_run_id}<a class="button secondary compact" href={`/challenges/${match.challenge_run_id}`}><i class="ph ph-map-trifold" aria-hidden="true"></i>Challenge map</a>{/if}<span class={`status-pill ${match.status}`}>{match.status}</span></div>{/if}
+  {#if match}<div class="battle-context">{#if match.challenge_run_id}<a class="button secondary compact" href={`/challenges/${match.challenge_run_id}`}><i class="ph ph-map-trifold" aria-hidden="true"></i>Draft map</a>{/if}<span class={`status-pill ${match.status}`}>{match.status}</span></div>{/if}
 </div>
 
 <!--
@@ -438,6 +440,7 @@
 
     <div class="tool-group">
       <span class="tool-label">Motion</span>
+      <label>Watch speed<select value={String(config.playbackSpeed)} on:change={(event) => updateConfig({ playbackSpeed: event.currentTarget.value === 'instant' ? 'instant' : Number(event.currentTarget.value) as PlaybackSpeed })}><option value="1">1×</option><option value="2">2×</option><option value="4">4×</option><option value="instant">Max</option></select></label>
       <label>Effects<select value={config.effects} on:change={(event) => updateConfig({ effects: event.currentTarget.value as EffectQuality })}><option value="off">Off</option><option value="low">Low</option><option value="standard">Standard</option><option value="high">High</option></select></label>
       <label>Move style<select value={config.moveEffectSkin} on:change={(event) => updateConfig({ moveEffectSkin: event.currentTarget.value as MoveEffectSkin })}><option value="broadcast">Broadcast</option><option value="retro">Retro</option><option value="procedural">Procedural</option></select></label>
       <label>Commentary<select value={config.commentaryMode} on:change={(event) => updateConfig({ commentaryMode: event.currentTarget.value as CommentaryMode })}><option value="latest">Latest only</option><option value="last-3">Last three</option><option value="full">Full detail</option><option value="hidden">Hidden</option></select></label>
@@ -457,7 +460,7 @@
   <section class="human-wait panel" role="status">
     <span class="wait-pulse"></span>
     <div><span class="eyebrow">Human Player</span><h2>{humanSides.map((side) => accepted[side] || `${agentLabel(side)} is waiting for the next legal turn`).join(' · ')}</h2><p>The battle state is live. Move and switch controls appear automatically when your next decision is legal.</p></div>
-    {#if match.challenge_run_id}<a class="button secondary compact" href={`/challenges/${match.challenge_run_id}`}>Challenge overview</a>{/if}
+    {#if match.challenge_run_id}<a class="button secondary compact" href={`/challenges/${match.challenge_run_id}`}>Draft overview</a>{/if}
   </section>
 {/if}
 
