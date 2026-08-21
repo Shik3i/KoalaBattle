@@ -86,13 +86,10 @@ docker compose --profile renderer up --build
 
 ### DeepSeek
 
-Put `KOALABATTLE_DEEPSEEK_API_KEY` in the ignored project `.env`, then recreate the backend:
-
-```bash
-docker compose up -d --build --force-recreate backend frontend
-```
-
-Settings reports DeepSeek as `Configured · environment` without returning the key. Match, team,
+Open `/settings`, enter the DeepSeek key, and choose **Save provider**. The backend writes
+`KOALABATTLE_DEEPSEEK_API_KEY` to the ignored project `.env`, applies it immediately, and reloads
+it after backend or Docker restarts. The API and browser never receive the saved value again.
+Settings reports DeepSeek as `Configured · saved-env`. Match, team,
 tournament, and Challenge setup offer both current official models: `deepseek-v4-flash` (default,
 faster and lower cost) and `deepseek-v4-pro` (maximum capability). The adapter uses DeepSeek's
 OpenAI-compatible `https://api.deepseek.com` endpoint, documented `json_object` response mode,
@@ -127,17 +124,10 @@ Pokémon Red/Blue rosters and moves of eight Kanto Gym Leaders, the Elite Four, 
 Drafting, Training Camp, team validation, stage
 history, retries, normal-match control, and replays survive reloads and backend restarts.
 
-The operator must first import an authorized local draft pricing board; none is bundled or
-downloaded at startup:
-
-```bash
-.venv/bin/python scripts/setup_draft_prices.py import ./my-board.xlsx \
-  --board-name "My SV NatDex copy" --sheet Pokedex --price-column "SV NatDex"
-.venv/bin/python scripts/setup_draft_prices.py verify
-```
-
-Setup, rules, accepted table shapes, form exclusions, controller modes, mechanics assumptions,
-and recovery behavior: [Draft Challenge](docs/CHALLENGES.md).
+Draft Rules V2 consume every species shown in an offer, whether selected, rejected, or rerolled.
+The run snapshots its exact Showdown-backed species/form and ability pool, so offers and history
+remain deterministic across reloads and backend restarts. Rules, form exclusions, controller
+modes, mechanics assumptions, and recovery behavior: [Draft Challenge](docs/CHALLENGES.md).
 
 ## Battle formats
 
@@ -284,7 +274,7 @@ Details: [Development](docs/DEVELOPMENT.md). Documentation index: [docs/README.m
 
 - `backend/koalabattle/orchestration`: queue, isolated sessions, lifecycle, real-time hub
 - `backend/koalabattle/tournaments`: engine-independent brackets, standings, persistence
-- `backend/koalabattle/challenges`: pricing snapshots, draft/training domain, campaign ownership
+- `backend/koalabattle/challenges`: draft-pool snapshots, training domain, campaign ownership
 - `backend/koalabattle/engines/showdown`: the only `poke-env` boundary
 - `backend/koalabattle/storage`: SQLite match archive and ordering guarantees
 - `backend/koalabattle/replay`: pure recorded-event reducer

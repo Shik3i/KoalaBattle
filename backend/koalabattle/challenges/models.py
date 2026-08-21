@@ -9,7 +9,8 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from koalabattle.core.models import AgentConfiguration, AgentType, ProviderKind
 
-CHALLENGE_SCHEMA_VERSION = "1.0"
+CHALLENGE_SCHEMA_VERSION = "2.0"
+DRAFT_RULES_VERSION: Literal["draft-rules-v2"] = "draft-rules-v2"
 
 
 class FrozenModel(BaseModel):
@@ -74,14 +75,17 @@ class BattleControllerSnapshot(FrozenModel):
 
 class DraftRules(FrozenModel):
     roster_size: int = Field(default=6, ge=1, le=12)
-    starting_credits: int = Field(default=68, ge=1, le=500)
-    rerolls: int = Field(default=2, ge=0, le=20)
+    rerolls: int = Field(default=3, ge=0, le=20)
+    type_rerolls: int = Field(default=1, ge=0, le=20)
+    generation_rerolls: int = Field(default=1, ge=0, le=20)
     choice_count: int = Field(default=3, ge=2, le=8)
     species_clause: bool = True
 
 
 class TrainingRules(FrozenModel):
-    global_ev_budget: int = Field(default=1200, ge=0, le=3060)
+    # Read-only compatibility for persisted Draft V2 snapshots. New runs have no
+    # shared EV pool; legality is scoped to each Pokemon and each stat.
+    global_ev_budget: int | None = Field(default=None, ge=0, le=3060)
     per_pokemon_max: int = Field(default=510, ge=0, le=510)
     per_stat_max: int = Field(default=252, ge=0, le=252)
 
@@ -145,6 +149,13 @@ class PokemonBaseStats(FrozenModel):
     spe: int = Field(ge=1, le=255)
 
 
+class PokemonAbility(FrozenModel):
+    slot: Literal["0", "1", "H", "S"]
+    id: str = Field(pattern=r"^[a-z0-9]+$", max_length=80)
+    name: str = Field(min_length=1, max_length=120)
+    hidden: bool = False
+
+
 class DraftCandidate(FrozenModel):
     entry_id: str
     species: str
@@ -155,7 +166,19 @@ class DraftCandidate(FrozenModel):
     types: tuple[str, ...] = Field(min_length=1, max_length=2)
     base_stat_total: int | None = Field(default=None, ge=1, le=2000)
     base_stats: PokemonBaseStats | None = None
-    points: int = Field(ge=1)
+    abilities: tuple[PokemonAbility, ...] = ()
+    recommended_move: str | None = Field(default=None, min_length=1, max_length=120)
+    required_item: str | None = Field(default=None, min_length=1, max_length=120)
+
+
+class DraftPoolSnapshot(FrozenModel):
+    schema_version: str = "1.0"
+    showdown_version: str = Field(min_length=1, max_length=100)
+    format: str = Field(min_length=1, max_length=80)
+    format_generation: int = Field(ge=1, le=9)
+    abilities_supported: bool
+    catalog_hash: str = Field(min_length=64, max_length=64)
+    candidates: tuple[DraftCandidate, ...]
 
 
 class DraftOffer(FrozenModel):
@@ -175,17 +198,21 @@ class DraftPick(FrozenModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
-class PricingCatalogSnapshot(FrozenModel):
-    schema_version: str
-    parser_version: str
-    board_name: str
-    context: str
-    imported_at: datetime
-    source_sha256: str = Field(min_length=64, max_length=64)
-    catalog_hash: str = Field(min_length=64, max_length=64)
-    parsed_entries: int = Field(ge=0)
-    mechanics_assumptions: tuple[str, ...] = ()
-    candidates: tuple[DraftCandidate, ...]
+class DraftHistoryEntry(FrozenModel):
+    offer: DraftOffer
+    outcome: Literal["picked", "rerolled", "type_rerolled", "generation_rerolled"]
+    selected_entry_id: str | None = None
+    decided_by: DraftControllerKind
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+    @model_validator(mode="after")
+    def picked_entry_matches_offer(self) -> DraftHistoryEntry:
+        offered = {candidate.entry_id for candidate in self.offer.options}
+        if self.outcome == "picked" and self.selected_entry_id not in offered:
+            raise ValueError("picked draft history must reference one offered entry")
+        if self.outcome != "picked" and self.selected_entry_id is not None:
+            raise ValueError("rerolled draft history cannot select an entry")
+        return self
 
 
 class ChallengeStageResult(FrozenModel):
@@ -211,22 +238,30 @@ class ChallengeRun(FrozenModel):
     status: ChallengeStatus
     revision: int = Field(default=1, ge=1)
     seed: int
-    pricing: PricingCatalogSnapshot
+    draft_rules_version: Literal["draft-rules-v2", "draft-rules-v1-incompatible"] = (
+        DRAFT_RULES_VERSION
+    )
+    draft_pool: DraftPoolSnapshot
     draft_controller: DraftControllerSnapshot
     draft_controller_history: tuple[DraftControllerSnapshot, ...] = ()
     battle_controller: BattleControllerSnapshot
     opponent_controller: BattleControllerSnapshot
-    credits_remaining: int = Field(ge=0)
     rerolls_remaining: int = Field(ge=0)
+    type_rerolls_remaining: int = Field(default=1, ge=0)
+    generation_rerolls_remaining: int = Field(default=1, ge=0)
     offer_nonce: int = Field(default=0, ge=0)
+    consumed_species_ids: tuple[str, ...] = ()
     current_offer: DraftOffer | None = None
+    draft_history: tuple[DraftHistoryEntry, ...] = ()
     picks: tuple[DraftPick, ...] = ()
     ev_allocations: dict[str, EvSpread] = Field(default_factory=dict)
+    ability_selections: dict[str, str | None] = Field(default_factory=dict)
     team_snapshot_id: UUID | None = None
     current_stage_index: int = Field(default=0, ge=0)
     active_match_id: UUID | None = None
     stage_results: tuple[ChallengeStageResult, ...] = ()
     error: str | None = Field(default=None, max_length=1000)
+    compatibility_notice: str | None = Field(default=None, max_length=1000)
     created_at: datetime
     updated_at: datetime
     completed_at: datetime | None = None
@@ -254,8 +289,6 @@ class ChallengeRunStats(FrozenModel):
     duration_seconds: float = Field(ge=0)
     estimated_cost: float = Field(ge=0)
     average_decision_latency_ms: float | None = Field(default=None, ge=0)
-    credits_spent: int = Field(ge=0)
-    credits_remaining: int = Field(ge=0)
     rerolls_used: int = Field(ge=0)
     ev_used: int = Field(ge=0)
 
@@ -266,7 +299,10 @@ class ChallengeRunView(FrozenModel):
     statistics: ChallengeRunStats
     current_stage: PublicChallengeStage | None = None
     team_export_scaffold: str | None = None
-    minimum_completion_cost: int = Field(default=0, ge=0)
+    can_reroll: bool = False
+    can_reroll_type: bool = False
+    can_reroll_generation: bool = False
+    unseen_candidate_count: int = Field(default=0, ge=0)
 
 
 class ChallengeRunSummary(FrozenModel):
@@ -291,7 +327,6 @@ class CreateChallengeRun(FrozenModel):
     opponent_controller: BattleControllerSnapshot
     draft_rules: DraftRules | None = None
     training_rules: TrainingRules | None = None
-    expected_catalog_hash: str | None = Field(default=None, min_length=64, max_length=64)
 
 
 class DraftPickInput(FrozenModel):
@@ -303,10 +338,16 @@ class DraftPickInput(FrozenModel):
 class DraftRerollInput(FrozenModel):
     offer_fingerprint: str = Field(min_length=64, max_length=64)
     expected_revision: int = Field(ge=1)
+    kind: Literal["all", "type", "generation"] = "all"
 
 
 class TrainingInput(FrozenModel):
     allocations: dict[str, EvSpread]
+    expected_revision: int = Field(ge=1)
+
+
+class TeamAbilityInput(FrozenModel):
+    abilities: dict[str, str | None]
     expected_revision: int = Field(ge=1)
 
 
@@ -317,23 +358,3 @@ class FinalizeTeamInput(FrozenModel):
 
 class RevisionInput(FrozenModel):
     expected_revision: int = Field(ge=1)
-
-
-class PricingStatus(FrozenModel):
-    available: bool
-    ready: bool
-    path: str
-    catalog_hash: str | None = None
-    board_name: str | None = None
-    context: str | None = None
-    imported_at: datetime | None = None
-    parsed_entries: int = 0
-    eligible_entries: int = 0
-    priced_entries: int = 0
-    banned_entries: int = 0
-    missing_entries: int = 0
-    unsupported_entries: int = 0
-    source_verified: bool = False
-    verification_detail: str = "No source file is installed."
-    excluded_entries: tuple[dict[str, str], ...] = ()
-    errors: tuple[str, ...] = ()

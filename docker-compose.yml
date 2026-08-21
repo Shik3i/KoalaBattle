@@ -43,12 +43,12 @@ services:
       KOALABATTLE_ORCHESTRATOR_DEFAULT_MODEL: ${KOALABATTLE_ORCHESTRATOR_DEFAULT_MODEL:-google/gemma-4-e4b}
       KOALABATTLE_CORS_ORIGINS: http://localhost:${KOALABATTLE_FRONTEND_PORT:-3000},http://localhost:5173,http://frontend:3000
       KOALABATTLE_ASSET_ROOT: /assets
-      KOALABATTLE_DRAFT_PRICES_ROOT: /data/draft-prices
       KOALABATTLE_OPENAI_API_KEY: ${KOALABATTLE_OPENAI_API_KEY:-}
       KOALABATTLE_GEMINI_API_KEY: ${KOALABATTLE_GEMINI_API_KEY:-}
       KOALABATTLE_ANTHROPIC_API_KEY: ${KOALABATTLE_ANTHROPIC_API_KEY:-}
       KOALABATTLE_DEEPSEEK_API_KEY: ${KOALABATTLE_DEEPSEEK_API_KEY:-}
       KOALABATTLE_OPENAI_COMPATIBLE_API_KEY: ${KOALABATTLE_OPENAI_COMPATIBLE_API_KEY:-}
+      KOALABATTLE_PROVIDER_CREDENTIALS_FILE: /runtime-config/.env
       KOALABATTLE_ENABLE_FAKE_PROVIDER: ${KOALABATTLE_ENABLE_FAKE_PROVIDER:-false}
       KOALABATTLE_MAX_CONCURRENT_MATCHES: ${KOALABATTLE_MAX_CONCURRENT_MATCHES:-2}
       KOALABATTLE_PRICING_VERSION: ${KOALABATTLE_PRICING_VERSION:-unconfigured}
@@ -83,6 +83,12 @@ services:
     volumes:
       - ./data:/data
       - ./data/assets:/assets:ro
+      - type: bind
+        source: ./.env
+        target: /runtime-config/.env
+        read_only: false
+        bind:
+          create_host_path: false
     ports:
       - "8001:8001"
     depends_on:

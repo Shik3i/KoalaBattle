@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from pathlib import Path
 
 from koalabattle.challenges.service import _definition
 
@@ -52,7 +53,10 @@ def _source_snapshot() -> list[dict[str, object]]:
 def test_kanto_content_uses_sourced_red_blue_rosters() -> None:
     definition = _definition("kanto-gym-gauntlet")
 
-    assert definition.version == "3.0.0"
+    assert definition.version == "6.0.0"
+    assert definition.draft_rules.rerolls == 3
+    assert definition.draft_rules.type_rerolls == 1
+    assert definition.draft_rules.generation_rerolls == 1
     assert definition.source.game == "Pokémon Red and Blue"
     assert definition.source.generation == 1
     assert "Champion Blue when the player chose Bulbasaur" in definition.source.variant
@@ -70,3 +74,14 @@ def test_kanto_source_levels_and_moves_are_regression_locked() -> None:
     assert hashlib.sha256(payload).hexdigest() == (
         "b99985260c37ae8d6066c725d0ef5f0fbc33fdba4736531e0cbd745a641c75d2"
     )
+
+
+def test_challenge_format_only_relaxes_misc_obtainability() -> None:
+    format_config = (
+        Path(__file__).resolve().parents[3] / "showdown/config/custom-formats.js"
+    ).read_text()
+
+    assert "'!Obtainable Misc'" in format_config
+    assert "'!Obtainable Moves'" not in format_config
+    assert "'!Obtainable Abilities'" not in format_config
+    assert "'!Obtainable Formes'" not in format_config

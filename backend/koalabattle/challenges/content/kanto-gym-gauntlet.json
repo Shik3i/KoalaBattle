@@ -1,12 +1,13 @@
 {
   "id": "kanto-gym-gauntlet",
-  "version": "3.0.0",
+  "version": "6.0.0",
   "name": "Kanto Gym Gauntlet",
   "description": "The exact Pokémon Red and Blue Gym Leader, Elite Four, and Champion rosters and moves, adapted only where the modern battle engine requires it.",
   "format": "gen9koalabattlecanonicalnatdexdraft",
   "mechanics_assumptions": [
     "Opponent species, order, source levels, and moves match Pokémon Red and Blue",
     "Campaign battles normalize both teams to the same deterministic stage level",
+    "Event-origin minimum levels are ignored only so every legal drafted Pokémon can use that shared stage level",
     "Generation 9 National Dex requires explicit modern abilities and a harmless EV marker",
     "Mega Evolution, Z-Moves, Dynamax, and Terastallization are not offered by Challenge controllers"
   ],
@@ -19,17 +20,17 @@
       "https://www.serebii.net/rb/gyms.shtml",
       "https://www.serebii.net/rb/elitefour.shtml"
     ],
-    "compatibility_note": "The source games had no abilities, natures, held items, or modern EVs. KoalaBattle preserves every recorded species, order, source level, and move, adds only an explicit legal ability plus Showdown's non-stat-changing EV confirmation marker, and applies the campaign's equal level normalization."
+    "compatibility_note": "The source games had no abilities, natures, held items, or modern EVs. KoalaBattle preserves every recorded species, order, source level, and move, adds only an explicit legal ability plus Showdown's non-stat-changing EV confirmation marker, relaxes event-origin minimum levels for drafted Pokémon, and applies the campaign's equal level normalization."
   },
   "draft_rules": {
     "roster_size": 6,
-    "starting_credits": 68,
-    "rerolls": 2,
+    "rerolls": 3,
+    "type_rerolls": 1,
+    "generation_rerolls": 1,
     "choice_count": 3,
     "species_clause": true
   },
   "training_rules": {
-    "global_ev_budget": 1200,
     "per_pokemon_max": 510,
     "per_stat_max": 252
   },

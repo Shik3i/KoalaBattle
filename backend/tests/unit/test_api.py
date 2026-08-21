@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from stat import S_IMODE
 
 from fastapi.testclient import TestClient
 
@@ -250,6 +251,79 @@ def test_browser_provider_configuration_enables_deepseek_without_leaking_key(
             model="deepseek-v4-flash",
         )
         assert isinstance(service._provider_for(player), DeepSeekProvider)
+
+
+def test_provider_key_persists_in_gitignored_env_across_backend_restart(
+    tmp_path: Path,
+) -> None:
+    credentials_file = tmp_path / ".env"
+    credentials_file.write_text(
+        "# local credentials\nKOALABATTLE_DEEPSEEK_API_KEY=\nKEEP_ME=unchanged\n",
+        encoding="utf-8",
+    )
+    database_url = f"sqlite+aiosqlite:///{tmp_path / 'persistent-provider.db'}"
+    create_test_schema(database_url)
+    secret = "sk-deepseek-persistent-secret"
+
+    settings = Settings(
+        _env_file=None,
+        database_url=database_url,
+        provider_credentials_file=credentials_file,
+    )
+    with TestClient(create_app(settings)) as client:
+        configured = client.post(
+            "/api/providers/configure",
+            json={"provider": "deepseek", "api_key": secret},
+        )
+        assert configured.status_code == 200, configured.text
+        assert configured.json()["source"] == "saved-env"
+        assert secret not in configured.text
+
+    persisted = credentials_file.read_text(encoding="utf-8")
+    assert f"KOALABATTLE_DEEPSEEK_API_KEY={secret}" in persisted
+    assert "KEEP_ME=unchanged" in persisted
+    assert S_IMODE(credentials_file.stat().st_mode) == 0o600
+
+    restarted = Settings(
+        _env_file=None,
+        database_url=database_url,
+        provider_credentials_file=credentials_file,
+    )
+    with TestClient(create_app(restarted)) as client:
+        response = client.get("/api/providers")
+        assert response.status_code == 200
+        assert secret not in response.text
+        deepseek = next(
+            item for item in response.json()["providers"] if item["id"] == "deepseek"
+        )
+        assert deepseek["configured"] is True
+        assert deepseek["source"] == "saved-env"
+
+        cleared = client.post(
+            "/api/providers/configure",
+            json={"provider": "deepseek", "clear": True},
+        )
+        assert cleared.status_code == 200, cleared.text
+        assert cleared.json()["configured"] is False
+        assert secret not in cleared.text
+
+    assert "KOALABATTLE_DEEPSEEK_API_KEY=\n" in credentials_file.read_text(encoding="utf-8")
+
+
+def test_explicit_provider_clear_overrides_container_environment_key(tmp_path: Path) -> None:
+    settings = Settings(
+        _env_file=None,
+        database_url=f"sqlite+aiosqlite:///{tmp_path / 'clear-provider.db'}",
+        deepseek_api_key="container-environment-secret",
+    )
+    create_test_schema(settings.database_url)
+    with TestClient(create_app(settings)) as client:
+        cleared = client.post(
+            "/api/providers/configure",
+            json={"provider": "deepseek", "clear": True},
+        )
+        assert cleared.status_code == 200
+        assert cleared.json()["configured"] is False
 
 
 def test_provider_model_discovery_redacts_upstream_credentials(tmp_path: Path) -> None:

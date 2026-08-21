@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
@@ -7,11 +8,13 @@ from uuid import UUID, uuid4
 
 import pytest
 
+from koalabattle.agents.providers.base import ProviderRequest
 from koalabattle.agents.providers.fake import FakeProvider
 from koalabattle.challenges.domain import (
+    attach_offer,
+    candidate_identity,
     feasible_candidates,
     generate_offer,
-    minimum_completion_cost,
 )
 from koalabattle.challenges.models import (
     BattleControllerSnapshot,
@@ -20,27 +23,31 @@ from koalabattle.challenges.models import (
     ChallengeSource,
     ChallengeStage,
     ChallengeStatus,
-    CreateChallengeRun,
     DraftCandidate,
     DraftControllerKind,
     DraftControllerSnapshot,
+    DraftHistoryEntry,
     DraftPick,
+    DraftPoolSnapshot,
     DraftRules,
     EvSpread,
-    PricingCatalogSnapshot,
+    PokemonAbility,
     TrainingRules,
 )
-from koalabattle.challenges.pricing import DraftPriceStore, parse_catalog
-from koalabattle.challenges.repository import ChallengeRepository
+from koalabattle.challenges.repository import (
+    LEGACY_NOTICE,
+    ChallengeRepository,
+    _deserialize_run,
+)
 from koalabattle.challenges.service import (
     ChallengeService,
+    _team_scaffold,
     _with_level,
     _with_zero_ev_confirmation,
     redact_challenge_match,
 )
-from koalabattle.challenges.species import ShowdownSpeciesCatalog
+from koalabattle.challenges.species import ShowdownSpeciesCatalog, SpeciesMetadata
 from koalabattle.core.models import (
-    AgentConfiguration,
     AgentType,
     MatchArchive,
     MatchConfig,
@@ -55,29 +62,38 @@ from koalabattle.storage import BattleRepository, Database
 from koalabattle.teams.models import TeamSnapshot, TeamValidationResult
 
 
-def _candidate(index: int, points: int = 1) -> DraftCandidate:
+def _abilities(index: int) -> tuple[PokemonAbility, ...]:
+    return (
+        PokemonAbility(slot="0", id=f"ability{index}a", name=f"Ability {index} A"),
+        PokemonAbility(slot="H", id=f"ability{index}h", name=f"Ability {index} H", hidden=True),
+    )
+
+
+def _candidate(
+    index: int,
+    *,
+    base_species_id: str | None = None,
+    types: tuple[str, ...] = ("Normal",),
+    abilities: tuple[PokemonAbility, ...] | None = None,
+    generation: int = 1,
+) -> DraftCandidate:
     return DraftCandidate(
         entry_id=f"mon{index}",
         species=f"Mon {index}",
         showdown_id=f"mon{index}",
-        base_species_id=f"mon{index}",
+        base_species_id=base_species_id or f"mon{index}",
         national_dex_number=index,
-        introduction_generation=1,
-        types=("Normal",),
-        points=points,
+        introduction_generation=generation,
+        types=types,
+        base_stat_total=300 + index,
+        abilities=_abilities(index) if abilities is None else abilities,
     )
 
 
-def _run(
-    *,
-    candidates: tuple[DraftCandidate, ...] | None = None,
-    draft_rules: DraftRules | None = None,
-    status: ChallengeStatus = ChallengeStatus.DRAFTING,
-) -> ChallengeRun:
-    now = datetime.now(UTC)
-    definition = ChallengeDefinition(
+def _definition(rules: DraftRules | None = None) -> ChallengeDefinition:
+    return ChallengeDefinition(
         id="fixture",
-        version="1",
+        version="2",
         name="Fixture Challenge",
         description="Synthetic test campaign.",
         format="gen9natdexdraft",
@@ -88,8 +104,8 @@ def _run(
             references=("https://example.invalid/fixture",),
             compatibility_note="Synthetic test data.",
         ),
-        draft_rules=draft_rules or DraftRules(roster_size=3, starting_credits=6, choice_count=3),
-        training_rules=TrainingRules(global_ev_budget=1200),
+        draft_rules=rules or DraftRules(roster_size=3, rerolls=2, choice_count=3),
+        training_rules=TrainingRules(),
         stages=(
             ChallengeStage(
                 id="stage-one",
@@ -97,59 +113,58 @@ def _run(
                 title="Test Stage",
                 theme="Deterministic",
                 level=50,
-                opponent_team="Mon 9\n- Tackle",
+                opponent_team="Mon 99\n- Tackle",
             ),
         ),
     )
+
+
+def _run(
+    *,
+    candidates: tuple[DraftCandidate, ...] | None = None,
+    rules: DraftRules | None = None,
+    status: ChallengeStatus = ChallengeStatus.DRAFTING,
+    abilities_supported: bool = True,
+    seed: int = 987654,
+) -> ChallengeRun:
+    now = datetime.now(UTC)
+    definition = _definition(rules)
+    pool = candidates or tuple(_candidate(index) for index in range(1, 16))
     return ChallengeRun(
         id=uuid4(),
         name="Fixture run",
         definition=definition,
         status=status,
-        seed=987654,
-        pricing=PricingCatalogSnapshot(
-            schema_version="1.0",
-            parser_version="1.0",
-            board_name="Synthetic board",
-            context="sv-natdex",
-            imported_at=now,
-            source_sha256="a" * 64,
+        seed=seed,
+        draft_pool=DraftPoolSnapshot(
+            showdown_version="unit-test",
+            format=definition.format,
+            format_generation=9 if abilities_supported else 2,
+            abilities_supported=abilities_supported,
             catalog_hash="b" * 64,
-            parsed_entries=8,
-            candidates=candidates or tuple(_candidate(index) for index in range(1, 9)),
+            candidates=pool,
         ),
         draft_controller=DraftControllerSnapshot(kind=DraftControllerKind.HUMAN),
         battle_controller=BattleControllerSnapshot(agent_type=AgentType.HUMAN),
         opponent_controller=BattleControllerSnapshot(agent_type=AgentType.RANDOM),
-        credits_remaining=definition.draft_rules.starting_credits,
         rerolls_remaining=definition.draft_rules.rerolls,
+        type_rerolls_remaining=definition.draft_rules.type_rerolls,
+        generation_rerolls_remaining=definition.draft_rules.generation_rerolls,
         created_at=now,
         updated_at=now,
     )
 
 
-def test_seeded_generation_type_offer_is_reproducible() -> None:
-    run = _run()
-    first = generate_offer(run)
-    second = generate_offer(run)
-    assert first == second
-    assert first.generation == 1 and first.type == "Normal"
-    assert len(first.options) == 3
-
-
-def test_budget_dead_end_candidate_is_removed_before_offer() -> None:
-    candidates = (_candidate(1, 4), _candidate(2), _candidate(3), _candidate(4), _candidate(5))
+def _picked_run(*, abilities_supported: bool = True) -> ChallengeRun:
+    candidates = tuple(
+        _candidate(index, abilities=() if not abilities_supported else None)
+        for index in range(1, 4)
+    )
     run = _run(
         candidates=candidates,
-        draft_rules=DraftRules(roster_size=3, starting_credits=5, choice_count=3),
+        status=ChallengeStatus.TEAM_REVIEW,
+        abilities_supported=abilities_supported,
     )
-    assert "mon1" not in {item.entry_id for item in feasible_candidates(run)}
-    assert "mon1" not in {item.entry_id for item in generate_offer(run).options}
-
-
-def test_exhausted_pool_falls_back_to_one_persisted_budget_safe_choice() -> None:
-    candidates = (_candidate(1, 2), _candidate(2, 2), _candidate(3, 2))
-    run = _run(candidates=candidates)
     picks = tuple(
         DraftPick(
             round=index,
@@ -157,232 +172,369 @@ def test_exhausted_pool_falls_back_to_one_persisted_budget_safe_choice() -> None
             candidate=candidate,
             selected_by=DraftControllerKind.HUMAN,
         )
-        for index, candidate in enumerate(candidates[:2], start=1)
+        for index, candidate in enumerate(candidates, start=1)
     )
-    run = run.model_copy(update={"picks": picks, "credits_remaining": 2})
+    return run.model_copy(
+        update={
+            "picks": picks,
+            "ev_allocations": {candidate.entry_id: EvSpread() for candidate in candidates},
+            "ability_selections": {
+                candidate.entry_id: candidate.abilities[0].id if abilities_supported else None
+                for candidate in candidates
+            },
+        }
+    )
 
-    offer = generate_offer(run)
 
-    assert [item.entry_id for item in offer.options] == ["mon3"]
-    assert minimum_completion_cost(run) == 2
+def test_seeded_offer_is_reproducible_and_consumes_every_displayed_species() -> None:
+    run = _run()
+    assert generate_offer(run) == generate_offer(run)
+
+    attached = attach_offer(run)
+    assert attached.current_offer is not None
+    displayed = {
+        candidate_identity(candidate, True) for candidate in attached.current_offer.options
+    }
+    assert displayed <= set(attached.consumed_species_ids)
+    assert displayed.isdisjoint(
+        {candidate_identity(candidate, True) for candidate in feasible_candidates(attached)}
+    )
+
+
+def test_offer_size_degrades_only_as_needed_to_leave_enough_roster_slots() -> None:
+    run = _run(
+        candidates=tuple(_candidate(index) for index in range(1, 5)),
+        rules=DraftRules(roster_size=3, rerolls=0, choice_count=3),
+    )
+    first = attach_offer(run)
+    assert first.current_offer is not None
+    assert len(first.current_offer.options) == 2
+
+    selected = first.current_offer.options[0]
+    progressed = first.model_copy(
+        update={
+            "picks": (
+                DraftPick(
+                    round=1,
+                    offer_fingerprint=first.current_offer.fingerprint,
+                    candidate=selected,
+                    selected_by=DraftControllerKind.HUMAN,
+                ),
+            ),
+            "current_offer": None,
+        }
+    )
+    second = attach_offer(progressed)
+    assert second.current_offer is not None
+    assert len(second.current_offer.options) == 1
+
+
+def test_authoritative_base_species_identity_consumes_alternate_forms() -> None:
+    candidates = (
+        _candidate(1, base_species_id="rotom"),
+        _candidate(2, base_species_id="rotom"),
+        _candidate(3),
+        _candidate(4),
+    )
+    run = _run(
+        candidates=candidates,
+        rules=DraftRules(roster_size=2, rerolls=0, choice_count=2),
+    )
+    attached = attach_offer(run)
+    offered_bases = [item.base_species_id for item in attached.current_offer.options]  # type: ignore[union-attr]
+    assert len(offered_bases) == len(set(offered_bases))
+    if "rotom" in offered_bases:
+        assert not any(item.base_species_id == "rotom" for item in feasible_candidates(attached))
 
 
 @pytest.mark.asyncio
-async def test_offer_and_reroll_survive_repository_restart_without_rerolling(
+async def test_pick_and_reroll_never_reoffer_consumed_species_and_survive_restart(
     tmp_path: Path,
 ) -> None:
-    database_url = f"sqlite+aiosqlite:///{tmp_path / 'challenge.db'}"
-    database = Database(database_url)
+    url = f"sqlite+aiosqlite:///{tmp_path / 'draft.db'}"
+    database = Database(url)
     await database.create_schema()
     repository = ChallengeRepository(database)
-    run = _run()
-    run = run.model_copy(update={"current_offer": generate_offer(run)})
+    run = attach_offer(_run())
     await repository.create(run)
     service = ChallengeService(
-        repository,
-        DraftPriceStore(tmp_path / "prices"),
-        ShowdownSpeciesCatalog("http://127.0.0.1:9"),
-        cast(Any, None),
+        repository, ShowdownSpeciesCatalog("http://127.0.0.1:9"), cast(Any, None)
     )
-    rerolled = await service.reroll(
+    original = run.current_offer
+    assert original is not None
+    rerolled = await service.reroll(run.id, original.fingerprint, run.revision)
+    assert rerolled.current_offer is not None
+    assert {item.base_species_id for item in original.options}.isdisjoint(
+        {item.base_species_id for item in rerolled.current_offer.options}
+    )
+    assert rerolled.draft_history[-1].outcome == "rerolled"
+    selected_offer = rerolled.current_offer
+    picked = await service.pick(
         run.id,
-        run.current_offer.fingerprint,
-        run.revision,  # type: ignore[union-attr]
+        selected_offer.options[0].entry_id,
+        selected_offer.fingerprint,
+        rerolled.revision,
     )
-    with pytest.raises(ValueError, match="stale challenge revision"):
-        await service.reroll(
-            run.id,
-            rerolled.current_offer.fingerprint,  # type: ignore[union-attr]
-            run.revision,
-        )
+    assert picked.draft_history[-1].selected_entry_id == selected_offer.options[0].entry_id
+    assert picked.current_offer is not None
+    all_prior = {
+        item.base_species_id for history in picked.draft_history for item in history.offer.options
+    }
+    assert all_prior.isdisjoint({item.base_species_id for item in picked.current_offer.options})
     await database.close()
 
-    reopened = Database(database_url)
+    reopened = Database(url)
     persisted = await ChallengeRepository(reopened).get(run.id)
     assert persisted is not None
-    assert persisted.current_offer == rerolled.current_offer
-    assert persisted.current_offer != run.current_offer
-    assert persisted.rerolls_remaining == run.rerolls_remaining - 1
+    assert persisted.current_offer == picked.current_offer
+    assert persisted.consumed_species_ids == picked.consumed_species_ids
+    assert persisted.draft_history == picked.draft_history
     await reopened.close()
 
 
 @pytest.mark.asyncio
-async def test_failed_agent_draft_can_be_taken_over_without_accepting_late_agent_work(
+async def test_type_and_generation_rerolls_preserve_one_axis_and_consume_offers(
     tmp_path: Path,
 ) -> None:
-    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'takeover.db'}")
+    candidates = tuple(
+        _candidate(index, generation=generation, types=(type_name,))
+        for index, generation, type_name in (
+            (1, 1, "Water"), (2, 1, "Water"), (3, 1, "Water"),
+            (4, 1, "Fire"), (5, 1, "Fire"), (6, 1, "Fire"),
+            (7, 2, "Water"), (8, 2, "Water"), (9, 2, "Water"),
+            (10, 2, "Fire"), (11, 2, "Fire"), (12, 2, "Fire"),
+        )
+    )
+    rules = DraftRules(
+        roster_size=2,
+        rerolls=3,
+        type_rerolls=1,
+        generation_rerolls=1,
+        choice_count=2,
+    )
+    run = attach_offer(_run(candidates=candidates, rules=rules))
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'axis-rerolls.db'}")
     await database.create_schema()
     repository = ChallengeRepository(database)
-    run = _run().model_copy(
-        update={
-            "draft_controller": DraftControllerSnapshot(
-                kind=DraftControllerKind.AGENT,
-                provider=ProviderKind.FAKE,
-                model="fake-battle-v1",
-            )
-        }
-    )
-    run = run.model_copy(update={"current_offer": generate_offer(run)})
     await repository.create(run)
     service = ChallengeService(
-        repository,
-        DraftPriceStore(tmp_path / "prices"),
-        ShowdownSpeciesCatalog("http://127.0.0.1:9"),
-        cast(Any, None),
+        repository, ShowdownSpeciesCatalog("http://127.0.0.1:9"), cast(Any, None)
     )
+    original = run.current_offer
+    assert original is not None
 
-    taken_over = await service.take_over_draft(run.id, run.revision)
-    assert taken_over.draft_controller.kind is DraftControllerKind.HUMAN
-    assert taken_over.draft_controller_history == (run.draft_controller,)
-    with pytest.raises(ValueError, match="stale challenge revision"):
-        await service.pick(
-            run.id,
-            run.current_offer.options[0].entry_id,  # type: ignore[union-attr]
-            run.current_offer.fingerprint,  # type: ignore[union-attr]
-            run.revision,
-            selected_by=DraftControllerKind.AGENT,
-        )
-    picked = await service.pick(
+    type_rerolled = await service.reroll(
+        run.id, original.fingerprint, run.revision, kind="type"
+    )
+    type_offer = type_rerolled.current_offer
+    assert type_offer is not None
+    assert type_offer.generation == original.generation
+    assert type_offer.type != original.type
+    assert type_rerolled.type_rerolls_remaining == 0
+    assert type_rerolled.draft_history[-1].outcome == "type_rerolled"
+
+    generation_rerolled = await service.reroll(
         run.id,
-        taken_over.current_offer.options[0].entry_id,  # type: ignore[union-attr]
-        taken_over.current_offer.fingerprint,  # type: ignore[union-attr]
-        taken_over.revision,
+        type_offer.fingerprint,
+        type_rerolled.revision,
+        kind="generation",
     )
-    assert picked.picks[-1].selected_by is DraftControllerKind.HUMAN
+    generation_offer = generation_rerolled.current_offer
+    assert generation_offer is not None
+    assert generation_offer.type == type_offer.type
+    assert generation_offer.generation != type_offer.generation
+    assert generation_rerolled.generation_rerolls_remaining == 0
+    assert generation_rerolled.rerolls_remaining == 3
+    assert generation_rerolled.draft_history[-1].outcome == "generation_rerolled"
+    consumed = {
+        candidate.base_species_id
+        for history in generation_rerolled.draft_history
+        for candidate in history.offer.options
+    }
+    assert consumed <= set(generation_rerolled.consumed_species_ids)
+    assert consumed.isdisjoint(
+        {candidate.base_species_id for candidate in generation_offer.options}
+    )
     await database.close()
 
 
 @pytest.mark.asyncio
-async def test_agent_draft_provider_failure_keeps_the_exact_offer_retryable(
+async def test_complete_draft_has_no_repeated_offer_and_initializes_abilities(
     tmp_path: Path,
 ) -> None:
-    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'agent-failure.db'}")
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'complete.db'}")
     await database.create_schema()
     repository = ChallengeRepository(database)
-    run = _run().model_copy(
+    run = attach_offer(_run())
+    await repository.create(run)
+    service = ChallengeService(
+        repository, ShowdownSpeciesCatalog("http://127.0.0.1:9"), cast(Any, None)
+    )
+    while run.status is ChallengeStatus.DRAFTING:
+        offer = run.current_offer
+        assert offer is not None
+        run = await service.pick(run.id, offer.options[0].entry_id, offer.fingerprint, run.revision)
+    offered = [
+        candidate.base_species_id
+        for history in run.draft_history
+        for candidate in history.offer.options
+    ]
+    assert len(offered) == len(set(offered))
+    assert run.status is ChallengeStatus.TRAINING
+    assert len(run.picks) == 3
+    assert run.ability_selections == {
+        pick.candidate.entry_id: pick.candidate.abilities[0].id for pick in run.picks
+    }
+    assert set(run.ev_allocations) == {pick.candidate.entry_id for pick in run.picks}
+    assert all(spread.total == 508 for spread in run.ev_allocations.values())
+    trained = await service.save_training(run.id, run.ev_allocations, run.revision)
+    assert trained.status is ChallengeStatus.TEAM_REVIEW
+    assert sum(spread.total for spread in trained.ev_allocations.values()) == 1524
+    public = service.view(run)
+    assert {item.entry_id for item in public.run.draft_pool.candidates} == {
+        candidate.entry_id for history in run.draft_history for candidate in history.offer.options
+    }
+    await database.close()
+
+
+@pytest.mark.asyncio
+async def test_single_legal_ability_is_selected_automatically(tmp_path: Path) -> None:
+    single = (PokemonAbility(slot="0", id="levitate", name="Levitate"),)
+    candidates = tuple(_candidate(index, abilities=single) for index in range(1, 4))
+    run = attach_offer(
+        _run(
+            candidates=candidates,
+            rules=DraftRules(roster_size=1, rerolls=0, choice_count=2),
+        )
+    )
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'single-ability.db'}")
+    await database.create_schema()
+    repository = ChallengeRepository(database)
+    await repository.create(run)
+    service = ChallengeService(
+        repository, ShowdownSpeciesCatalog("http://127.0.0.1:9"), cast(Any, None)
+    )
+    offer = run.current_offer
+    assert offer is not None
+    completed = await service.pick(
+        run.id, offer.options[0].entry_id, offer.fingerprint, run.revision
+    )
+    assert completed.ability_selections == {offer.options[0].entry_id: "levitate"}
+    assert "Ability: Levitate" in cast(str, _team_scaffold(completed))
+    await database.close()
+
+
+def test_team_scaffold_includes_pinned_legal_defaults() -> None:
+    candidate = _candidate(1).model_copy(
+        update={"recommended_move": "Thunderbolt", "required_item": "Magnet"}
+    )
+    run = _run(
+        candidates=(candidate,),
+        rules=DraftRules(roster_size=1, rerolls=0, choice_count=2),
+    ).model_copy(
         update={
-            "draft_controller": DraftControllerSnapshot(
-                kind=DraftControllerKind.AGENT,
-                provider=ProviderKind.FAKE,
-                model="fake-battle-v1",
-                configuration=AgentConfiguration(max_retries=0, fake_scenario="provider_error"),
+            "picks": (
+                DraftPick(
+                    round=1,
+                    offer_fingerprint="a" * 64,
+                    candidate=candidate,
+                    selected_by=DraftControllerKind.HUMAN,
+                ),
             )
         }
     )
-    run = run.model_copy(update={"current_offer": generate_offer(run)})
+
+    scaffold = cast(str, _team_scaffold(run))
+
+    assert scaffold.startswith(f"{candidate.species} @ Magnet")
+    assert "- Thunderbolt" in scaffold
+
+
+def _simulate(seed: int) -> tuple[tuple[str, ...], ...]:
+    run = _run(seed=seed)
+    offers: list[tuple[str, ...]] = []
+    while len(run.picks) < run.definition.draft_rules.roster_size:
+        run = attach_offer(run)
+        offer = run.current_offer
+        assert offer is not None
+        offers.append(tuple(item.entry_id for item in offer.options))
+        selected = offer.options[0]
+        run = run.model_copy(
+            update={
+                "picks": (
+                    *run.picks,
+                    DraftPick(
+                        round=offer.round,
+                        offer_fingerprint=offer.fingerprint,
+                        candidate=selected,
+                        selected_by=DraftControllerKind.HUMAN,
+                    ),
+                ),
+                "draft_history": (
+                    *run.draft_history,
+                    DraftHistoryEntry(
+                        offer=offer,
+                        outcome="picked",
+                        selected_entry_id=selected.entry_id,
+                        decided_by=DraftControllerKind.HUMAN,
+                    ),
+                ),
+                "current_offer": None,
+            }
+        )
+    return tuple(offers)
+
+
+def test_same_seed_and_rules_produce_the_same_complete_offer_history() -> None:
+    assert _simulate(42) == _simulate(42)
+    assert _simulate(42) != _simulate(43)
+
+
+@pytest.mark.asyncio
+async def test_ability_selection_validates_exact_form_and_persists(tmp_path: Path) -> None:
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'ability.db'}")
+    await database.create_schema()
+    repository = ChallengeRepository(database)
+    run = _picked_run()
     await repository.create(run)
-    provider = FakeProvider("provider_error")
-    battles = type(
-        "DraftBattleStub",
-        (),
-        {"provider_for_draft": lambda self, controller: provider},
-    )()
     service = ChallengeService(
-        repository,
-        DraftPriceStore(tmp_path / "prices"),
-        ShowdownSpeciesCatalog("http://127.0.0.1:9"),
-        cast(Any, battles),
+        repository, ShowdownSpeciesCatalog("http://127.0.0.1:9"), cast(Any, None)
     )
-
-    with pytest.raises(ValueError, match="deterministic fake provider failure"):
-        await service.agent_action(run.id, run.revision)
-
+    abilities = dict(run.ability_selections)
+    abilities["mon1"] = "ability1h"
+    saved = await service.save_abilities(run.id, abilities, run.revision)
+    assert saved.ability_selections["mon1"] == "ability1h"
+    with pytest.raises(ValueError, match="invalid ability for Mon 1"):
+        await service.save_abilities(run.id, {**abilities, "mon1": "ability2a"}, saved.revision)
     restored = await repository.get(run.id)
-    assert restored is not None
-    assert restored.revision == run.revision
-    assert restored.current_offer == run.current_offer
+    assert restored is not None and restored.ability_selections == saved.ability_selections
     await database.close()
 
 
 @pytest.mark.asyncio
-async def test_existing_run_remains_readable_without_local_pricing_catalog(tmp_path: Path) -> None:
-    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'snapshot.db'}")
+async def test_generation_two_format_has_no_ability_selection(tmp_path: Path) -> None:
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'gen2.db'}")
     await database.create_schema()
     repository = ChallengeRepository(database)
-    run = _run()
-    run = run.model_copy(update={"current_offer": generate_offer(run)})
+    run = _picked_run(abilities_supported=False)
     await repository.create(run)
     service = ChallengeService(
-        repository,
-        DraftPriceStore(tmp_path / "missing-prices"),
-        ShowdownSpeciesCatalog("http://127.0.0.1:9"),
-        cast(Any, None),
+        repository, ShowdownSpeciesCatalog("http://127.0.0.1:9"), cast(Any, None)
     )
-
-    status = await service.pricing_status()
-    restored = await service.get(run.id)
-
-    assert not status.ready and not status.available
-    assert restored.run.pricing.catalog_hash == run.pricing.catalog_hash
-    assert restored.run.current_offer == run.current_offer
-    await database.close()
-
-
-@pytest.mark.asyncio
-async def test_new_run_is_blocked_when_pricing_source_cannot_be_verified(tmp_path: Path) -> None:
-    source = b"Pokemon,SV NatDex\n" + b"".join(
-        f"Mon {index},{index}\n".encode() for index in range(1, 7)
-    )
-    store = DraftPriceStore(tmp_path / "prices")
-    store.save(
-        parse_catalog(
-            source,
-            "source.csv",
-            board_name="Fixture",
-            context="sv-natdex",
-            price_column="SV NatDex",
+    saved = await service.save_abilities(run.id, dict(run.ability_selections), run.revision)
+    assert all(value is None for value in saved.ability_selections.values())
+    assert "Ability:" not in cast(str, _team_scaffold(saved))
+    with pytest.raises(ValueError, match="does not support Pokemon abilities"):
+        await service.save_abilities(
+            run.id, {**saved.ability_selections, "mon1": "ability1a"}, saved.revision
         )
-    )
-    service = ChallengeService(
-        cast(Any, None),
-        store,
-        ShowdownSpeciesCatalog("http://127.0.0.1:9"),
-        cast(Any, None),
-    )
-    payload = CreateChallengeRun(
-        seed=1,
-        draft_controller=DraftControllerSnapshot(kind=DraftControllerKind.HUMAN),
-        battle_controller=BattleControllerSnapshot(agent_type=AgentType.HUMAN),
-        opponent_controller=BattleControllerSnapshot(agent_type=AgentType.RANDOM),
-    )
-
-    with pytest.raises(ValueError, match="draft pricing verification failed"):
-        await service.create(payload)
-
-
-@pytest.mark.asyncio
-async def test_training_budget_and_per_pokemon_limits_are_enforced(tmp_path: Path) -> None:
-    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'training.db'}")
-    await database.create_schema()
-    repository = ChallengeRepository(database)
-    run = _run(status=ChallengeStatus.TRAINING)
-    picks = tuple(
-        DraftPick(
-            round=index,
-            offer_fingerprint="c" * 64,
-            candidate=candidate,
-            selected_by=DraftControllerKind.HUMAN,
-        )
-        for index, candidate in enumerate(run.pricing.candidates[:3], start=1)
-    )
-    run = run.model_copy(update={"picks": picks})
-    await repository.create(run)
-    service = ChallengeService(
-        repository,
-        DraftPriceStore(tmp_path / "prices"),
-        ShowdownSpeciesCatalog("http://127.0.0.1:9"),
-        cast(Any, None),
-    )
-    allocations = {candidate.entry_id: EvSpread(hp=200) for candidate in run.pricing.candidates[:3]}
-    saved = await service.save_training(run.id, allocations, run.revision)
-    assert saved.status is ChallengeStatus.TEAM_REVIEW
-    assert sum(item.total for item in saved.ev_allocations.values()) == 600
     await database.close()
 
 
 class _Teams:
     def __init__(self) -> None:
         self.created: TeamSnapshot | None = None
+        self.snapshots: dict[UUID, TeamSnapshot] = {}
 
     async def create_snapshot(self, **kwargs: Any) -> TeamSnapshot:
         validation = cast(TeamValidationResult, kwargs["validation"])
@@ -397,14 +549,20 @@ class _Teams:
             structured_team=validation.structured_team,
             created_at=datetime.now(UTC),
         )
+        self.snapshots[self.created.id] = self.created
         return self.created
+
+    async def get(self, snapshot_id: UUID) -> TeamSnapshot | None:
+        return self.snapshots.get(snapshot_id)
 
 
 class _Validator:
     def __init__(self, structured: tuple[dict[str, object], ...]) -> None:
         self.structured = structured
+        self.submitted = ""
 
     async def validate(self, team_text: str, format_id: str) -> TeamValidationResult:
+        self.submitted = team_text
         return TeamValidationResult(
             format=format_id,
             valid=True,
@@ -415,203 +573,141 @@ class _Validator:
 
 
 class _Battles:
-    def __init__(self, structured: tuple[dict[str, object], ...]) -> None:
+    def __init__(
+        self,
+        structured: tuple[dict[str, object], ...],
+        repository: BattleRepository | None = None,
+    ) -> None:
         self.teams = _Teams()
         self.team_validator = _Validator(structured)
-        self.cancelled: list[UUID] = []
+        self.repository = repository
 
-    async def cancel_match(self, match_id: UUID) -> None:
-        self.cancelled.append(match_id)
+    async def create_match(
+        self,
+        config: MatchConfig,
+        *,
+        challenge_run_id: UUID,
+        challenge_stage_id: str,
+    ) -> MatchArchive:
+        assert self.repository is not None
+        match_id = uuid4()
+        await self.repository.create_match(
+            match_id,
+            config,
+            engine="test",
+            engine_version="unit-test",
+            showdown_version="unit-test",
+            poke_env_version="unit-test",
+            challenge_run_id=challenge_run_id,
+            challenge_stage_id=challenge_stage_id,
+        )
+        match = await self.repository.get_match(match_id)
+        assert match is not None
+        return match
 
 
 @pytest.mark.asyncio
-async def test_final_team_must_match_roster_and_training_then_locks_snapshot(
+async def test_final_team_enforces_abilities_then_creates_first_campaign_match(
     tmp_path: Path,
 ) -> None:
     database = Database(f"sqlite+aiosqlite:///{tmp_path / 'team.db'}")
     await database.create_schema()
     repository = ChallengeRepository(database)
-    run = _run(status=ChallengeStatus.TEAM_REVIEW)
-    candidates = run.pricing.candidates[:3]
-    allocations = {
-        candidate.entry_id: EvSpread(hp=0 if index == 0 else 200)
-        for index, candidate in enumerate(candidates)
-    }
-    picks = tuple(
-        DraftPick(
-            round=index,
-            offer_fingerprint="c" * 64,
-            candidate=candidate,
-            selected_by=DraftControllerKind.HUMAN,
-        )
-        for index, candidate in enumerate(candidates, start=1)
+    run = _picked_run().model_copy(
+        update={
+            "ability_selections": {"mon1": "ability1h", "mon2": "ability2a", "mon3": "ability3a"}
+        }
     )
-    run = run.model_copy(update={"picks": picks, "ev_allocations": allocations})
     await repository.create(run)
-    structured = tuple(
-        {"species": item.species, "evs": {"hp": 1 if index == 0 else 200}}
-        for index, item in enumerate(candidates)
+    structured = (
+        {"species": "Mon 1", "ability": "Ability 1 H", "evs": {"hp": 1}},
+        {"species": "Mon 2", "ability": "Ability 2 A", "evs": {"hp": 1}},
+        {"species": "Mon 3", "ability": "Ability 3 A", "evs": {"hp": 1}},
     )
-    battles = _Battles(structured)
+    battles = _Battles(structured, BattleRepository(database))
     service = ChallengeService(
-        repository,
-        DraftPriceStore(tmp_path / "prices"),
-        ShowdownSpeciesCatalog("http://127.0.0.1:9"),
-        cast(Any, battles),
+        repository, ShowdownSpeciesCatalog("http://127.0.0.1:9"), cast(Any, battles)
     )
-    finalized = await service.finalize_team(run.id, "synthetic legal export", run.revision)
+    export = "\n\n".join(f"Mon {index}\nAbility: Wrong\n- Tackle" for index in range(1, 4))
+    finalized = await service.finalize_team(run.id, export, run.revision)
     assert finalized.status is ChallengeStatus.READY
     assert finalized.team_snapshot_id == battles.teams.created.id  # type: ignore[union-attr]
+    assert "Ability: Ability 1 H" in battles.team_validator.submitted
+    assert "Ability: Wrong" not in battles.team_validator.submitted
+    launched, match = await service.launch_stage(run.id, finalized.revision)
+    assert launched.status is ChallengeStatus.BATTLE_QUEUED
+    assert launched.active_match_id == match.id
+    assert match.challenge_run_id == run.id
+    assert match.challenge_stage_id == "stage-one"
     await database.close()
 
 
-@pytest.mark.asyncio
-async def test_normal_match_link_and_stage_completion_are_durable(tmp_path: Path) -> None:
-    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'progress.db'}")
-    await database.create_schema()
-    challenges = ChallengeRepository(database)
-    battles = BattleRepository(database)
-    match_id = uuid4()
-    run = _run(status=ChallengeStatus.BATTLE_QUEUED)
-    await challenges.create(run)
-    config = MatchConfig(
-        players=(
-            PlayerConfig(side=Side.P1, display_name="Player", agent_type=AgentType.RANDOM),
-            PlayerConfig(side=Side.P2, display_name="Leader", agent_type=AgentType.RANDOM),
-        )
-    )
-    await battles.create_match(
-        match_id,
-        config,
-        engine="test",
-        engine_version="1",
-        showdown_version="pinned",
-        poke_env_version="0.15.0",
-        challenge_run_id=run.id,
-        challenge_stage_id="stage-one",
-    )
-    linked = await battles.get_match(match_id)
-    assert linked is not None
-    assert linked.challenge_run_id == run.id and linked.challenge_stage_id == "stage-one"
-    run = await challenges.save(
-        run.model_copy(update={"active_match_id": match_id}), expected_revision=run.revision
-    )
-    await battles.set_status(match_id, MatchStatus.QUEUED)
-    await battles.set_status(match_id, MatchStatus.STARTING)
-    service = ChallengeService(
-        challenges,
-        DraftPriceStore(tmp_path / "prices"),
-        ShowdownSpeciesCatalog("http://127.0.0.1:9"),
-        cast(Any, type("BattleStub", (), {"repository": battles})()),
-    )
-    active = await service.get(run.id)
-    assert active.run.status is ChallengeStatus.BATTLING
-    run = await challenges.get(run.id)
-    assert run is not None
-    completed = linked.model_copy(
-        update={"status": MatchStatus.COMPLETED, "winner": Side.P1, "turns": 12}
-    )
-    await service.on_match_terminal(match_id, completed)
-    await service.on_match_terminal(match_id, completed)
-    progressed = await challenges.get(run.id)
-    assert progressed is not None and progressed.status is ChallengeStatus.COMPLETED
-    assert progressed.stage_results[0].match_id == match_id
-    assert progressed.stage_results[0].turns == 12
-    assert len(progressed.stage_results) == 1
-    assert service.view(progressed).statistics.total_battles == 1
-    assert service.view(progressed).run.definition.stages[0].opponent_team == "[private stage team]"
-    await database.close()
+class _CapturingProvider(FakeProvider):
+    def __init__(self) -> None:
+        super().__init__()
+        self.request: ProviderRequest | None = None
+
+    async def generate(self, request: ProviderRequest, **kwargs: Any):  # type: ignore[no-untyped-def]
+        self.request = request
+        return await super().generate(request, **kwargs)
 
 
 @pytest.mark.asyncio
-async def test_failed_stage_remains_retryable_and_run_cancellation_stops_active_match(
+async def test_agent_prompt_explains_consumption_and_contains_no_credit_logic(
     tmp_path: Path,
 ) -> None:
-    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'terminal.db'}")
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'agent.db'}")
     await database.create_schema()
     repository = ChallengeRepository(database)
-    battle_repository = BattleRepository(database)
-    battles = _Battles(())
+    run = attach_offer(_run()).model_copy(
+        update={
+            "draft_controller": DraftControllerSnapshot(
+                kind=DraftControllerKind.AGENT,
+                provider=ProviderKind.FAKE,
+                model="fake-battle-v1",
+            )
+        }
+    )
+    await repository.create(run)
+    provider = _CapturingProvider()
+    battles = type(
+        "DraftBattleStub", (), {"provider_for_draft": lambda self, controller: provider}
+    )()
     service = ChallengeService(
-        repository,
-        DraftPriceStore(tmp_path / "prices"),
-        ShowdownSpeciesCatalog("http://127.0.0.1:9"),
-        cast(Any, battles),
+        repository, ShowdownSpeciesCatalog("http://127.0.0.1:9"), cast(Any, battles)
     )
-    config = MatchConfig(
-        players=(
-            PlayerConfig(side=Side.P1, display_name="Player", agent_type=AgentType.RANDOM),
-            PlayerConfig(side=Side.P2, display_name="Leader", agent_type=AgentType.RANDOM),
-        )
-    )
-
-    failed_match_id = uuid4()
-    failed_run = _run(status=ChallengeStatus.BATTLE_QUEUED)
-    await repository.create(failed_run)
-    await battle_repository.create_match(
-        failed_match_id,
-        config,
-        engine="test",
-        engine_version="1",
-        showdown_version="pinned",
-        poke_env_version="0.15.0",
-        challenge_run_id=failed_run.id,
-        challenge_stage_id="stage-one",
-    )
-    failed_run = await repository.save(
-        failed_run.model_copy(
-            update={"status": ChallengeStatus.BATTLING, "active_match_id": failed_match_id}
-        ),
-        expected_revision=failed_run.revision,
-    )
-    now = datetime.now(UTC)
-    archive = MatchArchive(
-        id=failed_match_id,
-        created_at=now,
-        updated_at=now,
-        status=MatchStatus.FAILED,
-        config=config,
-        engine="test",
-        error="synthetic engine failure",
-        challenge_run_id=failed_run.id,
-        challenge_stage_id="stage-one",
-    )
-    await service.on_match_terminal(failed_match_id, archive)
-    retryable = await repository.get(failed_run.id)
-    assert retryable is not None
-    assert retryable.status is ChallengeStatus.STAGE_RESULT
-    assert retryable.current_stage_index == 0
-    assert retryable.active_match_id is None
-    assert retryable.stage_results[-1].status == "failed"
-    assert retryable.error == "synthetic engine failure"
-
-    active_match_id = uuid4()
-    active_run = _run(status=ChallengeStatus.BATTLE_QUEUED)
-    await repository.create(active_run)
-    await battle_repository.create_match(
-        active_match_id,
-        config,
-        engine="test",
-        engine_version="1",
-        showdown_version="pinned",
-        poke_env_version="0.15.0",
-        challenge_run_id=active_run.id,
-        challenge_stage_id="stage-one",
-    )
-    active_run = await repository.save(
-        active_run.model_copy(
-            update={"status": ChallengeStatus.BATTLING, "active_match_id": active_match_id}
-        ),
-        expected_revision=active_run.revision,
-    )
-    cancelled = await service.cancel(active_run.id, active_run.revision)
-    assert cancelled.status is ChallengeStatus.CANCELLED
-    assert cancelled.active_match_id is None
-    assert battles.cancelled == [active_match_id]
+    await service.agent_action(run.id, run.revision)
+    assert provider.request is not None
+    assert "disappears after this decision" in provider.request.prompt
+    assert "credit" not in provider.request.prompt.lower()
     await database.close()
 
 
-def test_level_normalization_replaces_or_inserts_without_mutating_source() -> None:
+def test_legacy_credit_run_is_explicitly_abandoned_instead_of_reinterpreted() -> None:
+    run = attach_offer(_run())
+    payload = run.model_dump(mode="json")
+    pool = payload.pop("draft_pool")
+    payload["schema_version"] = "1.0"
+    payload.pop("draft_rules_version")
+    payload.pop("consumed_species_ids")
+    payload.pop("draft_history")
+    payload.pop("ability_selections")
+    payload["definition"]["draft_rules"]["starting_credits"] = 68
+    payload["credits_remaining"] = 68
+    payload["pricing"] = {
+        "catalog_hash": pool["catalog_hash"],
+        "candidates": [{**candidate, "points": 1} for candidate in pool["candidates"]],
+    }
+
+    restored = _deserialize_run(json.dumps(payload))
+
+    assert restored.status is ChallengeStatus.ABANDONED
+    assert restored.draft_rules_version == "draft-rules-v1-incompatible"
+    assert restored.compatibility_notice == LEGACY_NOTICE
+    assert restored.current_offer is None
+
+
+def test_level_and_zero_ev_derivations_do_not_mutate_source() -> None:
     source = "Mon One\nLevel: 37\nEVs: 252 Atk / 4 SpD / 252 Spe\n- Tackle\n\nMon Two\n- Splash"
     derived = _with_level(source, 85)
     assert derived.count("Level: 85") == 2
@@ -619,20 +715,7 @@ def test_level_normalization_replaces_or_inserts_without_mutating_source() -> No
     assert "EVs: 252 Atk / 5 SpD / 252 Spe" in derived
     assert "EVs: 1 HP" in derived
     assert source.startswith("Mon One\nLevel: 37")
-
-
-def test_level_100_never_adds_the_showdown_low_level_confirmation_marker() -> None:
-    source = "Mon One\nEVs: 252 Atk / 4 SpD / 252 Spe\n- Tackle"
-    assert _with_level(source, 100) == (
-        "Mon One\nLevel: 100\nEVs: 252 Atk / 4 SpD / 252 Spe\n- Tackle"
-    )
-
-
-def test_zero_ev_confirmation_is_derived_without_mutating_source() -> None:
-    source = "Mon One\nAbility: Sturdy\n- Tackle\n\nMon Two\nEVs: 0 HP\n- Splash"
-    derived = _with_zero_ev_confirmation(source)
-    assert derived.count("EVs: 1 HP") == 2
-    assert "EVs:" not in source.split("\n\n")[0]
+    assert _with_zero_ev_confirmation("Mon One\n- Tackle") == ("Mon One\nEVs: 1 HP\n- Tackle")
 
 
 def test_challenge_match_payload_redacts_only_the_opponent_team() -> None:
@@ -664,11 +747,37 @@ def test_challenge_match_payload_redacts_only_the_opponent_team() -> None:
         challenge_run_id=uuid4(),
         challenge_stage_id="brock",
     )
-
     redacted = redact_challenge_match(archive)
-
     assert redacted.config.players[0].team_export == "p1 secret"
     assert redacted.config.players[0].team_snapshot_id == snapshot_id
     assert redacted.config.players[1].team_export is None
     assert redacted.config.players[1].team_packed is None
     assert redacted.config.players[1].team_snapshot_id is None
+
+
+def test_species_catalog_filters_temporary_forms_but_keeps_legal_hidden_abilities() -> None:
+    metadata = (
+        SpeciesMetadata(
+            id="rotomwash",
+            name="Rotom-Wash",
+            base_species_id="rotom",
+            national_dex_number=479,
+            introduction_generation=4,
+            types=("Electric", "Water"),
+            abilities=(PokemonAbility(slot="0", id="levitate", name="Levitate"),),
+        ),
+        SpeciesMetadata(
+            id="charizardmega",
+            name="Charizard-Mega",
+            base_species_id="charizard",
+            national_dex_number=6,
+            introduction_generation=6,
+            types=("Fire", "Dragon"),
+            abilities=(PokemonAbility(slot="0", id="toughclaws", name="Tough Claws"),),
+            is_mega=True,
+        ),
+    )
+    candidates, excluded = ChallengeService._candidates(metadata, abilities_supported=True)
+    assert [item.entry_id for item in candidates] == ["rotomwash"]
+    assert candidates[0].abilities[0].id == "levitate"
+    assert excluded[0]["species"] == "Charizard-Mega"

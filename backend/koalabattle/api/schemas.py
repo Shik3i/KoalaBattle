@@ -157,6 +157,7 @@ class ProviderConfigurationInput(BaseModel):
     provider: ProviderKind
     api_key: str | None = Field(default=None, max_length=1_000)
     base_url: str | None = Field(default=None, max_length=500)
+    clear: bool = False
 
 
 class StoredTemplateInput(BaseModel):

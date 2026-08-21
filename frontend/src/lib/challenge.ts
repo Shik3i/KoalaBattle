@@ -28,7 +28,6 @@ export function draftChoiceIndexForKey(key: string): number | null {
 }
 
 export interface EvLimits {
-  global: number;
   pokemon: number;
   stat: number;
 }
@@ -106,11 +105,10 @@ export function legalEvValue(
   limits: EvLimits
 ): number {
   const spread = allocations[entryId] || emptyEvSpread();
-  const withoutCurrent = evAllocationTotal(allocations) - Number(spread[stat] || 0);
   const pokemonWithoutCurrent = evSpreadTotal(spread) - Number(spread[stat] || 0);
   const ceiling = Math.max(
     0,
-    Math.min(limits.stat, limits.pokemon - pokemonWithoutCurrent, limits.global - withoutCurrent)
+    Math.min(limits.stat, limits.pokemon - pokemonWithoutCurrent)
   );
   return Math.min(ceiling, Math.max(0, Math.floor(Number(requested) || 0)));
 }
@@ -141,7 +139,7 @@ export function challengeErrorMessage(message: string): string {
     return 'The draft was taken over manually before that AI decision finished. The late AI response was ignored.';
   }
   if (normalized.includes('no generation+type') || normalized.includes('cannot be completed')) {
-    return 'The roster cannot be completed with the current pool and Draft Credits. Start again with a larger budget or broader pricing coverage.';
+    return 'The roster cannot be completed from the remaining unseen species. Start a new run with a larger or broader draft pool.';
   }
   if (normalized.includes('showdown rejected the team')) {
     return 'Showdown found problems in the team. Fix the listed set details and validate again.';
@@ -152,17 +150,14 @@ export function challengeErrorMessage(message: string): string {
   if (normalized.includes('species/forms do not exactly match')) {
     return 'The final team must contain each drafted Pokémon form exactly once.';
   }
+  if (normalized.includes('ability selections must exactly match')) {
+    return 'Choose one legal ability for every drafted Pokémon before locking the team.';
+  }
+  if (normalized.includes('illegal ability') || normalized.includes('ability does not match')) {
+    return 'One selected ability is not legal for that exact Pokémon form and format. Review the ability selectors and try again.';
+  }
   if (normalized.includes('decision request not pending')) {
     return 'That turn was already answered or replaced. Refreshing the current battle state…';
-  }
-  if (normalized.includes('pricing catalog changed')) {
-    return 'Draft pricing changed while setup was open. Review the current catalog before starting.';
-  }
-  if (normalized.includes('draft pricing is unavailable')) {
-    return 'Draft pricing is not configured. Import and verify a local Draft Board copy before creating a Challenge.';
-  }
-  if (normalized.includes('draft pricing verification failed') || normalized.includes('catalog hash mismatch')) {
-    return 'Draft pricing failed its integrity check. Re-import the local Draft Board, then run the verify command before creating a Challenge.';
   }
   if (normalized.includes('provider') || normalized.includes('agent draft')) {
     return `The AI could not complete this decision. Retry it or take over manually. Details: ${message}`;

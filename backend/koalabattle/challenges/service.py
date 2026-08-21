@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import re
 from datetime import UTC, datetime
@@ -23,8 +24,14 @@ from koalabattle.core.models import (
 )
 from koalabattle.service import BattleService
 
-from .domain import deterministic_random_choice, generate_offer, minimum_completion_cost
+from .domain import (
+    attach_offer,
+    can_generate_offer,
+    deterministic_random_choice,
+    unseen_identity_count,
+)
 from .models import (
+    DRAFT_RULES_VERSION,
     BattleControllerSnapshot,
     ChallengeDefinition,
     ChallengeRun,
@@ -36,15 +43,14 @@ from .models import (
     CreateChallengeRun,
     DraftCandidate,
     DraftControllerKind,
+    DraftHistoryEntry,
     DraftPick,
+    DraftPoolSnapshot,
     EvSpread,
-    PricingCatalogSnapshot,
-    PricingStatus,
     PublicChallengeStage,
 )
-from .pricing import DraftPriceCatalog, DraftPriceStore, showdown_id
 from .repository import ChallengeRepository
-from .species import ShowdownSpeciesCatalog, SpeciesMetadata
+from .species import ShowdownSpeciesCatalog, SpeciesMetadata, showdown_id
 
 CONTENT_ROOT = Path(__file__).with_name("content")
 
@@ -89,18 +95,78 @@ def _ev_line(spread: EvSpread) -> str | None:
     return f"EVs: {' / '.join(values)}" if values else None
 
 
+def _recommended_ev_spread(candidate: DraftCandidate) -> EvSpread:
+    """Return the same deterministic first-choice preset shown by Training Camp."""
+    stats = candidate.base_stats
+    if stats is None:
+        return EvSpread(atk=252, spd=4, spe=252)
+    physical = stats.atk >= stats.spa
+    offense = stats.atk if physical else stats.spa
+    defensive = max(stats.defense, stats.spd)
+    if defensive > offense + 10:
+        if stats.defense >= stats.spd:
+            return EvSpread.model_validate({"hp": 252, "def": 252, "spd": 4})
+        return EvSpread.model_validate({"hp": 252, "def": 4, "spd": 252})
+    is_fast = stats.spe >= 90 or stats.spe >= defensive
+    if physical:
+        return (
+            EvSpread(atk=252, spd=4, spe=252)
+            if is_fast
+            else EvSpread(hp=252, atk=252, spd=4)
+        )
+    return (
+        EvSpread(spa=252, spd=4, spe=252)
+        if is_fast
+        else EvSpread(hp=252, spa=252, spd=4)
+    )
+
+
 def _team_scaffold(run: ChallengeRun) -> str | None:
     if len(run.picks) != run.definition.draft_rules.roster_size:
         return None
     blocks: list[str] = []
     for pick in run.picks:
-        lines = [pick.candidate.species]
+        heading = pick.candidate.species
+        if pick.candidate.required_item:
+            heading = f"{heading} @ {pick.candidate.required_item}"
+        lines = [heading]
         ev_line = _ev_line(run.ev_allocations.get(pick.candidate.entry_id, EvSpread()))
         if ev_line:
             lines.append(ev_line)
-        lines.extend(("Ability: [choose a legal ability]", "- [choose four legal moves]"))
+        selected = run.ability_selections.get(pick.candidate.entry_id)
+        ability = next((item for item in pick.candidate.abilities if item.id == selected), None)
+        if ability is not None:
+            lines.append(f"Ability: {ability.name}")
+        lines.append(
+            f"- {pick.candidate.recommended_move}"
+            if pick.candidate.recommended_move
+            else "- [choose at least one legal move]"
+        )
         blocks.append("\n".join(lines))
     return "\n\n".join(blocks)
+
+
+def _apply_selected_abilities(team_export: str, run: ChallengeRun) -> str:
+    """Apply persisted format-aware selections before authoritative validation."""
+    candidates = {
+        candidate.showdown_id: candidate for candidate in (p.candidate for p in run.picks)
+    }
+    normalized: list[str] = []
+    for block in (item.strip() for item in team_export.strip().split("\n\n") if item.strip()):
+        lines = block.splitlines()
+        heading = lines[0].split("@", 1)[0].strip()
+        species_match = re.search(r"\(([^()]+)\)\s*$", heading)
+        species_id = showdown_id(species_match.group(1) if species_match else heading)
+        candidate = candidates.get(species_id)
+        lines = [line for line in lines if not line.startswith("Ability:")]
+        if candidate is not None and run.draft_pool.abilities_supported:
+            selected = run.ability_selections.get(candidate.entry_id)
+            ability = next((item for item in candidate.abilities if item.id == selected), None)
+            if ability is None:
+                raise ValueError(f"select a legal ability for {candidate.species}")
+            lines.insert(1, f"Ability: {ability.name}")
+        normalized.append("\n".join(lines))
+    return "\n\n".join(normalized)
 
 
 def _with_zero_ev_confirmation(team_export: str) -> str:
@@ -186,121 +252,20 @@ class ChallengeService:
     def __init__(
         self,
         repository: ChallengeRepository,
-        prices: DraftPriceStore,
         species: ShowdownSpeciesCatalog,
         battles: BattleService,
     ) -> None:
         self.repository = repository
-        self.prices = prices
         self.species = species
         self.battles = battles
 
-    async def pricing_status(self) -> PricingStatus:
-        try:
-            catalog = self.prices.load()
-        except ValueError as error:
-            return PricingStatus(
-                available=True, ready=False, path=str(self.prices.path), errors=(str(error),)
-            )
-        if catalog is None:
-            return PricingStatus(
-                available=False,
-                ready=False,
-                path=str(self.prices.path),
-                errors=("No normalized draft pricing catalog is installed.",),
-            )
-        source_verified, verification_detail = self.prices.verify_source(catalog)
-        try:
-            metadata = await self.species.entries()
-        except RuntimeError as error:
-            return PricingStatus(
-                available=True,
-                ready=False,
-                path=str(self.prices.path),
-                catalog_hash=catalog.catalog_hash,
-                board_name=catalog.board_name,
-                context=catalog.context,
-                imported_at=catalog.imported_at,
-                parsed_entries=catalog.parsed_entries,
-                source_verified=source_verified,
-                verification_detail=verification_detail,
-                errors=(str(error),),
-            )
-        candidates, excluded = self._candidates(catalog, metadata)
-        banned = sum(item.state == "banned" for item in catalog.entries)
-        missing = sum(item.state == "missing" for item in catalog.entries)
-        unsupported = sum(item["state"] not in {"banned", "missing"} for item in excluded)
-        default_rules = _definition("kanto-gym-gauntlet").draft_rules
-        cheapest_by_species: dict[str, int] = {}
-        for candidate in candidates:
-            cheapest_by_species[candidate.base_species_id] = min(
-                cheapest_by_species.get(candidate.base_species_id, candidate.points),
-                candidate.points,
-            )
-        enough_species = len(cheapest_by_species) >= default_rules.roster_size
-        cheapest_default = sum(sorted(cheapest_by_species.values())[: default_rules.roster_size])
-        budget_ready = enough_species and cheapest_default <= default_rules.starting_credits
-        ready = source_verified and enough_species and budget_ready
-        readiness_errors: list[str] = []
-        if not source_verified:
-            readiness_errors.append(f"Pricing source verification failed. {verification_detail}")
-        if not enough_species:
-            readiness_errors.append(
-                f"At least {default_rules.roster_size} Species-Clause-safe priced entries "
-                "are required."
-            )
-        elif not budget_ready:
-            readiness_errors.append(
-                f"The cheapest legal roster costs {cheapest_default} Draft Credits, above the "
-                f"default budget of {default_rules.starting_credits}."
-            )
-        return PricingStatus(
-            available=True,
-            ready=ready,
-            path=str(self.prices.path),
-            catalog_hash=catalog.catalog_hash,
-            board_name=catalog.board_name,
-            context=catalog.context,
-            imported_at=catalog.imported_at,
-            parsed_entries=catalog.parsed_entries,
-            eligible_entries=len(metadata),
-            priced_entries=len(candidates),
-            banned_entries=banned,
-            missing_entries=missing,
-            unsupported_entries=unsupported,
-            source_verified=source_verified,
-            verification_detail=verification_detail,
-            excluded_entries=tuple(excluded),
-            errors=tuple(readiness_errors),
-        )
-
     @staticmethod
     def _candidates(
-        catalog: DraftPriceCatalog, metadata: tuple[SpeciesMetadata, ...]
+        metadata: tuple[SpeciesMetadata, ...], *, abilities_supported: bool
     ) -> tuple[tuple[DraftCandidate, ...], list[dict[str, str]]]:
-        by_id = {entry.id: entry for entry in metadata}
         candidates: list[DraftCandidate] = []
         excluded: list[dict[str, str]] = []
-        for price in catalog.entries:
-            species = by_id.get(price.entry_id)
-            if price.state != "priced" or price.points is None:
-                excluded.append(
-                    {
-                        "species": price.species,
-                        "state": price.state,
-                        "reason": price.reason or price.state,
-                    }
-                )
-                continue
-            if species is None:
-                excluded.append(
-                    {
-                        "species": price.species,
-                        "state": "unsupported form",
-                        "reason": "no exact pinned Showdown species match",
-                    }
-                )
-                continue
+        for species in metadata:
             if (
                 species.battle_only
                 or species.cosmetic
@@ -310,15 +275,24 @@ class ChallengeService:
             ):
                 excluded.append(
                     {
-                        "species": price.species,
+                        "species": species.name,
                         "state": "unavailable",
-                        "reason": "temporary or special-mechanic form excluded in V1",
+                        "reason": "temporary or special-mechanic form excluded",
+                    }
+                )
+                continue
+            if abilities_supported and not species.abilities:
+                excluded.append(
+                    {
+                        "species": species.name,
+                        "state": "unavailable",
+                        "reason": "format requires abilities but Showdown exposes none",
                     }
                 )
                 continue
             candidates.append(
                 DraftCandidate(
-                    entry_id=price.entry_id,
+                    entry_id=species.id,
                     species=species.name,
                     showdown_id=species.id,
                     base_species_id=species.base_species_id,
@@ -327,29 +301,44 @@ class ChallengeService:
                     types=species.types,
                     base_stat_total=species.base_stat_total,
                     base_stats=species.base_stats,
-                    points=price.points,
+                    abilities=species.abilities,
+                    recommended_move=species.recommended_move,
+                    required_item=species.required_item,
                 )
             )
         return tuple(sorted(candidates, key=lambda item: item.entry_id)), excluded
 
     async def create(self, payload: CreateChallengeRun) -> ChallengeRunView:
-        catalog = self.prices.load()
-        if catalog is None:
-            raise ValueError("draft pricing is unavailable; import a local board first")
-        source_verified, verification_detail = self.prices.verify_source(catalog)
-        if not source_verified:
-            raise ValueError(f"draft pricing verification failed: {verification_detail}")
-        if payload.expected_catalog_hash and payload.expected_catalog_hash != catalog.catalog_hash:
-            raise ValueError("pricing catalog changed; refresh setup before creating the run")
-        metadata = await self.species.entries()
-        candidates, _ = self._candidates(catalog, metadata)
         definition = _definition(payload.definition_id)
         if payload.draft_rules is not None:
             definition = definition.model_copy(update={"draft_rules": payload.draft_rules})
         if payload.training_rules is not None:
             definition = definition.model_copy(update={"training_rules": payload.training_rules})
-        if len(candidates) < definition.draft_rules.roster_size:
-            raise ValueError("pricing coverage cannot fill the configured roster")
+        species_snapshot = await self.species.snapshot(definition.format)
+        candidates, _ = self._candidates(
+            species_snapshot.species,
+            abilities_supported=species_snapshot.abilities_supported,
+        )
+        identities = {
+            candidate.base_species_id
+            if definition.draft_rules.species_clause
+            else candidate.entry_id
+            for candidate in candidates
+        }
+        if len(identities) < definition.draft_rules.roster_size:
+            raise ValueError(
+                f"draft pool has only {len(identities)} eligible Species-Clause identities for "
+                f"a roster of {definition.draft_rules.roster_size}"
+            )
+        catalog_material = json.dumps(
+            {
+                "showdown_version": species_snapshot.showdown_version,
+                "format": species_snapshot.format,
+                "candidates": [item.model_dump(mode="json") for item in candidates],
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode()
         now = datetime.now(UTC)
         run = ChallengeRun(
             id=uuid4(),
@@ -357,33 +346,25 @@ class ChallengeService:
             definition=definition,
             status=ChallengeStatus.DRAFTING,
             seed=payload.seed,
-            pricing=PricingCatalogSnapshot(
-                schema_version=catalog.schema_version,
-                parser_version=catalog.parser_version,
-                board_name=catalog.board_name,
-                context=catalog.context,
-                imported_at=catalog.imported_at,
-                source_sha256=catalog.source_sha256,
-                catalog_hash=catalog.catalog_hash,
-                parsed_entries=catalog.parsed_entries,
-                mechanics_assumptions=catalog.mechanics_assumptions,
+            draft_rules_version=DRAFT_RULES_VERSION,
+            draft_pool=DraftPoolSnapshot(
+                showdown_version=species_snapshot.showdown_version,
+                format=species_snapshot.format,
+                format_generation=species_snapshot.format_generation,
+                abilities_supported=species_snapshot.abilities_supported,
+                catalog_hash=hashlib.sha256(catalog_material).hexdigest(),
                 candidates=candidates,
             ),
             draft_controller=payload.draft_controller,
             battle_controller=payload.battle_controller,
             opponent_controller=payload.opponent_controller,
-            credits_remaining=definition.draft_rules.starting_credits,
             rerolls_remaining=definition.draft_rules.rerolls,
+            type_rerolls_remaining=definition.draft_rules.type_rerolls,
+            generation_rerolls_remaining=definition.draft_rules.generation_rerolls,
             created_at=now,
             updated_at=now,
         )
-        required_credits = minimum_completion_cost(run)
-        if required_credits > run.credits_remaining:
-            raise ValueError(
-                f"the cheapest legal {definition.draft_rules.roster_size}-Pokemon roster costs "
-                f"{required_credits} Draft Credits; increase the budget or import broader coverage"
-            )
-        run = run.model_copy(update={"current_offer": generate_offer(run)})
+        run = attach_offer(run)
         await self.repository.create(run)
         if run.draft_controller.kind is DraftControllerKind.RANDOM:
             while run.status is ChallengeStatus.DRAFTING:
@@ -496,6 +477,10 @@ class ChallengeService:
             else None
         )
         visible_candidates = {pick.candidate.entry_id: pick.candidate for pick in run.picks}
+        for history in run.draft_history:
+            visible_candidates.update(
+                (candidate.entry_id, candidate) for candidate in history.offer.options
+            )
         if run.current_offer is not None:
             visible_candidates.update(
                 (candidate.entry_id, candidate) for candidate in run.current_offer.options
@@ -503,7 +488,7 @@ class ChallengeService:
         return ChallengeRunView(
             run=run.model_copy(
                 update={
-                    "pricing": run.pricing.model_copy(
+                    "draft_pool": run.draft_pool.model_copy(
                         update={"candidates": tuple(visible_candidates.values())}
                     ),
                     "definition": run.definition.model_copy(
@@ -519,7 +504,35 @@ class ChallengeService:
             stages=stages,
             current_stage=current,
             team_export_scaffold=_team_scaffold(run),
-            minimum_completion_cost=minimum_completion_cost(run),
+            can_reroll=(
+                run.status is ChallengeStatus.DRAFTING
+                and run.current_offer is not None
+                and run.rerolls_remaining > 0
+                and can_generate_offer(run, nonce=run.offer_nonce + 1)
+            ),
+            can_reroll_type=(
+                run.status is ChallengeStatus.DRAFTING
+                and run.current_offer is not None
+                and run.type_rerolls_remaining > 0
+                and can_generate_offer(
+                    run,
+                    nonce=run.offer_nonce + 1,
+                    fixed_generation=run.current_offer.generation,
+                    excluded_type=run.current_offer.type,
+                )
+            ),
+            can_reroll_generation=(
+                run.status is ChallengeStatus.DRAFTING
+                and run.current_offer is not None
+                and run.generation_rerolls_remaining > 0
+                and can_generate_offer(
+                    run,
+                    nonce=run.offer_nonce + 1,
+                    fixed_type=run.current_offer.type,
+                    excluded_generation=run.current_offer.generation,
+                )
+            ),
+            unseen_candidate_count=unseen_identity_count(run),
             statistics=ChallengeRunStats(
                 stages_cleared=wins,
                 wins=wins,
@@ -531,9 +544,14 @@ class ChallengeService:
                 duration_seconds=sum(item.duration_seconds for item in run.stage_results),
                 estimated_cost=sum(item.estimated_cost for item in run.stage_results),
                 average_decision_latency_ms=average_latency,
-                credits_spent=run.definition.draft_rules.starting_credits - run.credits_remaining,
-                credits_remaining=run.credits_remaining,
-                rerolls_used=run.definition.draft_rules.rerolls - run.rerolls_remaining,
+                rerolls_used=(
+                    run.definition.draft_rules.rerolls
+                    - run.rerolls_remaining
+                    + run.definition.draft_rules.type_rerolls
+                    - run.type_rerolls_remaining
+                    + run.definition.draft_rules.generation_rerolls
+                    - run.generation_rerolls_remaining
+                ),
                 ev_used=sum(spread.total for spread in run.ev_allocations.values()),
             ),
         )
@@ -575,17 +593,39 @@ class ChallengeService:
                 ),
             )
             complete = len(picks) == run.definition.draft_rules.roster_size
+            ability_selections = dict(run.ability_selections)
+            ev_allocations = dict(run.ev_allocations)
+            if complete:
+                for pick in picks:
+                    ability_selections[pick.candidate.entry_id] = (
+                        pick.candidate.abilities[0].id
+                        if run.draft_pool.abilities_supported and pick.candidate.abilities
+                        else None
+                    )
+                    ev_allocations[pick.candidate.entry_id] = _recommended_ev_spread(
+                        pick.candidate
+                    )
             updated = run.model_copy(
                 update={
                     "picks": picks,
-                    "credits_remaining": run.credits_remaining - candidate.points,
+                    "draft_history": (
+                        *run.draft_history,
+                        DraftHistoryEntry(
+                            offer=run.current_offer,
+                            outcome="picked",
+                            selected_entry_id=candidate.entry_id,
+                            decided_by=controller,
+                        ),
+                    ),
+                    "ability_selections": ability_selections,
+                    "ev_allocations": ev_allocations,
                     "status": ChallengeStatus.TRAINING if complete else ChallengeStatus.DRAFTING,
                     "current_offer": None,
                     "offer_nonce": 0,
                 }
             )
             if not complete:
-                updated = updated.model_copy(update={"current_offer": generate_offer(updated)})
+                updated = attach_offer(updated)
             return await self.repository.save(updated, expected_revision=run.revision)
 
     async def reroll(
@@ -594,6 +634,7 @@ class ChallengeService:
         fingerprint: str,
         expected_revision: int,
         *,
+        kind: Literal["all", "type", "generation"] = "all",
         selected_by: DraftControllerKind | None = None,
     ) -> ChallengeRun:
         async with self.repository.lock(run_id):
@@ -608,19 +649,58 @@ class ChallengeService:
                 raise ValueError("draft controller changed while this decision was in progress")
             if run.current_offer.fingerprint != fingerprint:
                 raise ValueError("draft offer is stale")
-            if run.rerolls_remaining <= 0:
-                raise ValueError("no rerolls remain")
+            counter = {
+                "all": run.rerolls_remaining,
+                "type": run.type_rerolls_remaining,
+                "generation": run.generation_rerolls_remaining,
+            }[kind]
+            if counter <= 0:
+                raise ValueError(f"no {kind} rerolls remain")
+            offer = run.current_offer
             nonce = run.offer_nonce + 1
+            counter_update = {
+                "all": {"rerolls_remaining": run.rerolls_remaining - 1},
+                "type": {"type_rerolls_remaining": run.type_rerolls_remaining - 1},
+                "generation": {
+                    "generation_rerolls_remaining": run.generation_rerolls_remaining - 1
+                },
+            }[kind]
+            history_outcome = {
+                "all": "rerolled",
+                "type": "type_rerolled",
+                "generation": "generation_rerolled",
+            }[kind]
             updated = run.model_copy(
                 update={
-                    "rerolls_remaining": run.rerolls_remaining - 1,
+                    **counter_update,
                     "offer_nonce": nonce,
                     "current_offer": None,
+                    "draft_history": (
+                        *run.draft_history,
+                        DraftHistoryEntry(
+                            offer=offer,
+                            outcome=history_outcome,
+                            decided_by=selected_by or run.draft_controller.kind,
+                        ),
+                    ),
                 }
             )
-            updated = updated.model_copy(
-                update={"current_offer": generate_offer(updated, nonce=nonce)}
-            )
+            if kind == "type":
+                updated = attach_offer(
+                    updated,
+                    nonce=nonce,
+                    fixed_generation=offer.generation,
+                    excluded_type=offer.type,
+                )
+            elif kind == "generation":
+                updated = attach_offer(
+                    updated,
+                    nonce=nonce,
+                    fixed_type=offer.type,
+                    excluded_generation=offer.generation,
+                )
+            else:
+                updated = attach_offer(updated, nonce=nonce)
             return await self.repository.save(updated, expected_revision=run.revision)
 
     async def agent_action(self, run_id: UUID, expected_revision: int) -> ChallengeRun:
@@ -631,7 +711,7 @@ class ChallengeService:
             raise ValueError("run is not waiting for an agent draft action")
         provider = self.battles.provider_for_draft(run.draft_controller)
         legal = [f"pick:{item.entry_id}" for item in run.current_offer.options]
-        if run.rerolls_remaining:
+        if run.rerolls_remaining and can_generate_offer(run, nonce=run.offer_nonce + 1):
             legal.append("reroll")
         prompt = json.dumps(
             {
@@ -640,8 +720,12 @@ class ChallengeService:
                     "format": run.definition.format,
                     "draft": run.definition.draft_rules.model_dump(mode="json"),
                     "training": run.definition.training_rules.model_dump(mode="json"),
+                    "offer_consumption": (
+                        "Every currently displayed Pokemon disappears after this decision, "
+                        "including rejected choices. Reroll also consumes and replaces the "
+                        "complete offer. None can appear again in this run."
+                    ),
                 },
-                "remaining_credits": run.credits_remaining,
                 "remaining_slots": run.definition.draft_rules.roster_size - len(run.picks),
                 "rerolls_remaining": run.rerolls_remaining,
                 "previous_picks": [pick.candidate.model_dump(mode="json") for pick in run.picks],
@@ -749,14 +833,44 @@ class ChallengeService:
                     for value in spread.model_dump(by_alias=True).values()
                 ):
                     raise ValueError(f"{entry_id} exceeds the per-stat EV limit")
-            if sum(spread.total for spread in allocations.values()) > rules.global_ev_budget:
-                raise ValueError("global EV budget exceeded")
             updated = run.model_copy(
                 update={
                     "ev_allocations": allocations,
                     "status": ChallengeStatus.TEAM_REVIEW,
                 }
             )
+            return await self.repository.save(updated, expected_revision=run.revision)
+
+    async def save_abilities(
+        self,
+        run_id: UUID,
+        abilities: dict[str, str | None],
+        expected_revision: int,
+    ) -> ChallengeRun:
+        async with self.repository.lock(run_id):
+            run = await self.require(run_id)
+            if run.revision != expected_revision:
+                raise ValueError(f"stale challenge revision: current {run.revision}")
+            if run.status not in {ChallengeStatus.TRAINING, ChallengeStatus.TEAM_REVIEW}:
+                raise ValueError("challenge is not accepting team configuration")
+            expected = {pick.candidate.entry_id for pick in run.picks}
+            if set(abilities) != expected:
+                raise ValueError("ability selections must contain every drafted entry exactly once")
+            normalized: dict[str, str | None] = {}
+            for pick in run.picks:
+                selected = abilities[pick.candidate.entry_id]
+                if not run.draft_pool.abilities_supported:
+                    if selected is not None:
+                        raise ValueError(
+                            f"{run.definition.format} does not support Pokemon abilities"
+                        )
+                    normalized[pick.candidate.entry_id] = None
+                    continue
+                legal = {ability.id for ability in pick.candidate.abilities}
+                if selected not in legal:
+                    raise ValueError(f"invalid ability for {pick.candidate.species}")
+                normalized[pick.candidate.entry_id] = selected
+            updated = run.model_copy(update={"ability_selections": normalized})
             return await self.repository.save(updated, expected_revision=run.revision)
 
     async def finalize_team(
@@ -768,8 +882,10 @@ class ChallengeService:
                 raise ValueError(f"stale challenge revision: current {run.revision}")
             if run.status is not ChallengeStatus.TEAM_REVIEW:
                 raise ValueError("challenge is not waiting for team finalization")
+            configured_team = _apply_selected_abilities(team_text, run)
+            submitted_team = _with_zero_ev_confirmation(configured_team)
             validation = await self.battles.team_validator.validate(
-                _with_zero_ev_confirmation(team_text), run.definition.format
+                submitted_team, run.definition.format
             )
             if not validation.valid:
                 raise ValueError("Showdown rejected the team: " + "; ".join(validation.errors))
@@ -792,10 +908,14 @@ class ChallengeService:
                 zero_ev_confirmation = expected_evs.total == 0 and actual_evs == EvSpread(hp=1)
                 if actual_evs != expected_evs and not zero_ev_confirmation:
                     raise ValueError(f"final team EVs for {species_id} do not match Training Camp")
+                if run.draft_pool.abilities_supported:
+                    actual_ability = showdown_id(str(pokemon.get("ability") or ""))
+                    if actual_ability != run.ability_selections.get(entry_id):
+                        raise ValueError(f"final team ability for {species_id} is not selected")
             snapshot = await self.battles.teams.create_snapshot(
                 name=f"{run.name} · source roster",
                 source=TeamSource.IMPORTED,
-                submitted_text=team_text,
+                submitted_text=submitted_team,
                 validation=validation,
             )
             updated = run.model_copy(

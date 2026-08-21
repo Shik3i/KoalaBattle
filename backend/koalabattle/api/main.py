@@ -36,11 +36,10 @@ from koalabattle.challenges.models import (
     DraftPickInput,
     DraftRerollInput,
     FinalizeTeamInput,
-    PricingStatus,
     RevisionInput,
+    TeamAbilityInput,
     TrainingInput,
 )
-from koalabattle.challenges.pricing import DraftPriceStore
 from koalabattle.challenges.service import redact_challenge_match
 from koalabattle.challenges.species import ShowdownSpeciesCatalog
 from koalabattle.config import Settings, get_settings
@@ -140,7 +139,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         challenge_repository = ChallengeRepository(database)
         challenges = ChallengeService(
             challenge_repository,
-            DraftPriceStore(resolved.draft_prices_root),
             ShowdownSpeciesCatalog(resolved.team_validator_url),
             service,
         )
@@ -751,10 +749,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=422, detail=str(error)) from error
         return {"status": "valid", "decision": decision.model_dump(mode="json")}
 
-    @app.get("/api/challenge-prices/status", response_model=PricingStatus)
-    async def challenge_pricing_status(request: Request) -> PricingStatus:
-        return await _challenges(request).pricing_status()
-
     @app.get("/api/challenges", response_model=tuple[ChallengeRunSummary, ...])
     async def list_challenges(
         request: Request, limit: int = 100, offset: int = 0
@@ -804,7 +798,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     ) -> ChallengeRunView:
         try:
             run = await _challenges(request).reroll(
-                run_id, payload.offer_fingerprint, payload.expected_revision
+                run_id,
+                payload.offer_fingerprint,
+                payload.expected_revision,
+                kind=payload.kind,
             )
             return _challenges(request).view(run)
         except KeyError as error:
@@ -863,6 +860,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         try:
             run = await _challenges(request).finalize_team(
                 run_id, payload.team_text, payload.expected_revision
+            )
+            return _challenges(request).view(run)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="challenge not found") from error
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.post("/api/challenges/{run_id}/team/abilities", response_model=ChallengeRunView)
+    async def challenge_team_abilities(
+        run_id: UUID, payload: TeamAbilityInput, request: Request
+    ) -> ChallengeRunView:
+        try:
+            run = await _challenges(request).save_abilities(
+                run_id, payload.abilities, payload.expected_revision
             )
             return _challenges(request).view(run)
         except KeyError as error:
@@ -938,7 +949,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     ) -> dict[str, object]:
         try:
             return _service(request).configure_provider(
-                payload.provider, payload.api_key, payload.base_url
+                payload.provider, payload.api_key, payload.base_url, clear=payload.clear
             )
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error

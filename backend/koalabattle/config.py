@@ -24,7 +24,6 @@ class Settings(BaseSettings):
     orchestrator_local_base_url: str = "http://127.0.0.1:1234/v1"
     orchestrator_default_model: str = "google/gemma-4-e4b"
     asset_root: Path = Path("data/assets")
-    draft_prices_root: Path = Path("data/draft-prices")
     #: User-uploaded logos, backgrounds, watermarks and fonts. Runtime media, never
     #: committed; see docs/ASSETS.md for the backup implications.
     branding_root: Path = Path("data/branding")
@@ -52,6 +51,7 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("KOALABATTLE_DEEPSEEK_API_KEY", "DEEPSEEK_API_KEY"),
     )
     openai_compatible_api_key: str | None = None
+    provider_credentials_file: Path | None = None
     enable_fake_provider: bool = False
     max_concurrent_matches: int = Field(default=2, ge=1, le=64)
     pricing_version: str = "unconfigured"

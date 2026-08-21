@@ -110,16 +110,70 @@ function dexNames() {
 }
 
 let cachedCatalog = null;
-let cachedSpecies = null;
+const cachedSpecies = new Map();
+
+function recommendedMove(formatDex, validator, entry, abilityName, requiredItem) {
+  const moveSources = new Map();
+  for (const { learnset } of formatDex.species.getFullLearnset(entry.id)) {
+    for (const [moveId, sources] of Object.entries(learnset || {})) {
+      const existing = moveSources.get(moveId) || [];
+      moveSources.set(moveId, existing.concat(sources || []));
+    }
+  }
+  const candidates = [...moveSources.entries()]
+    .filter(([, sources]) => sources.some((source) => {
+      if (source.charAt(1) === 'S') return false;
+      if (source.charAt(1) !== 'L') return true;
+      return Number.parseInt(source.slice(2), 10) <= 50;
+    }))
+    .map(([moveId]) => formatDex.moves.get(moveId))
+    .filter((move) => move && move.exists !== false && (!move.isNonstandard || move.isNonstandard === 'Past'))
+    .sort((left, right) => {
+      const leftDamaging = left.category !== 'Status' && Number(left.basePower) > 0 ? 1 : 0;
+      const rightDamaging = right.category !== 'Status' && Number(right.basePower) > 0 ? 1 : 0;
+      const leftStab = entry.types.includes(left.type) ? 1 : 0;
+      const rightStab = entry.types.includes(right.type) ? 1 : 0;
+      return rightDamaging - leftDamaging || rightStab - leftStab ||
+        Number(right.basePower || 0) - Number(left.basePower || 0) || left.name.localeCompare(right.name);
+    });
+  for (const move of candidates) {
+    const heading = entry.name + (requiredItem ? ` @ ${requiredItem}` : '');
+    const team = [
+      heading,
+      'Level: 50',
+      ...(abilityName ? [`Ability: ${abilityName}`] : []),
+      'EVs: 1 HP',
+      `- ${move.name}`
+    ].join('\n');
+    if (!(validator.validateTeam(Teams.import(team)) || []).length) return move.name;
+  }
+  return null;
+}
 
 /** Draft metadata comes directly from the same pinned Dex that validates the final team. */
-function speciesCatalog() {
-  if (cachedSpecies) return cachedSpecies;
-  const species = Dex.species
+function speciesCatalog(formatId) {
+  if (cachedSpecies.has(formatId)) return cachedSpecies.get(formatId);
+  const format = knownFormat(formatId);
+  if (!format) return null;
+  const formatDex = Dex.forFormat(format);
+  const validator = TeamValidator.get(format.id);
+  const formatGeneration = formatDex.gen;
+  const abilitiesSupported = mechanics(format, formatGeneration).abilities;
+  const species = formatDex.species
     .all()
     .filter((entry) => entry.exists !== false && Number(entry.num) > 0)
     .map((entry) => {
-      const base = Dex.species.get(entry.baseSpecies || entry.name);
+      const base = formatDex.species.get(entry.baseSpecies || entry.name);
+      const abilities = abilitiesSupported
+        ? ['0', '1', 'H', 'S'].flatMap((slot) => {
+            const abilityName = entry.abilities && entry.abilities[slot];
+            if (!abilityName) return [];
+            const ability = formatDex.abilities.get(abilityName);
+            if (!ability || ability.exists === false) return [];
+            return [{ slot, id: ability.id, name: ability.name, hidden: slot === 'H' }];
+          })
+        : [];
+      const requiredItem = entry.requiredItem || (entry.requiredItems && entry.requiredItems[0]) || null;
       return {
         id: entry.id,
         name: entry.name,
@@ -136,6 +190,9 @@ function speciesCatalog() {
           spd: Number(entry.baseStats.spd),
           spe: Number(entry.baseStats.spe)
         } : null,
+        abilities,
+        recommended_move: recommendedMove(formatDex, validator, entry, abilities[0] && abilities[0].name, requiredItem),
+        required_item: requiredItem,
         battle_only: Boolean(entry.battleOnly),
         cosmetic: Boolean(base.cosmeticFormes && base.cosmeticFormes.includes(entry.name)),
         unavailable: Boolean(entry.isNonstandard && entry.isNonstandard !== 'Past'),
@@ -144,13 +201,17 @@ function speciesCatalog() {
       };
     })
     .sort((left, right) => left.national_dex_number - right.national_dex_number || left.id.localeCompare(right.id));
-  cachedSpecies = {
+  const result = {
     schema_version: CATALOG_SCHEMA_VERSION,
     showdown_version: process.env.KOALABATTLE_SHOWDOWN_VERSION || 'pinned-local-build',
+    format: format.id,
+    format_generation: formatGeneration,
+    abilities_supported: abilitiesSupported,
     species_count: species.length,
     species
   };
-  return cachedSpecies;
+  cachedSpecies.set(formatId, result);
+  return result;
 }
 
 function catalog() {
@@ -218,8 +279,11 @@ const server = http.createServer((request, response) => {
     reply(response, 200, dexNames());
     return;
   }
-  if (request.method === 'GET' && request.url === '/dex-species') {
-    reply(response, 200, speciesCatalog());
+  const requestUrl = new URL(request.url, `http://${request.headers.host || 'localhost'}`);
+  if (request.method === 'GET' && requestUrl.pathname === '/dex-species') {
+    const formatId = requestUrl.searchParams.get('format') || 'gen9natdexdraft';
+    const result = speciesCatalog(formatId);
+    reply(response, result ? 200 : 422, result || { detail: 'format must be a known Showdown format' });
     return;
   }
   if (request.method !== 'POST' || request.url !== '/validate') {

@@ -1,8 +1,10 @@
 # LLM providers
 
 KoalaBattle 0.11.0 supports five battle-decision provider shapes and one test-only provider.
-Credentials are backend environment variables; the API exposes only a boolean
-`configured` status.
+Credentials are backend environment variables; the API exposes only a boolean `configured`
+status. In Docker, `/settings` writes API keys through the backend into the gitignored project
+`.env` mounted at `/runtime-config/.env`. Values apply immediately and are reloaded after process,
+container, or image rebuilds. The browser removes legacy localStorage keys after migrating them.
 
 | Provider | Backend variable | Default transport | Model discovery |
 | --- | --- | --- | --- |
@@ -28,6 +30,11 @@ uses model ID `google/gemma-4-e4b`; use **Discover models** to replace it with a
 currently available from the local server. All LLM presets use a five-minute request timeout
 and one automatic retry, which gives slow local models enough time to finish while retaining a
 single recovery attempt.
+
+Leaving a configured provider's password field empty preserves its current key. **Clear saved
+setting** is the only UI action that removes the corresponding `.env` value. The dotenv writer
+preserves unrelated variables and comments, rejects multiline keys, never logs values, and the
+credentials endpoint never returns a saved key.
 
 OpenAI-compatible providers that expose token streaming also publish a live, viewer-safe
 commentary preview and prompt-size metrics to the battle view. Raw prompts, model output outside

@@ -54,10 +54,15 @@ export async function copyText(value: string): Promise<boolean> {
 }
 
 export const getMatch = (id: string) => api<MatchArchive>(`/api/matches/${id}`);
-export const configureProvider = (provider: ProviderKind, apiKey: string, baseUrl: string | null = null) =>
+export const configureProvider = (
+  provider: ProviderKind,
+  apiKey: string | null,
+  baseUrl: string | null = null,
+  clear = false
+) =>
   api<{ provider: ProviderKind; configured: boolean; source: string }>('/api/providers/configure', {
     method: 'POST',
-    body: JSON.stringify({ provider, api_key: apiKey || null, base_url: baseUrl || null })
+    body: JSON.stringify({ provider, api_key: apiKey || null, base_url: baseUrl || null, clear })
   });
 /** The Showdown format registry, served by the pinned local Showdown build. */
 export const getFormatCatalog = (signal?: AbortSignal) =>

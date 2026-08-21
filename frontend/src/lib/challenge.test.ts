@@ -53,7 +53,7 @@ test('spread totals include all six stats', () => {
   );
 });
 
-test('allocation totals enforce the shared campaign budget calculation', () => {
+test('allocation totals report training across independently capped Pokemon', () => {
   assert.equal(
     evAllocationTotal({
       pikachu: { hp: 0, atk: 252, def: 0, spa: 0, spd: 4, spe: 252 },
@@ -63,23 +63,24 @@ test('allocation totals enforce the shared campaign budget calculation', () => {
   );
 });
 
-test('EV editing cannot exceed stat, Pokemon, or global limits', () => {
+test('EV editing caps only the selected Pokemon and stat', () => {
   const allocations = {
     pikachu: { hp: 252, atk: 0, def: 0, spa: 0, spd: 0, spe: 252 },
     blastoise: { hp: 252, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 }
   };
-  const limits = { global: 760, pokemon: 510, stat: 252 };
+  const limits = { pokemon: 510, stat: 252 };
 
-  assert.equal(legalEvValue(allocations, 'pikachu', 'spd', 252, limits), 4);
-  assert.equal(legalEvValue(allocations, 'blastoise', 'def', 999, limits), 4);
+  assert.equal(legalEvValue(allocations, 'pikachu', 'spd', 252, limits), 6);
+  assert.equal(legalEvValue(allocations, 'blastoise', 'def', 999, limits), 252);
   assert.equal(legalEvValue(allocations, 'blastoise', 'hp', -20, limits), 0);
 });
 
-test('Challenge errors turn stale state and AI failures into recovery guidance', () => {
+test('Challenge errors turn stale state, pool exhaustion, abilities, and AI failures into recovery guidance', () => {
   assert.match(challengeErrorMessage('stale challenge revision: current 7'), /latest saved state/);
   assert.match(challengeErrorMessage('agent draft provider timed out'), /take over manually/);
   assert.match(challengeErrorMessage('Showdown rejected the team: bad move'), /Fix the listed/);
-  assert.match(challengeErrorMessage('draft pricing verification failed: hash mismatch'), /Re-import/);
+  assert.match(challengeErrorMessage('no generation+type bucket can complete the roster'), /remaining unseen species/);
+  assert.match(challengeErrorMessage('illegal ability levitate for rotomwash'), /exact Pokémon form/);
 });
 
 test('draft shortcuts accept only visible one-based choice keys', () => {

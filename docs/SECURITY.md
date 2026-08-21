@@ -53,6 +53,11 @@ Do not use a `PUBLIC_` variable for a provider secret. Do not place a key in a c
 base URL. Rotate any key that was pasted into a manual response because full audit mode
 intentionally preserves operator input.
 
+Provider keys entered in `/settings` cross only the private backend API and are persisted to the
+gitignored project `.env`. Docker mounts that one file read/write at `/runtime-config/.env`; other
+repository paths are not exposed through this persistence boundary. Saved values are never
+returned to the frontend, match archives, spectator payloads, logs, or the database.
+
 ## Audio boundary
 
 - Speech input is constructed only from bounded public commentary; no prompt, knowledge,

@@ -393,7 +393,14 @@ export interface DraftCandidate {
   types: string[];
   base_stat_total: number | null;
   base_stats: PokemonBaseStats | null;
-  points: number;
+  abilities: PokemonAbility[];
+}
+
+export interface PokemonAbility {
+  slot: '0' | '1' | 'H' | 'S';
+  id: string;
+  name: string;
+  hidden: boolean;
 }
 
 export interface PokemonBaseStats {
@@ -434,33 +441,42 @@ export interface ChallengeRunView {
         references: string[];
         compatibility_note: string;
       } | null;
-      draft_rules: { roster_size: number; starting_credits: number; rerolls: number; choice_count: number; species_clause: boolean };
-      training_rules: { global_ev_budget: number; per_pokemon_max: number; per_stat_max: number };
+      draft_rules: { roster_size: number; rerolls: number; type_rerolls: number; generation_rerolls: number; choice_count: number; species_clause: boolean };
+      training_rules: { global_ev_budget?: number | null; per_pokemon_max: number; per_stat_max: number };
     };
-    pricing: { schema_version: string; parser_version: string; board_name: string; context: string; catalog_hash: string; source_sha256: string; imported_at: string; mechanics_assumptions: string[] };
+    draft_rules_version: 'draft-rules-v2' | 'draft-rules-v1-incompatible';
+    draft_pool: { schema_version: string; showdown_version: string; format: string; format_generation: number; abilities_supported: boolean; catalog_hash: string; candidates: DraftCandidate[] };
     draft_controller: { kind: 'human' | 'agent' | 'random'; provider?: ProviderKind | null; model?: string | null };
     draft_controller_history: Array<{ kind: 'human' | 'agent' | 'random'; provider?: ProviderKind | null; model?: string | null }>;
     battle_controller: { agent_type: AgentType; provider?: ProviderKind | null; model?: string | null };
     opponent_controller: { agent_type: AgentType; provider?: ProviderKind | null; model?: string | null };
-    credits_remaining: number;
     rerolls_remaining: number;
+    type_rerolls_remaining: number;
+    generation_rerolls_remaining: number;
+    consumed_species_ids: string[];
     current_offer: { round: number; nonce: number; generation: number; type: string; options: DraftCandidate[]; fingerprint: string } | null;
+    draft_history: Array<{ offer: { round: number; nonce: number; generation: number; type: string; options: DraftCandidate[]; fingerprint: string }; outcome: 'picked' | 'rerolled' | 'type_rerolled' | 'generation_rerolled'; selected_entry_id: string | null; decided_by: 'human' | 'agent' | 'random'; created_at: string }>;
     picks: Array<{ round: number; candidate: DraftCandidate; selected_by: 'human' | 'agent' | 'random'; created_at: string }>;
     ev_allocations: Record<string, EvSpread>;
+    ability_selections: Record<string, string | null>;
     team_snapshot_id: string | null;
     current_stage_index: number;
     active_match_id: string | null;
     stage_results: Array<{ stage_id: string; stage_index: number; match_id: string; status: 'won' | 'lost' | 'draw' | 'failed' | 'cancelled' | 'interrupted'; winner: string | null; turns: number; duration_seconds: number; estimated_cost: number; average_decision_latency_ms: number | null; decision_count: number; started_at: string; completed_at: string }>;
     error: string | null;
+    compatibility_notice: string | null;
     created_at: string;
     updated_at: string;
     completed_at: string | null;
   };
   stages: ChallengeStageSummary[];
   current_stage: ChallengeStageSummary | null;
-  statistics: { stages_cleared: number; wins: number; losses: number; draws: number; total_battles: number; technical_failures: number; total_turns: number; duration_seconds: number; estimated_cost: number; average_decision_latency_ms: number | null; credits_spent: number; credits_remaining: number; rerolls_used: number; ev_used: number };
+  statistics: { stages_cleared: number; wins: number; losses: number; draws: number; total_battles: number; technical_failures: number; total_turns: number; duration_seconds: number; estimated_cost: number; average_decision_latency_ms: number | null; rerolls_used: number; ev_used: number };
   team_export_scaffold: string | null;
-  minimum_completion_cost: number;
+  can_reroll: boolean;
+  can_reroll_type: boolean;
+  can_reroll_generation: boolean;
+  unseen_candidate_count: number;
 }
 
 export interface ChallengeStageSummary {
@@ -485,26 +501,6 @@ export interface ChallengeRunSummary {
   stages_cleared: number;
   created_at: string;
   updated_at: string;
-}
-
-export interface PricingStatus {
-  available: boolean;
-  ready: boolean;
-  path: string;
-  catalog_hash: string | null;
-  board_name: string | null;
-  context: string | null;
-  imported_at: string | null;
-  parsed_entries: number;
-  eligible_entries: number;
-  priced_entries: number;
-  banned_entries: number;
-  missing_entries: number;
-  unsupported_entries: number;
-  source_verified: boolean;
-  verification_detail: string;
-  excluded_entries: Array<{ species: string; state: string; reason: string }>;
-  errors: string[];
 }
 
 export type ProductionTrack = 'visual' | 'commentary' | 'voice' | 'captions' | 'sfx' | 'music' | 'director';

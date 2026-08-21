@@ -34,16 +34,22 @@ export function loadProviderSettings(): Partial<Record<ProviderKind, StoredProvi
 export function saveProviderSetting(provider: ProviderKind, setting: StoredProviderSetting): void {
   if (typeof localStorage === 'undefined') return;
   const settings = loadProviderSettings();
-  if (!setting.apiKey && !setting.baseUrl) delete settings[provider];
-  else settings[provider] = setting;
+  if (!setting.baseUrl) delete settings[provider];
+  else settings[provider] = { apiKey: '', baseUrl: setting.baseUrl };
   localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
 }
 
 export async function hydrateStoredProviderSettings(): Promise<void> {
   const settings = loadProviderSettings();
-  await Promise.allSettled(
-    Object.entries(settings).map(([provider, setting]) =>
-      configureProvider(provider as ProviderKind, setting.apiKey, setting.baseUrl || null)
-    )
-  );
+  for (const [provider, setting] of Object.entries(settings)) {
+    if (!setting.apiKey && !setting.baseUrl) continue;
+    try {
+      await configureProvider(provider as ProviderKind, setting.apiKey, setting.baseUrl || null);
+      if (setting.apiKey) {
+        saveProviderSetting(provider as ProviderKind, { apiKey: '', baseUrl: setting.baseUrl });
+      }
+    } catch {
+      // Keep a legacy browser key until a successful one-time migration to the backend.
+    }
+  }
 }

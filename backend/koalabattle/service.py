@@ -49,6 +49,7 @@ from koalabattle.engines.base import EngineEventSink
 from koalabattle.engines.showdown import ShowdownBattleEngine
 from koalabattle.formats import FormatCatalogService, describe_format
 from koalabattle.orchestration.runtime import MatchSupervisor, RealtimeHub
+from koalabattle.provider_credentials import ProviderCredentialStore
 from koalabattle.storage import BattleRepository
 from koalabattle.teams import (
     ShowdownTeamValidator,
@@ -83,10 +84,13 @@ class BattleService:
         self.formats = FormatCatalogService(settings.team_validator_url)
         self.hub = RealtimeHub()
         self.pricing = PricingTable(settings.pricing_table_json, settings.pricing_version)
-        # Browser-configured credentials are deliberately process-local. They are never written
-        # to MatchConfig, the database, logs, or an API response. The settings page rehydrates
-        # them from its browser-local vault after a backend restart.
-        self._runtime_provider_keys: dict[ProviderKind, str] = {}
+        # Provider credentials never enter MatchConfig, the database, logs, or API responses.
+        # Docker mounts the gitignored host .env as the optional persistent credentials file.
+        self.provider_credentials = ProviderCredentialStore(settings.provider_credentials_file)
+        self._runtime_provider_keys: dict[ProviderKind, str | None] = {
+            provider: value for provider, value in self.provider_credentials.load().items()
+        }
+        self._persisted_provider_keys = set(self._runtime_provider_keys)
         self._runtime_provider_base_urls: dict[ProviderKind, str] = {}
         self._challenge_terminal_hook: Callable[[UUID, MatchArchive], Awaitable[None]] | None = None
         self.supervisor = MatchSupervisor(
@@ -294,13 +298,17 @@ class BattleService:
         return value
 
     def _provider_key(self, kind: ProviderKind, environment_value: str | None) -> str | None:
-        return self._runtime_provider_keys.get(kind) or environment_value
+        if kind in self._runtime_provider_keys:
+            return self._runtime_provider_keys[kind]
+        return environment_value
 
     def configure_provider(
         self,
         provider: ProviderKind,
         api_key: str | None,
         base_url: str | None,
+        *,
+        clear: bool = False,
     ) -> dict[str, object]:
         normalized_base_url: str | None = None
         if base_url is not None:
@@ -311,12 +319,20 @@ class BattleService:
                 AgentConfiguration(base_url=normalized_base_url)
 
         key = api_key.strip() if api_key else ""
-        if key:
+        if clear:
+            self.provider_credentials.save(provider, None)
+            # An explicit clear must override a key inherited by this already-running container.
+            self._runtime_provider_keys[provider] = None
+            self._persisted_provider_keys.discard(provider)
+        elif key:
+            self.provider_credentials.save(provider, key)
             self._runtime_provider_keys[provider] = key
-        else:
-            self._runtime_provider_keys.pop(provider, None)
+            if self.provider_credentials.enabled:
+                self._persisted_provider_keys.add(provider)
 
-        if base_url is not None:
+        if clear:
+            self._runtime_provider_base_urls.pop(provider, None)
+        elif base_url is not None:
             if normalized_base_url:
                 self._runtime_provider_base_urls[provider] = normalized_base_url
             else:
@@ -425,7 +441,9 @@ class BattleService:
         )
 
     def _provider_source(self, kind: ProviderKind, environment_configured: bool) -> str:
-        if kind in self._runtime_provider_keys or kind in self._runtime_provider_base_urls:
+        if kind in self._persisted_provider_keys:
+            return "saved-env"
+        if self._runtime_provider_keys.get(kind) or kind in self._runtime_provider_base_urls:
             return "runtime"
         if environment_configured:
             return "environment"

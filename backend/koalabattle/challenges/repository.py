@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from collections import defaultdict
 from datetime import UTC, datetime
 from uuid import UUID
@@ -11,6 +12,65 @@ from koalabattle.models.orm import ChallengeRunRow
 from koalabattle.storage import Database
 
 from .models import ChallengeRun, ChallengeRunSummary
+
+LEGACY_NOTICE = (
+    "This development-era run uses draft-rules-v1 with Draft Credits and cannot be resumed. "
+    "Start a new draft-rules-v2 Challenge; the legacy run remains listed for auditability."
+)
+
+
+def _without_legacy_points(candidate: dict[str, object]) -> dict[str, object]:
+    cleaned = dict(candidate)
+    cleaned.pop("points", None)
+    cleaned.setdefault("abilities", [])
+    return cleaned
+
+
+def _deserialize_run(state_json: str) -> ChallengeRun:
+    payload = json.loads(state_json)
+    if payload.get("schema_version") != "1.0":
+        return ChallengeRun.model_validate(payload)
+
+    definition = dict(payload["definition"])
+    draft_rules = dict(definition["draft_rules"])
+    draft_rules.pop("starting_credits", None)
+    definition["draft_rules"] = draft_rules
+    pricing = dict(payload.pop("pricing"))
+    candidates = tuple(
+        _without_legacy_points(dict(candidate)) for candidate in pricing.get("candidates", [])
+    )
+    picks = []
+    for original in payload.get("picks", []):
+        pick = dict(original)
+        pick["candidate"] = _without_legacy_points(dict(pick["candidate"]))
+        picks.append(pick)
+    payload.pop("credits_remaining", None)
+    payload.update(
+        {
+            "schema_version": "2.0",
+            "draft_rules_version": "draft-rules-v1-incompatible",
+            "definition": definition,
+            "status": "abandoned",
+            "draft_pool": {
+                "schema_version": "legacy-1.0",
+                "showdown_version": "legacy-unknown",
+                "format": definition["format"],
+                "format_generation": 9,
+                "abilities_supported": True,
+                "catalog_hash": pricing["catalog_hash"],
+                "candidates": candidates,
+            },
+            "current_offer": None,
+            "draft_history": [],
+            "consumed_species_ids": [],
+            "picks": picks,
+            "ability_selections": {},
+            "active_match_id": None,
+            "compatibility_notice": LEGACY_NOTICE,
+            "error": LEGACY_NOTICE,
+        }
+    )
+    return ChallengeRun.model_validate(payload)
 
 
 class ChallengeRepository:
@@ -45,7 +105,7 @@ class ChallengeRepository:
     async def get(self, run_id: UUID) -> ChallengeRun | None:
         async with self.database.sessions() as session:
             row = await session.get(ChallengeRunRow, str(run_id))
-            return ChallengeRun.model_validate_json(row.state_json) if row else None
+            return _deserialize_run(row.state_json) if row else None
 
     async def save(self, run: ChallengeRun, *, expected_revision: int) -> ChallengeRun:
         stored = run.model_copy(
@@ -95,7 +155,7 @@ class ChallengeRepository:
             ).scalars()
             result: list[ChallengeRunSummary] = []
             for row in rows:
-                run = ChallengeRun.model_validate_json(row.state_json)
+                run = _deserialize_run(row.state_json)
                 result.append(
                     ChallengeRunSummary(
                         id=run.id,
