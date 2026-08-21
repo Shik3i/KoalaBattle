@@ -179,7 +179,7 @@ def legal_actions(battle: AbstractBattle) -> tuple[BattleAction, ...]:
                 type=ActionType.SWITCH,
                 name=pokemon.name,
                 slot=slot,
-                species=pokemon.name,
+                species=pokemon.species,
                 hp_fraction=max(0.0, min(1.0, float(pokemon.current_hp_fraction))),
                 status=_enum_name(pokemon.status),
             )

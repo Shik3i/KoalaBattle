@@ -6,11 +6,14 @@ import {
   challengeErrorMessage,
   challengeStatusLabel,
   draftChoiceIndexForKey,
+  draftRollFrames,
   draftRollTransitionMode,
+  DRAFT_ROLL_DURATION_MS,
   emptyEvSpread,
   evAllocationTotal,
   evSpreadTotal,
   formatDuration,
+  generationRomanNumeral,
   legalEvValue,
   pokemonTypeColor,
   recommendedEvPresets
@@ -98,6 +101,23 @@ test('draft roll animation distinguishes automatic, type, generation, and Pokemo
   assert.equal(draftRollTransitionMode('type_rerolled'), 'type');
   assert.equal(draftRollTransitionMode('generation_rerolled'), 'generation');
   assert.equal(draftRollTransitionMode('pokemon_rerolled'), null);
+  assert.equal(draftRollTransitionMode(undefined, false), null);
+  assert.equal(draftRollTransitionMode('picked', false, true), null);
+});
+
+test('draft roll frames settle quickly on authoritative Roman generation and type', () => {
+  const both = draftRollFrames(3, 'Water', 'both');
+  const typeOnly = draftRollFrames(3, 'Water', 'type');
+  const generationOnly = draftRollFrames(3, 'Water', 'generation');
+
+  assert.equal(generationRomanNumeral(3), 'III');
+  assert.equal(both.generations.at(-1), 3);
+  assert.equal(both.types.at(-1), 'water');
+  assert.deepEqual(typeOnly.generations, [3]);
+  assert.equal(typeOnly.types.length, 8);
+  assert.equal(generationOnly.generations.length, 8);
+  assert.deepEqual(generationOnly.types, ['water']);
+  assert.ok(DRAFT_ROLL_DURATION_MS >= 400 && DRAFT_ROLL_DURATION_MS <= 800);
 });
 
 test('campaign position is one-based and capped at the final battle', () => {

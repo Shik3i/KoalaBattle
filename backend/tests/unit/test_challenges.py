@@ -45,6 +45,7 @@ from koalabattle.challenges.service import (
     ChallengeService,
     _team_scaffold,
     _with_level,
+    _with_unique_duplicate_nicknames,
     _with_zero_ev_confirmation,
     derive_battle_summary,
     redact_challenge_match,
@@ -751,6 +752,47 @@ async def test_brock_victory_advances_to_misty_once_and_survives_restart(tmp_pat
 
 
 @pytest.mark.asyncio
+async def test_no_progress_technical_failure_does_not_count_as_gym_defeat(
+    tmp_path: Path,
+) -> None:
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'no-progress.db'}")
+    await database.create_schema()
+    repository = ChallengeRepository(database)
+    match_id = uuid4()
+    run = _run(status=ChallengeStatus.BATTLING).model_copy(
+        update={"active_match_id": match_id}
+    )
+    await BattleRepository(database).create_match(
+        match_id,
+        _auto_match_config(),
+        engine="test",
+        engine_version="unit-test",
+        showdown_version="unit-test",
+        poke_env_version="unit-test",
+    )
+    await repository.create(run)
+    service = ChallengeService(
+        repository, ShowdownSpeciesCatalog("http://127.0.0.1:9"), cast(Any, None)
+    )
+    archive = _won_archive(run, match_id, "stage-one").model_copy(
+        update={
+            "status": MatchStatus.FAILED,
+            "winner": None,
+            "error": "NoProgressBattleError: repeated 'switch:2' submissions",
+        }
+    )
+
+    await service.on_match_terminal(match_id, archive)
+
+    failed = await service.require(run.id)
+    assert failed.status is ChallengeStatus.STAGE_RESULT
+    assert failed.current_stage_index == 0
+    assert failed.stage_results[-1].status == "failed"
+    assert failed.error == archive.error
+    await database.close()
+
+
+@pytest.mark.asyncio
 async def test_complete_kanto_stage_chain_is_strict_and_idempotent(tmp_path: Path) -> None:
     database = Database(f"sqlite+aiosqlite:///{tmp_path / 'chain.db'}")
     await database.create_schema()
@@ -981,6 +1023,16 @@ def test_level_and_zero_ev_derivations_do_not_mutate_source() -> None:
     assert "EVs: 1 HP" in derived
     assert source.startswith("Mon One\nLevel: 37")
     assert _with_zero_ev_confirmation("Mon One\n- Tackle") == ("Mon One\nEVs: 1 HP\n- Tackle")
+
+
+def test_duplicate_opponent_species_receive_distinct_showdown_identities() -> None:
+    team = "Koffing\n- Tackle\n\nMuk\n- Sludge\n\nKoffing\n- Smog"
+
+    updated = _with_unique_duplicate_nicknames(team)
+
+    assert updated.split("\n\n")[0].splitlines()[0] == "Koffing 1 (Koffing)"
+    assert updated.split("\n\n")[1].splitlines()[0] == "Muk"
+    assert updated.split("\n\n")[2].splitlines()[0] == "Koffing 2 (Koffing)"
 
 
 def test_challenge_match_payload_redacts_only_the_opponent_team() -> None:

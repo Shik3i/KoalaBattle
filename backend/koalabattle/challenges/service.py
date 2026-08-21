@@ -271,6 +271,25 @@ def _with_level(team_export: str, level: int) -> str:
     return "\n\n".join(normalized)
 
 
+def _with_unique_duplicate_nicknames(team_export: str) -> str:
+    """Give duplicate species distinct Showdown identities without changing the roster."""
+    blocks = [block.strip() for block in team_export.strip().split("\n\n") if block.strip()]
+    species = [block.splitlines()[0].split(" @", 1)[0] for block in blocks]
+    totals = {name: species.count(name) for name in set(species)}
+    seen: dict[str, int] = {}
+    normalized: list[str] = []
+    for block, name in zip(blocks, species, strict=True):
+        first_line = block.splitlines()[0]
+        if totals[name] == 1 or " (" in first_line:
+            normalized.append(block)
+            continue
+        seen[name] = seen.get(name, 0) + 1
+        lines = block.splitlines()
+        lines[0] = f"{name} {seen[name]} ({name}){first_line[len(name):]}"
+        normalized.append("\n".join(lines))
+    return "\n\n".join(normalized)
+
+
 def redact_challenge_match(archive: MatchArchive) -> MatchArchive:
     if archive.challenge_run_id is None:
         return archive
@@ -1176,7 +1195,10 @@ class ChallengeService:
                 _with_level(source.normalized_export, stage.level), run.definition.format
             )
             opponent_validation = await self.battles.team_validator.validate(
-                _with_level(stage.opponent_team, stage.level), run.definition.format
+                _with_unique_duplicate_nicknames(
+                    _with_level(stage.opponent_team, stage.level)
+                ),
+                run.definition.format,
             )
             if not player_validation.valid:
                 raise ValueError(

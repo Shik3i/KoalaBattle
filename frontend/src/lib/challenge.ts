@@ -28,11 +28,20 @@ export function draftChoiceIndexForKey(key: string): number | null {
 }
 
 export type DraftRollMode = 'both' | 'type' | 'generation';
+export const DRAFT_ROLL_DURATION_MS = 620;
+
+const GENERATION_ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX'] as const;
+
+export function generationRomanNumeral(generation: number): string {
+  return GENERATION_ROMAN[generation - 1] || String(generation);
+}
 
 export function draftRollTransitionMode(
   outcome: 'picked' | 'rerolled' | 'pokemon_rerolled' | 'type_rerolled' | 'generation_rerolled' | undefined,
-  firstRoll = false
+  firstRoll = false,
+  reducedMotion = false
 ): DraftRollMode | null {
+  if (reducedMotion) return null;
   if (firstRoll || outcome === 'picked') return 'both';
   if (outcome === 'type_rerolled') return 'type';
   if (outcome === 'generation_rerolled') return 'generation';
@@ -108,6 +117,23 @@ const TYPE_COLORS: Record<string, string> = {
   rock: '#B8A038', ghost: '#705898', dragon: '#7038F8', dark: '#705848',
   steel: '#B8B8D0', fairy: '#EE99AC'
 };
+
+export function draftRollFrames(
+  generation: number,
+  type: string,
+  mode: DraftRollMode
+): { generations: number[]; types: string[] } {
+  const generations = Array.from({ length: 7 }, (_, index) => ((generation + index + 2) % 9) + 1);
+  generations.push(generation);
+  const types = Object.keys(TYPE_COLORS);
+  const targetIndex = Math.max(0, types.indexOf(type.toLowerCase()));
+  const typeFrames = Array.from({ length: 7 }, (_, index) => types[(targetIndex + index * 5 + 3) % types.length]);
+  typeFrames.push(type.toLowerCase());
+  return {
+    generations: mode === 'type' ? [generation] : generations,
+    types: mode === 'generation' ? [type.toLowerCase()] : typeFrames
+  };
+}
 
 export function pokemonTypeColor(type: string): string {
   return TYPE_COLORS[type.toLowerCase()] || '#7f8c9a';

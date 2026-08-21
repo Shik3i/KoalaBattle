@@ -156,6 +156,11 @@ def _candidate_matchup_score(candidate: PokemonState, opponent: PokemonState | N
 class TacticalAgent:
     """Fast deterministic local baseline using only information visible in AgentRequest."""
 
+    def __init__(self) -> None:
+        self._last_active_id: str | None = None
+        self._recent_switch_origin_id: str | None = None
+        self._active_changed_at_turn: int | None = None
+
     async def decide(self, request: AgentRequest) -> AgentDecision:
         active = request.state.player.active
         opponent = request.state.opponent.active
@@ -168,17 +173,37 @@ class TacticalAgent:
             or active.fainted
             or not any(item.type is ActionType.MOVE for item in request.legal_actions)
         )
+        if active is not None and active.id != self._last_active_id:
+            if self._last_active_id is not None:
+                self._recent_switch_origin_id = self._last_active_id
+                self._active_changed_at_turn = request.turn
+            self._last_active_id = active.id
 
         def score(action: BattleAction) -> tuple[float, str]:
             if action.type is ActionType.SWITCH:
+                action_name = _id(action.name)
+                action_species = _id(action.species or "")
                 candidate = next(
                     (
                         pokemon
                         for pokemon in request.state.player.team
-                        if _id(pokemon.species) == _id(action.species or action.name)
+                        if action_name
+                        in {
+                            _id(pokemon.name),
+                            _id(pokemon.id.rsplit(":", 1)[-1]),
+                        }
                     ),
                     None,
                 )
+                if candidate is None:
+                    candidate = next(
+                        (
+                            pokemon
+                            for pokemon in request.state.player.team
+                            if _id(pokemon.species) == action_species
+                        ),
+                        None,
+                    )
                 switch_score = 8 + (
                     _candidate_matchup_score(candidate, opponent)
                     if candidate
@@ -188,6 +213,14 @@ class TacticalAgent:
                     switch_score += 1000
                 elif hp < 0.22:
                     switch_score += 28
+                if (
+                    not forced_switch
+                    and candidate is not None
+                    and candidate.id == self._recent_switch_origin_id
+                    and self._active_changed_at_turn is not None
+                    and request.turn <= self._active_changed_at_turn + 1
+                ):
+                    switch_score -= 140
                 return switch_score, action.id
 
             move_id = _id(action.name)

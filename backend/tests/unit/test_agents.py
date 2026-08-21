@@ -307,6 +307,63 @@ async def test_tactical_agent_uses_matchup_scoring_for_forced_switch_and_lead(
 
 
 @pytest.mark.asyncio
+async def test_tactical_agent_scores_duplicate_species_by_unique_nickname(
+    agent_request: AgentRequest,
+) -> None:
+    base = _brock_matchup(agent_request, active_fainted=True)
+    template = base.state.player.team[1]
+    healthy = template.model_copy(
+        update={
+            "id": "p1: Koffing 1",
+            "name": "Koffing 1",
+            "species": "Koffing",
+            "hp_fraction": 1.0,
+        }
+    )
+    weak = template.model_copy(
+        update={
+            "id": "p1: Koffing 2",
+            "name": "Koffing 2",
+            "species": "Koffing",
+            "hp_fraction": 0.05,
+        }
+    )
+    request = base.model_copy(
+        update={
+            "state": base.state.model_copy(
+                update={
+                    "player": base.state.player.model_copy(
+                        update={"team": (healthy, weak)}
+                    )
+                }
+            ),
+            "legal_actions": (
+                BattleAction(
+                    id="switch:1",
+                    type=ActionType.SWITCH,
+                    name="Koffing 1",
+                    species="Koffing",
+                    slot=1,
+                    hp_fraction=1,
+                ),
+                BattleAction(
+                    id="switch:2",
+                    type=ActionType.SWITCH,
+                    name="Koffing 2",
+                    species="Koffing",
+                    slot=2,
+                    hp_fraction=0.05,
+                ),
+            ),
+        }
+    )
+
+    decision = await TacticalAgent().decide(request)
+
+    assert decision.action == "switch:1"
+
+
+@pytest.mark.asyncio
 async def test_manual_agent_rejects_malformed_and_illegal_json(
     agent_request: AgentRequest,
 ) -> None:
