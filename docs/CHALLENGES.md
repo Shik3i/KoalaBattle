@@ -1,32 +1,60 @@
 # Draft mode
 
 Draft is a persistent solo campaign above the normal match engine. The first bundled
-definition is **Kanto Gym Gauntlet**: six drafted Pokémon with automatic recommended EVs, the exact
-Pokémon Red/Blue rosters and moves for all eight Kanto Gym Leaders, the Elite Four, and Champion
-Blue. Every stage creates a normal immutable KoalaBattle match and replay.
+definition is **Kanto Gym Gauntlet**: six drafted Pokémon with automatic recommended sets,
+against all eight Kanto Gym Leaders, the Elite Four, and Champion Blue. Every stage creates a
+normal immutable KoalaBattle match and replay.
 
-The V8 content pack uses the English Pokémon Red/Blue teams. Champion Blue uses the documented
-variant for a player who chose Bulbasaur. Species order, source levels, and moves are sourced
-from Bisafans and Serebii and regression-locked. Source levels remain stored in the private team
-definitions; the actual Draft fight applies the campaign's equal level curve to both sides.
-Generation I had no abilities, natures, held items, or modern EVs. The modern battle adapter adds
-only format-required compatibility data; it never replaces a recorded Pokémon or move.
-The Draft-only format also removes Showdown's `Obtainable Misc` event-origin minimum-level
-check so any otherwise legal drafted Pokémon can be normalized to the same campaign stage level.
-Learnsets, abilities, forms, Species Clause, EVs, and the finalized roster remain validated.
+The V9 content pack ships **KoalaBattle-authored competitive teams** built around each Red/Blue
+trainer's specialty. Trainer identity, type theme, and signature species follow the source games;
+the sets do not. Every opponent Pokémon carries an explicit legal ability, nature, held item, EV
+spread, and IV spread, with real coverage and a coherent role. Roster size and set quality
+escalate across the campaign: Brock fields three, the middle gyms four to five, and Giovanni, the
+Elite Four, and Champion Blue field a full six. Earlier V8 runs keep their stored Red/Blue
+definition; the version bump only affects new runs.
+
+The campaign level curve normalizes both sides to the stage level. The Draft-only format removes
+Showdown's `Obtainable Misc` event-origin minimum-level check so any otherwise legal drafted
+Pokémon can be normalized to the campaign stage level. Learnsets, abilities, forms, Species
+Clause, EVs, items, and the finalized roster remain validated by the pinned Showdown validator.
+
+## Difficulty
+
+Draft has four difficulty modes, chosen at `/challenges/new` and stored in the run's immutable
+rules snapshot. Difficulty is expressed purely as a **level disadvantage for the player**:
+
+| Mode | Player level | Opponent level |
+| --- | --- | --- |
+| Normal | stage level | stage level |
+| Hard | stage level − 5 | stage level |
+| Expert | stage level − 10 | stage level |
+| Nightmare | stage level − 15 | stage level |
+
+At a level-75 stage that is 75/75, 70/75, 65/75, and 60/75. Opponent species, sets, and levels
+are byte-identical on every difficulty — harder modes never substitute a different opponent team,
+and difficulty is never a substitute for well-built opposition.
+
+The drafted roster snapshot is immutable. The stage team is derived at launch by rewriting only
+the level on a copy of the validated export, exactly as the opponent team is. If a hand-edited
+set carries a move with an event minimum level below the derived level, the launch returns the
+smallest part of the level disadvantage needed to keep the derived team legal instead of failing
+the stage; the opponent level never moves. Automatically prepared sets avoid this by only
+recommending moves that are still legal at level 35, the lowest level the campaign can produce.
 
 ## Run the campaign
 
 1. Start `showdown`, `team-validator`, `backend`, and `frontend`.
-2. Open `/challenges/new` and choose who drafts, who battles, and whether to Quick Sim, Fast Watch,
-   or use normal presentation. Tactical Auto is the default and requires no provider.
+2. Open `/challenges/new` and choose who drafts, who battles, the difficulty, and whether to
+   Quick Sim, Fast Watch, or use normal presentation. Tactical Auto is the default and requires
+   no provider.
 3. Draft one candidate from each deterministic Generation + Type offer. Every species shown in
    the offer is consumed for the remainder of the run, whether selected or rejected.
 4. Use each optional reroll once: Pokémon keeps Generation + Type, Type keeps Generation, and
    Generation keeps Type. Every replaced card is still consumed permanently.
-5. The sixth pick automatically applies Pokémon-specific recommended EVs and abilities, generates
-   up to four practical legal moves, validates the team, and prepares the first stage. Advanced
-   team setup remains optional before Brock.
+5. The sixth pick automatically applies Pokémon-specific recommended EVs and abilities, a nature
+   and held item matching that same role, and up to four practical legal moves chosen for
+   attacking-category fit and distinct coverage types, then validates the team and prepares the
+   first stage. Advanced team setup remains optional before Brock.
 6. Fully automatic controllers launch the first stage immediately and continue after each short
    result countdown. Pause Auto-Run stops before the next match; Continue Run resumes exactly once.
    Human or Manual Web Chat controllers always retain their explicit launch and turn controls.
@@ -95,6 +123,22 @@ the backend performs the idempotent next-stage launch, while browser countdowns 
 use database-level optimistic revisions plus per-run locks, so stale or duplicate
 pick/reroll/training/ability/finalize/launch requests are rejected across application processes.
 Cancelling a run cancels its active normal match through the existing supervisor.
+`POST /api/challenges/{id}/delete` removes a saved run entirely: it takes the same optimistic
+revision, cancels any active stage match, drops the pending auto-run task, and deletes the row.
+Recorded stage matches, their events, and their replays are immutable audit data and are never
+deleted with the run; they stay reachable under Matches.
+
+Automatic team preparation never strands a finished draft. A validator rejection *or* an
+unreachable validator service both park the run in `team_review` with the exact reason stored on
+the run, and the Draft page renders that reason with the editor underneath. `preparing`,
+`failed`, `cancelled`, and `abandoned` each render their own state and next action rather than an
+empty page or a launch button the backend would reject.
+
+The browser is a presentation client, not a scheduler. Its one-second poll drops out-of-order
+responses through a monotonic sequence guard, never overwrites a newer mutation response, and
+fires its auto-advance fallback at most once per persisted deadline and only two seconds after
+the backend's own scheduler should have acted. Landing on a run that already has a live match
+never navigates away from the Draft map; only a match that starts while the page is open does.
 
 Draft Rules V2 runs use Challenge schema `2.0` and `draft-rules-v2`. Active Draft Rules V1 runs
 are not silently reinterpreted: the repository migrates them into an explicit read-only
@@ -107,12 +151,19 @@ rules, stages, levels, or teams change; existing V2 runs retain their complete d
 pool snapshots. Every regional pack must declare one exact source game, generation, and battle
 variant; teams from different appearances or rematches must never be merged.
 
-The V8 stage metadata maps each opponent to its exact Red/Blue trainer sprite identifier.
+Opponent content is regression-locked. `backend/tests/unit/test_canonical_challenge_content.py`
+pins the exact species per stage, asserts every set has an ability, item, nature, EV spread, and
+four moves, asserts roster size and level never decrease across the campaign, and hashes the whole
+set list. `backend/tests/integration/test_challenge_content.py` runs all thirteen teams through
+the real pinned Showdown validator at their stage level and asserts the structured result actually
+carries the intended item, ability, nature, level, EVs, and four moves.
+
+The V9 stage metadata maps each opponent to its Red/Blue trainer sprite identifier.
 `scripts/setup_assets.py install --profile full` installs those 13 portraits below ignored
 `data/assets/trainers/`. The UI animates installed sprites and retains a deterministic fallback
 when optional local media is absent.
 
-Bundled Kanto references:
+Trainer identity and specialty references (teams are authored, not copied from these):
 
 - <https://www.bisafans.de/spiele/editionen/rot-blau/arenaleiter.php>
 - <https://www.serebii.net/rb/gyms.shtml>

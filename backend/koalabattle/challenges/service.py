@@ -36,6 +36,7 @@ from .models import (
     BattleControllerSnapshot,
     ChallengeBattleSummary,
     ChallengeDefinition,
+    ChallengeDifficulty,
     ChallengeRun,
     ChallengeRunStats,
     ChallengeRunView,
@@ -50,6 +51,7 @@ from .models import (
     DraftPoolSnapshot,
     EvSpread,
     PublicChallengeStage,
+    player_stage_level,
 )
 from .repository import ChallengeRepository
 from .species import ShowdownSpeciesCatalog, SpeciesMetadata, showdown_id
@@ -118,7 +120,7 @@ def _definition(definition_id: str) -> ChallengeDefinition:
     return ChallengeDefinition.model_validate_json(path.read_text(encoding="utf-8"))
 
 
-def _public_stage(stage: ChallengeStage) -> PublicChallengeStage:
+def _public_stage(stage: ChallengeStage, difficulty: ChallengeDifficulty) -> PublicChallengeStage:
     return PublicChallengeStage.model_validate(
         {
             "id": stage.id,
@@ -126,6 +128,7 @@ def _public_stage(stage: ChallengeStage) -> PublicChallengeStage:
             "title": stage.title,
             "theme": stage.theme,
             "level": stage.level,
+            "player_level": player_stage_level(stage.level, difficulty),
             "specialty": stage.specialty,
             "trainer_asset_id": stage.trainer_asset_id,
             "visual_accent": stage.visual_accent,
@@ -164,18 +167,40 @@ def _recommended_ev_spread(candidate: DraftCandidate) -> EvSpread:
     return EvSpread(spa=252, spd=4, spe=252) if is_fast else EvSpread(hp=252, spa=252, spd=4)
 
 
+def _recommended_role(candidate: DraftCandidate) -> tuple[str, str]:
+    """Deterministic nature + held item matching the auto-applied EV preset.
+
+    Opponent stages ship complete competitive sets, so the automatically prepared
+    player team gets the same class of set instead of an itemless neutral one. The
+    drafted species, abilities, and EVs are untouched; both remain editable in
+    Advanced team setup before the roster is locked.
+    """
+    stats = candidate.base_stats
+    if stats is None:
+        return "Adamant", "Life Orb"
+    physical = stats.atk >= stats.spa
+    offense = stats.atk if physical else stats.spa
+    defensive = max(stats.defense, stats.spd)
+    if defensive > offense + 10:
+        return ("Bold" if stats.defense >= stats.spd else "Calm"), "Leftovers"
+    is_fast = stats.spe >= 90 or stats.spe >= defensive
+    if is_fast:
+        return ("Jolly" if physical else "Timid"), "Life Orb"
+    return ("Adamant" if physical else "Modest"), "Leftovers"
+
+
 def _team_scaffold(run: ChallengeRun) -> str | None:
     if len(run.picks) != run.definition.draft_rules.roster_size:
         return None
     blocks: list[str] = []
     for pick in run.picks:
-        heading = pick.candidate.species
-        if pick.candidate.required_item:
-            heading = f"{heading} @ {pick.candidate.required_item}"
+        nature, item = _recommended_role(pick.candidate)
+        heading = f"{pick.candidate.species} @ {pick.candidate.required_item or item}"
         lines = [heading]
         ev_line = _ev_line(run.ev_allocations.get(pick.candidate.entry_id, EvSpread()))
         if ev_line:
             lines.append(ev_line)
+        lines.append(f"{nature} Nature")
         selected = run.ability_selections.get(pick.candidate.entry_id)
         ability = next((item for item in pick.candidate.abilities if item.id == selected), None)
         if ability is not None:
@@ -471,6 +496,7 @@ class ChallengeService:
             battle_controller=payload.battle_controller,
             opponent_controller=payload.opponent_controller,
             battle_experience=payload.battle_experience,
+            difficulty=payload.difficulty,
             rerolls_remaining=definition.draft_rules.rerolls,
             type_rerolls_remaining=definition.draft_rules.type_rerolls,
             generation_rerolls_remaining=definition.draft_rules.generation_rerolls,
@@ -591,7 +617,7 @@ class ChallengeService:
         *,
         latest_battle_summary: ChallengeBattleSummary | None = None,
     ) -> ChallengeRunView:
-        stages = tuple(_public_stage(stage) for stage in run.definition.stages)
+        stages = tuple(_public_stage(stage, run.difficulty) for stage in run.definition.stages)
         current = stages[run.current_stage_index] if run.current_stage_index < len(stages) else None
         wins = sum(item.status == "won" for item in run.stage_results)
         losses = sum(item.status == "lost" for item in run.stage_results)
@@ -783,9 +809,26 @@ class ChallengeService:
             if scaffold is None:
                 raise ValueError("complete draft has no team scaffold")
             submitted = _with_zero_ev_confirmation(_apply_selected_abilities(scaffold, run))
-            validation = await self.battles.team_validator.validate(
-                submitted, run.definition.format
-            )
+            try:
+                validation = await self.battles.team_validator.validate(
+                    submitted, run.definition.format
+                )
+            except (RuntimeError, ValueError, OSError) as error:
+                # The validator being unreachable must not strand the run in `preparing`
+                # forever with no state, no error, and no way out. Park it in Team review
+                # with the reason; the user can validate again from the editor.
+                return await self.repository.save(
+                    run.model_copy(
+                        update={
+                            "status": ChallengeStatus.TEAM_REVIEW,
+                            "error": (
+                                "Automatic team preparation could not reach the Showdown team "
+                                f"validator: {error}"
+                            ),
+                        }
+                    ),
+                    expected_revision=run.revision,
+                )
             if not validation.valid:
                 return await self.repository.save(
                     run.model_copy(
@@ -914,6 +957,8 @@ class ChallengeService:
             raise ValueError("run is not waiting for an agent draft action")
         provider = self.battles.provider_for_draft(run.draft_controller)
         legal = [f"pick:{item.entry_id}" for item in run.current_offer.options]
+        # An agent drafter gets the same three single-use powers a human drafter has.
+        # Offering only the Pokemon reroll left two of them permanently unusable.
         if run.rerolls_remaining and can_generate_offer(
             run,
             nonce=run.offer_nonce + 1,
@@ -921,6 +966,20 @@ class ChallengeService:
             fixed_type=run.current_offer.type,
         ):
             legal.append("reroll")
+        if run.type_rerolls_remaining and can_generate_offer(
+            run,
+            nonce=run.offer_nonce + 1,
+            fixed_generation=run.current_offer.generation,
+            excluded_type=run.current_offer.type,
+        ):
+            legal.append("reroll:type")
+        if run.generation_rerolls_remaining and can_generate_offer(
+            run,
+            nonce=run.offer_nonce + 1,
+            fixed_type=run.current_offer.type,
+            excluded_generation=run.current_offer.generation,
+        ):
+            legal.append("reroll:generation")
         prompt = json.dumps(
             {
                 "task": "Select exactly one legal draft action. Return JSON only; no reasoning.",
@@ -935,7 +994,18 @@ class ChallengeService:
                     ),
                 },
                 "remaining_slots": run.definition.draft_rules.roster_size - len(run.picks),
-                "rerolls_remaining": run.rerolls_remaining,
+                "rerolls_remaining": {
+                    "reroll": run.rerolls_remaining,
+                    "reroll:type": run.type_rerolls_remaining,
+                    "reroll:generation": run.generation_rerolls_remaining,
+                },
+                "reroll_effects": {
+                    "reroll": "Keep this Generation and Type; replace only the Pokemon.",
+                    "reroll:type": "Keep this Generation; roll a different Type and new Pokemon.",
+                    "reroll:generation": (
+                        "Keep this Type; roll a different Generation and new Pokemon."
+                    ),
+                },
                 "previous_picks": [pick.candidate.model_dump(mode="json") for pick in run.picks],
                 "offer": run.current_offer.model_dump(mode="json"),
                 "legal_actions": legal,
@@ -981,11 +1051,19 @@ class ChallengeService:
             if parsed.action not in legal:
                 last_error = "agent selected an action that is no longer legal"
                 continue
-            if parsed.action == "reroll":
+            if parsed.action.startswith("reroll"):
+                kind: Literal["pokemon", "type", "generation"] = (
+                    "type"
+                    if parsed.action == "reroll:type"
+                    else "generation"
+                    if parsed.action == "reroll:generation"
+                    else "pokemon"
+                )
                 return await self.reroll(
                     run.id,
                     run.current_offer.fingerprint,
                     run.revision,
+                    kind=kind,
                     selected_by=DraftControllerKind.AGENT,
                 )
             return await self.pick(
@@ -1191,9 +1269,25 @@ class ChallengeService:
             if source is None:
                 raise ValueError("finalized source team snapshot is missing")
             stage = run.definition.stages[run.current_stage_index]
-            player_validation = await self.battles.team_validator.validate(
-                _with_level(source.normalized_export, stage.level), run.definition.format
+            # Each attempt at a stage gets its own deterministic seed, so retrying a lost
+            # stage is a genuine retry rather than a byte-identical rerun of the same loss.
+            stage_attempts = sum(
+                1 for item in run.stage_results if item.stage_index == run.current_stage_index
             )
+            # The drafted roster snapshot stays immutable; only this derived export moves.
+            player_level = player_stage_level(stage.level, run.difficulty)
+            # A hand-edited set can carry a move with an event minimum level that the
+            # difficulty modifier would drop below. Give back the smallest amount of the
+            # level disadvantage that makes the derived team legal instead of failing the
+            # stage; the opponent's level never moves.
+            player_validation = await self.battles.team_validator.validate(
+                _with_level(source.normalized_export, player_level), run.definition.format
+            )
+            while not player_validation.valid and player_level < stage.level:
+                player_level = min(stage.level, player_level + 5)
+                player_validation = await self.battles.team_validator.validate(
+                    _with_level(source.normalized_export, player_level), run.definition.format
+                )
             opponent_validation = await self.battles.team_validator.validate(
                 _with_unique_duplicate_nicknames(
                     _with_level(stage.opponent_team, stage.level)
@@ -1209,7 +1303,7 @@ class ChallengeService:
                     "campaign stage team is invalid: " + "; ".join(opponent_validation.errors)
                 )
             player_snapshot = await self.battles.teams.create_snapshot(
-                name=f"{run.name} · {stage.name} · level {stage.level}",
+                name=f"{run.name} · {stage.name} · level {player_level}",
                 source=TeamSource.PRESET,
                 submitted_text=player_validation.normalized_export or "",
                 validation=player_validation,
@@ -1229,7 +1323,7 @@ class ChallengeService:
                         run.opponent_controller, Side.P2, stage.name, opponent_snapshot.id
                     ),
                 ),
-                random_seed=run.seed + run.current_stage_index,
+                random_seed=run.seed + run.current_stage_index + 1000 * stage_attempts,
                 team_policy=TeamPolicy.FIXED,
                 allow_terastallization=False,
             )
@@ -1399,6 +1493,22 @@ class ChallengeService:
         if launchable:
             return await self.auto_advance(stored.id)
         return stored, None
+
+    async def delete(self, run_id: UUID, expected_revision: int) -> None:
+        """Remove a saved run. Recorded stage matches and replays are immutable and stay."""
+        active_match_id: UUID | None
+        async with self.repository.lock(run_id):
+            run = await self.require(run_id)
+            if run.revision != expected_revision:
+                raise ValueError(f"stale challenge revision: current {run.revision}")
+            active_match_id = run.active_match_id
+            task = self._auto_tasks.pop(run.id, None)
+            if task is not None:
+                task.cancel()
+            if not await self.repository.delete(run_id):
+                raise KeyError(str(run_id))
+        if active_match_id is not None:
+            await self.battles.cancel_match(active_match_id)
 
     async def cancel(self, run_id: UUID, expected_revision: int) -> ChallengeRun:
         active_match_id: UUID | None

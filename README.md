@@ -119,12 +119,16 @@ are stored in SQLite.
 
 ## Draft
 
-Open `/challenges/new` to draft a persistent six-Pokémon roster and carry it through the exact
-Pokémon Red/Blue rosters and moves of eight Kanto Gym Leaders, the Elite Four, and Champion Blue.
-The sixth pick automatically applies Pokémon-specific recommended EVs, abilities, and legal moves,
-then validates the team. Tactical Auto needs no provider; Quick Sim continuously resolves the real
-campaign in-place, while Fast Watch opens each battle at accelerated presentation speed and returns
-to the compact result countdown. Pause Auto-Run stops before the next match.
+Open `/challenges/new` to draft a persistent six-Pokémon roster and carry it through thirteen
+KoalaBattle-authored boss teams themed on the eight Kanto Gym Leaders, the Elite Four, and
+Champion Blue. Every opponent Pokémon has a real ability, nature, held item, EV/IV spread, and
+coverage; roster size and set quality escalate from Brock to Blue. The sixth pick automatically
+applies Pokémon-specific recommended EVs, abilities, a matching nature and item, and legal moves
+picked for coverage, then validates the team. Four difficulty modes apply a level disadvantage to
+your team only — Normal 0, Hard −5, Expert −10, Nightmare −15 — and never change the opponents.
+Tactical Auto needs no provider; Quick Sim continuously resolves the real campaign in-place, while
+Fast Watch opens each battle at accelerated presentation speed and returns to the compact result
+countdown. Pause Auto-Run stops before the next match.
 
 Draft Rules V2 provide three Pokémon, one Type, and one Generation reroll. They consume every species
 shown in an offer, whether selected, rejected, or rerolled.
@@ -188,9 +192,11 @@ The two views are deliberately separate:
 | Battle view | `/watch/:matchId` | The battle only: no navigation, no controls, no page scroll |
 | OBS overlay | `/overlay/:matchId` | Battle view with transparent-source query options |
 
-The control page exposes **Open battle view**, **Copy battle view URL** and **Copy OBS URL**
-so the capture surface never has to be scrolled to paste a response. The battle view fills the
-viewport at 1920×1080 and 1080×1920, updates live and reconnects on its own.
+The control page leads with the battle itself: one compact identity row, then the renderer. The
+**Tools** menu in that row holds **Open battle view**, **Copy battle view URL**, **Copy OBS URL**
+and **Open OBS overlay**, and the presentation controls sit in a collapsed **Presentation
+settings** panel under the renderer — available, but never pushing the battle below the fold. The
+battle view fills the viewport at 1920×1080 and 1080×1920, updates live and reconnects on its own.
 
 ## Optional sprites
 

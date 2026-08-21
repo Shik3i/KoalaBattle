@@ -18,8 +18,10 @@ from koalabattle.challenges.domain import (
     generate_offer,
 )
 from koalabattle.challenges.models import (
+    DIFFICULTY_LEVEL_MODIFIERS,
     BattleControllerSnapshot,
     ChallengeDefinition,
+    ChallengeDifficulty,
     ChallengeRun,
     ChallengeSource,
     ChallengeStage,
@@ -34,6 +36,7 @@ from koalabattle.challenges.models import (
     EvSpread,
     PokemonAbility,
     TrainingRules,
+    player_stage_level,
 )
 from koalabattle.challenges.repository import (
     LEGACY_NOTICE,
@@ -574,9 +577,11 @@ class _Validator:
     def __init__(self, structured: tuple[dict[str, object], ...]) -> None:
         self.structured = structured
         self.submitted = ""
+        self.submissions: list[str] = []
 
     async def validate(self, team_text: str, format_id: str) -> TeamValidationResult:
         self.submitted = team_text
+        self.submissions.append(team_text)
         return TeamValidationResult(
             format=format_id,
             valid=True,
@@ -595,6 +600,10 @@ class _Battles:
         self.teams = _Teams()
         self.team_validator = _Validator(structured)
         self.repository = repository
+        self.cancelled: list[UUID] = []
+
+    async def cancel_match(self, match_id: UUID) -> None:
+        self.cancelled.append(match_id)
 
     async def create_match(
         self,
@@ -990,6 +999,48 @@ async def test_agent_prompt_explains_consumption_and_contains_no_credit_logic(
     await database.close()
 
 
+@pytest.mark.asyncio
+async def test_agent_drafter_is_offered_every_reroll_power_a_human_has(tmp_path: Path) -> None:
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'agent-rerolls.db'}")
+    await database.create_schema()
+    repository = ChallengeRepository(database)
+    # A broad pool so every reroll flavour can actually produce a follow-up offer.
+    candidates = tuple(
+        _candidate(
+            index,
+            types=(("Normal",), ("Water",), ("Fire",))[index % 3],
+            generation=((index // 3) % 3) + 1,
+        )
+        for index in range(1, 91)
+    )
+    run = attach_offer(_run(candidates=candidates)).model_copy(
+        update={
+            "draft_controller": DraftControllerSnapshot(
+                kind=DraftControllerKind.AGENT,
+                provider=ProviderKind.FAKE,
+                model="fake-battle-v1",
+            )
+        }
+    )
+    await repository.create(run)
+    provider = _CapturingProvider()
+    battles = type(
+        "DraftBattleStub", (), {"provider_for_draft": lambda self, controller: provider}
+    )()
+    service = ChallengeService(
+        repository, ShowdownSpeciesCatalog("http://127.0.0.1:9"), cast(Any, battles)
+    )
+
+    await service.agent_action(run.id, run.revision)
+
+    assert provider.request is not None
+    schema = provider.request.output_schema or {}
+    offered = set(schema["properties"]["action"]["enum"])
+    assert {"reroll", "reroll:type", "reroll:generation"} <= offered
+    assert "reroll:type" in provider.request.prompt
+    await database.close()
+
+
 def test_legacy_credit_run_is_explicitly_abandoned_instead_of_reinterpreted() -> None:
     run = attach_offer(_run())
     payload = run.model_dump(mode="json")
@@ -1098,3 +1149,210 @@ def test_species_catalog_filters_temporary_forms_but_keeps_legal_hidden_abilitie
     assert [item.entry_id for item in candidates] == ["rotomwash"]
     assert candidates[0].abilities[0].id == "levitate"
     assert excluded[0]["species"] == "Charizard-Mega"
+
+
+def test_difficulty_modifiers_only_lower_the_player_level() -> None:
+    assert DIFFICULTY_LEVEL_MODIFIERS[ChallengeDifficulty.NORMAL] == 0
+    assert DIFFICULTY_LEVEL_MODIFIERS[ChallengeDifficulty.HARD] == -5
+    assert DIFFICULTY_LEVEL_MODIFIERS[ChallengeDifficulty.EXPERT] == -10
+    assert DIFFICULTY_LEVEL_MODIFIERS[ChallengeDifficulty.NIGHTMARE] == -15
+    assert player_stage_level(75, ChallengeDifficulty.NORMAL) == 75
+    assert player_stage_level(75, ChallengeDifficulty.HARD) == 70
+    assert player_stage_level(75, ChallengeDifficulty.EXPERT) == 65
+    assert player_stage_level(75, ChallengeDifficulty.NIGHTMARE) == 60
+    assert player_stage_level(5, ChallengeDifficulty.NIGHTMARE) == 1
+
+
+def test_difficulty_defaults_to_normal_and_survives_a_saved_run() -> None:
+    default = _run()
+    assert default.difficulty is ChallengeDifficulty.NORMAL
+
+    stored = _run().model_copy(update={"difficulty": ChallengeDifficulty.NIGHTMARE})
+    restored = _deserialize_run(stored.model_dump_json())
+
+    assert restored.difficulty is ChallengeDifficulty.NIGHTMARE
+    # Runs saved before difficulty existed keep working and read as Normal.
+    payload = json.loads(stored.model_dump_json())
+    payload.pop("difficulty")
+    assert ChallengeRun.model_validate(payload).difficulty is ChallengeDifficulty.NORMAL
+
+
+@pytest.mark.asyncio
+async def test_expert_difficulty_lowers_only_the_derived_player_stage_team(
+    tmp_path: Path,
+) -> None:
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'difficulty.db'}")
+    await database.create_schema()
+    repository = ChallengeRepository(database)
+    run = _picked_run().model_copy(
+        update={
+            "difficulty": ChallengeDifficulty.EXPERT,
+            "ability_selections": {"mon1": "ability1h", "mon2": "ability2a", "mon3": "ability3a"},
+        }
+    )
+    await repository.create(run)
+    structured = (
+        {"species": "Mon 1", "ability": "Ability 1 H", "evs": {"hp": 1}},
+        {"species": "Mon 2", "ability": "Ability 2 A", "evs": {"hp": 1}},
+        {"species": "Mon 3", "ability": "Ability 3 A", "evs": {"hp": 1}},
+    )
+    battles = _Battles(structured, BattleRepository(database))
+    service = ChallengeService(
+        repository, ShowdownSpeciesCatalog("http://127.0.0.1:9"), cast(Any, battles)
+    )
+    export = "\n\n".join(f"Mon {index}\nAbility: Wrong\n- Tackle" for index in range(1, 4))
+    finalized = await service.finalize_team(run.id, export, run.revision)
+    battles.team_validator.submissions.clear()
+    launched, _ = await service.launch_stage(run.id, finalized.revision)
+
+    player_text, opponent_text = battles.team_validator.submissions[:2]
+    assert "Level: 40" in player_text and "Level: 50" not in player_text
+    assert "Level: 50" in opponent_text and "Level: 40" not in opponent_text
+    # The immutable drafted snapshot is untouched; only the derived export moved.
+    source = await battles.teams.get(launched.team_snapshot_id)
+    assert source is not None and "Level: 40" not in source.normalized_export
+    await database.close()
+
+
+@pytest.mark.asyncio
+async def test_normal_difficulty_keeps_both_sides_on_the_stage_level(tmp_path: Path) -> None:
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'difficulty-normal.db'}")
+    await database.create_schema()
+    repository = ChallengeRepository(database)
+    run = _picked_run().model_copy(
+        update={
+            "ability_selections": {"mon1": "ability1h", "mon2": "ability2a", "mon3": "ability3a"}
+        }
+    )
+    await repository.create(run)
+    structured = (
+        {"species": "Mon 1", "ability": "Ability 1 H", "evs": {"hp": 1}},
+        {"species": "Mon 2", "ability": "Ability 2 A", "evs": {"hp": 1}},
+        {"species": "Mon 3", "ability": "Ability 3 A", "evs": {"hp": 1}},
+    )
+    battles = _Battles(structured, BattleRepository(database))
+    service = ChallengeService(
+        repository, ShowdownSpeciesCatalog("http://127.0.0.1:9"), cast(Any, battles)
+    )
+    export = "\n\n".join(f"Mon {index}\nAbility: Wrong\n- Tackle" for index in range(1, 4))
+    finalized = await service.finalize_team(run.id, export, run.revision)
+    battles.team_validator.submissions.clear()
+    await service.launch_stage(run.id, finalized.revision)
+
+    player_text, opponent_text = battles.team_validator.submissions[:2]
+    assert "Level: 50" in player_text
+    assert "Level: 50" in opponent_text
+
+
+def test_public_stages_publish_the_derived_player_level() -> None:
+    normal = _public_stage_levels(ChallengeDifficulty.NORMAL)
+    nightmare = _public_stage_levels(ChallengeDifficulty.NIGHTMARE)
+
+    assert normal == [(50, 50)]
+    assert nightmare == [(50, 35)]
+
+
+def _public_stage_levels(difficulty: ChallengeDifficulty) -> list[tuple[int, int]]:
+    run = _run().model_copy(update={"difficulty": difficulty})
+    service = ChallengeService(
+        cast(Any, None), ShowdownSpeciesCatalog("http://127.0.0.1:9"), cast(Any, None)
+    )
+    view = service.view(run)
+    return [(stage.level, stage.player_level) for stage in view.stages]
+
+
+def test_automatic_team_preparation_ships_a_complete_set() -> None:
+    run = _picked_run()
+    run = run.model_copy(
+        update={
+            "ev_allocations": {
+                pick.candidate.entry_id: EvSpread(atk=252, spd=4, spe=252) for pick in run.picks
+            }
+        }
+    )
+    scaffold = _team_scaffold(run)
+    assert scaffold is not None
+
+    for block in scaffold.split("\n\n"):
+        lines = block.splitlines()
+        assert "@" in lines[0], block
+        assert any(line.endswith(" Nature") for line in lines), block
+        assert any(line.startswith("EVs:") for line in lines), block
+        assert any(line.startswith("- ") for line in lines), block
+
+
+@pytest.mark.asyncio
+async def test_deleting_a_run_removes_it_and_cancels_its_active_match(tmp_path: Path) -> None:
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'delete.db'}")
+    await database.create_schema()
+    repository = ChallengeRepository(database)
+    run = _picked_run().model_copy(
+        update={
+            "ability_selections": {"mon1": "ability1h", "mon2": "ability2a", "mon3": "ability3a"}
+        }
+    )
+    await repository.create(run)
+    structured = (
+        {"species": "Mon 1", "ability": "Ability 1 H", "evs": {"hp": 1}},
+        {"species": "Mon 2", "ability": "Ability 2 A", "evs": {"hp": 1}},
+        {"species": "Mon 3", "ability": "Ability 3 A", "evs": {"hp": 1}},
+    )
+    battles = _Battles(structured, BattleRepository(database))
+    service = ChallengeService(
+        repository, ShowdownSpeciesCatalog("http://127.0.0.1:9"), cast(Any, battles)
+    )
+    export = "\n\n".join(f"Mon {index}\nAbility: Wrong\n- Tackle" for index in range(1, 4))
+    finalized = await service.finalize_team(run.id, export, run.revision)
+    launched, match = await service.launch_stage(run.id, finalized.revision)
+
+    await service.delete(run.id, launched.revision)
+
+    assert await repository.get(run.id) is None
+    assert battles.cancelled == [match.id]
+    with pytest.raises(KeyError):
+        await service.require(run.id)
+    await database.close()
+
+
+@pytest.mark.asyncio
+async def test_deleting_a_run_rejects_a_stale_revision(tmp_path: Path) -> None:
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'delete-stale.db'}")
+    await database.create_schema()
+    repository = ChallengeRepository(database)
+    run = _picked_run()
+    await repository.create(run)
+    service = ChallengeService(
+        repository, ShowdownSpeciesCatalog("http://127.0.0.1:9"), cast(Any, _Battles(()))
+    )
+
+    with pytest.raises(ValueError, match="stale challenge revision"):
+        await service.delete(run.id, run.revision + 5)
+    assert await repository.get(run.id) is not None
+    await database.close()
+
+
+@pytest.mark.asyncio
+async def test_unreachable_validator_parks_preparation_in_team_review(tmp_path: Path) -> None:
+    """A validator outage must never strand a finished draft in `preparing` with no state."""
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'prepare-outage.db'}")
+    await database.create_schema()
+    repository = ChallengeRepository(database)
+    run = _picked_run().model_copy(update={"status": ChallengeStatus.PREPARING})
+    await repository.create(run)
+    battles = _Battles((), BattleRepository(database))
+
+    async def unavailable(team_text: str, format_id: str) -> TeamValidationResult:
+        raise RuntimeError("Showdown team validator is unavailable")
+
+    battles.team_validator.validate = unavailable  # type: ignore[assignment]
+    service = ChallengeService(
+        repository, ShowdownSpeciesCatalog("http://127.0.0.1:9"), cast(Any, battles)
+    )
+
+    prepared = await service._auto_prepare_team(run.id)
+
+    assert prepared.status is ChallengeStatus.TEAM_REVIEW
+    assert prepared.error is not None
+    assert "validator" in prepared.error
+    assert prepared.team_snapshot_id is None
+    await database.close()

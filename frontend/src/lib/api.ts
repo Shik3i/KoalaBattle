@@ -20,6 +20,10 @@ export async function api<T>(path: string, options?: RequestInit): Promise<T> {
     const body = await response.json().catch(() => ({ detail: response.statusText }));
     throw new Error(errorMessage(body?.detail, response.status));
   }
+  // 204 and other empty responses are success, not a parse error.
+  if (response.status === 204 || response.headers.get('content-length') === '0') {
+    return undefined as T;
+  }
   return response.json() as Promise<T>;
 }
 

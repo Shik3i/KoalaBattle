@@ -24,3 +24,5 @@ data/
 tools/logs/
 latest_battle_video.*
 HANDOFF_PROMPT.md
+# Local agent/editor tooling (dev server launch config, session scratch).
+.claude/

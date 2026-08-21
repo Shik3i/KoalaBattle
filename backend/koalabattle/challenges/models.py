@@ -32,6 +32,29 @@ class ChallengeStatus(StrEnum):
     ABANDONED = "abandoned"
 
 
+class ChallengeDifficulty(StrEnum):
+    NORMAL = "normal"
+    HARD = "hard"
+    EXPERT = "expert"
+    NIGHTMARE = "nightmare"
+
+
+# Difficulty only ever subtracts levels from the player's derived stage team. Opponent
+# levels stay on the definition's campaign curve so team quality, not scaling, is the
+# baseline challenge.
+DIFFICULTY_LEVEL_MODIFIERS: dict[ChallengeDifficulty, int] = {
+    ChallengeDifficulty.NORMAL: 0,
+    ChallengeDifficulty.HARD: -5,
+    ChallengeDifficulty.EXPERT: -10,
+    ChallengeDifficulty.NIGHTMARE: -15,
+}
+
+
+def player_stage_level(stage_level: int, difficulty: ChallengeDifficulty) -> int:
+    """Derive the player's level for one stage without mutating any stored snapshot."""
+    return max(1, min(100, stage_level + DIFFICULTY_LEVEL_MODIFIERS[difficulty]))
+
+
 class DraftControllerKind(StrEnum):
     HUMAN = "human"
     AGENT = "agent"
@@ -268,6 +291,7 @@ class ChallengeRun(FrozenModel):
     battle_controller: BattleControllerSnapshot
     opponent_controller: BattleControllerSnapshot
     battle_experience: Literal["quick-sim", "fast-watch", "normal"] = "quick-sim"
+    difficulty: ChallengeDifficulty = ChallengeDifficulty.NORMAL
     rerolls_remaining: int = Field(default=3, ge=0)
     type_rerolls_remaining: int = Field(default=1, ge=0)
     generation_rerolls_remaining: int = Field(default=1, ge=0)
@@ -297,6 +321,7 @@ class PublicChallengeStage(FrozenModel):
     title: str
     theme: str
     level: int
+    player_level: int = Field(default=0, ge=0, le=100)
     specialty: str | None = None
     trainer_asset_id: str | None = None
     visual_accent: str = "#7bf0a2"
@@ -336,6 +361,7 @@ class ChallengeRunSummary(FrozenModel):
     definition_name: str
     definition_version: str
     status: ChallengeStatus
+    difficulty: ChallengeDifficulty = ChallengeDifficulty.NORMAL
     current_stage_index: int
     stage_count: int
     stages_cleared: int
@@ -351,6 +377,7 @@ class CreateChallengeRun(FrozenModel):
     battle_controller: BattleControllerSnapshot
     opponent_controller: BattleControllerSnapshot
     battle_experience: Literal["quick-sim", "fast-watch", "normal"] = "quick-sim"
+    difficulty: ChallengeDifficulty = ChallengeDifficulty.NORMAL
     draft_rules: DraftRules | None = None
     training_rules: TrainingRules | None = None
 

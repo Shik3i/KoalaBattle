@@ -27,8 +27,20 @@ export function draftChoiceIndexForKey(key: string): number | null {
   return /^[1-8]$/.test(key) ? Number(key) - 1 : null;
 }
 
-export type DraftRollMode = 'both' | 'type' | 'generation';
+/**
+ * `pokemon` keeps both reels locked and only replays the candidate reveal, so a Pokemon
+ * reroll is visually distinct from a Type or Generation reroll.
+ */
+export type DraftRollMode = 'both' | 'type' | 'generation' | 'pokemon';
 export const DRAFT_ROLL_DURATION_MS = 620;
+export const DRAFT_POKEMON_ROLL_DURATION_MS = 260;
+/** Frames per reel while spinning; the last frame is always the locked result. */
+export const DRAFT_REEL_FRAMES = 12;
+export const DRAFT_REEL_FRAME_HEIGHT = 42;
+
+export function draftRollDuration(mode: DraftRollMode): number {
+  return mode === 'pokemon' ? DRAFT_POKEMON_ROLL_DURATION_MS : DRAFT_ROLL_DURATION_MS;
+}
 
 const GENERATION_ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX'] as const;
 
@@ -45,6 +57,7 @@ export function draftRollTransitionMode(
   if (firstRoll || outcome === 'picked') return 'both';
   if (outcome === 'type_rerolled') return 'type';
   if (outcome === 'generation_rerolled') return 'generation';
+  if (outcome === 'pokemon_rerolled' || outcome === 'rerolled') return 'pokemon';
   return null;
 }
 
@@ -123,16 +136,45 @@ export function draftRollFrames(
   type: string,
   mode: DraftRollMode
 ): { generations: number[]; types: string[] } {
-  const generations = Array.from({ length: 7 }, (_, index) => ((generation + index + 2) % 9) + 1);
+  const spin = DRAFT_REEL_FRAMES - 1;
+  const generations = Array.from({ length: spin }, (_, index) => ((generation + index + 2) % 9) + 1);
   generations.push(generation);
   const types = Object.keys(TYPE_COLORS);
   const targetIndex = Math.max(0, types.indexOf(type.toLowerCase()));
-  const typeFrames = Array.from({ length: 7 }, (_, index) => types[(targetIndex + index * 5 + 3) % types.length]);
+  const typeFrames = Array.from(
+    { length: spin },
+    (_, index) => types[(targetIndex + index * 5 + 3) % types.length]
+  );
   typeFrames.push(type.toLowerCase());
+  const generationSpins = mode === 'both' || mode === 'generation';
+  const typeSpins = mode === 'both' || mode === 'type';
   return {
-    generations: mode === 'type' ? [generation] : generations,
-    types: mode === 'generation' ? [type.toLowerCase()] : typeFrames
+    generations: generationSpins ? generations : [generation],
+    types: typeSpins ? typeFrames : [type.toLowerCase()]
   };
+}
+
+const DIFFICULTY_LABELS: Record<string, string> = {
+  normal: 'Normal',
+  hard: 'Hard · −5 levels',
+  expert: 'Expert · −10 levels',
+  nightmare: 'Nightmare · −15 levels'
+};
+
+export const DIFFICULTY_LEVEL_MODIFIERS: Record<string, number> = {
+  normal: 0,
+  hard: -5,
+  expert: -10,
+  nightmare: -15
+};
+
+export function difficultyLabel(difficulty: string | undefined): string {
+  return DIFFICULTY_LABELS[difficulty || 'normal'] || 'Normal';
+}
+
+export function playerStageLevel(stageLevel: number, difficulty: string | undefined): number {
+  const modifier = DIFFICULTY_LEVEL_MODIFIERS[difficulty || 'normal'] ?? 0;
+  return Math.max(1, Math.min(100, stageLevel + modifier));
 }
 
 export function pokemonTypeColor(type: string): string {

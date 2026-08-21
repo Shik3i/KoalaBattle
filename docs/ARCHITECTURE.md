@@ -56,8 +56,10 @@ more engine-specific matches. See [Orchestration](ORCHESTRATION.md) and
 [Tournaments](TOURNAMENTS.md).
 
 `backend/koalabattle/challenges` is another orchestration layer above normal matches. It owns
-versioned Showdown-backed draft pools, consumed offers, recommended EVs, campaign, and stage-progression snapshots, then derives two
-immutable validated team snapshots and creates a linked normal match. The battle engine does not
+versioned Showdown-backed draft pools, consumed offers, recommended EVs, difficulty, campaign, and
+stage-progression snapshots, then derives two immutable validated team snapshots and creates a
+linked normal match. Difficulty is a property of the run, applied only while deriving the player's
+stage export; neither the drafted roster snapshot nor the opponent's level is ever rewritten. The battle engine does not
 know challenge rules. Terminal match results flow back through a narrow hook; presentation and
 replay remain unchanged. See [Draft Challenge](CHALLENGES.md).
 

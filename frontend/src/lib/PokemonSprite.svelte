@@ -25,7 +25,7 @@
     />
   {:else}
     <span class="fallback" aria-label={decorative ? undefined : `${species} sprite unavailable`}>
-      <i class="ph ph-pokeball" aria-hidden="true"></i>
+      <i class="ph ph-circle-dashed" aria-hidden="true"></i>
       <b>{species.slice(0, 1)}</b>
     </span>
   {/if}

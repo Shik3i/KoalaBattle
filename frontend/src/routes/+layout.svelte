@@ -10,6 +10,12 @@
    */
   const CLEAN_ROUTES = ['/overlay/', '/render/', '/watch/'];
   $: cleanRoute = CLEAN_ROUTES.some((prefix) => $page.url.pathname.startsWith(prefix));
+  /**
+   * Game screens keep their own chrome to a minimum so the battle viewport is
+   * substantially visible without scrolling on a normal laptop viewport.
+   */
+  $: focusRoute = $page.url.pathname.startsWith('/battle/') ||
+    /^\/challenges\/[^/]+$/.test($page.url.pathname);
   $: if (typeof document !== 'undefined') {
     document.documentElement.dataset.overlay = String(cleanRoute);
   }
@@ -44,6 +50,6 @@
     </nav>
     <div class="header-actions"><a class="button compact" href="/new"><i class="ph ph-plus" aria-hidden="true"></i>New match</a><button class="icon-button" on:click={toggleTheme} aria-label={`Use ${theme === 'dark' ? 'light' : 'dark'} application theme`}><i class={`ph ${theme === 'dark' ? 'ph-sun' : 'ph-moon'}`} aria-hidden="true"></i></button></div>
   </header>
-  <main id="main-content"><slot /></main>
+  <main id="main-content" class:focus-route={focusRoute}><slot /></main>
   <footer class="app-footer"><span class="footer-brand"><img src="/koalabattle-mark.svg" alt="" />KoalaBattle 0.11.0</span><span>Local-first · Auditable context · Event-sourced · No Pokémon assets included</span></footer>
 {/if}

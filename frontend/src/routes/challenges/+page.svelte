@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { api } from '$lib/api';
-  import { challengeStatusLabel } from '$lib/challenge';
+  import { challengeStatusLabel, difficultyLabel } from '$lib/challenge';
   import type { ChallengeRunSummary } from '$lib/types';
 
   let runs: ChallengeRunSummary[] = [];
@@ -49,7 +49,7 @@
   <div class="intro-facts">
     <span><i class="ph ph-cards-three" aria-hidden="true"></i><strong>Fresh offers</strong><small>Every shown Pokémon leaves the pool after its round.</small></span>
     <span><i class="ph ph-barbell" aria-hidden="true"></i><strong>Ready to train</strong><small>Recommended legal EVs are applied automatically.</small></span>
-    <span><i class="ph ph-scales" aria-hidden="true"></i><strong>Equal levels</strong><small>Both teams use the exact stage level.</small></span>
+    <span><i class="ph ph-scales" aria-hidden="true"></i><strong>Four difficulties</strong><small>Normal is level-for-level; Hard, Expert and Nightmare give your team −5, −10 or −15 levels.</small></span>
     <span><i class="ph ph-record" aria-hidden="true"></i><strong>Recorded matches</strong><small>Play yourself or use AI; every stage gets a replay.</small></span>
   </div>
   <details>
@@ -77,7 +77,7 @@
         <a class="panel" href={`/challenges/${run.id}`}>
           <div class="run-name"><span class="eyebrow">{run.definition_name}</span><h3>{run.name}</h3><small>Updated {new Date(run.updated_at).toLocaleString()}</small></div>
           <div class="progress"><strong>{run.stages_cleared}/{run.stage_count}</strong><span>stages cleared</span></div>
-          <div class="run-state"><span class={`status-pill ${run.status}`}>{challengeStatusLabel(run.status)}</span><small>{currentProgress(run)}</small></div>
+          <div class="run-state"><span class={`status-pill ${run.status}`}>{challengeStatusLabel(run.status)}</span><small>{currentProgress(run)} · {difficultyLabel(run.difficulty)}</small></div>
           <i class="ph ph-caret-right" aria-hidden="true"></i>
         </a>
       {/each}

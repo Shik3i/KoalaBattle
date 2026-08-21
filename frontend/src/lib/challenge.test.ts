@@ -8,7 +8,12 @@ import {
   draftChoiceIndexForKey,
   draftRollFrames,
   draftRollTransitionMode,
+  DRAFT_POKEMON_ROLL_DURATION_MS,
+  DRAFT_REEL_FRAMES,
   DRAFT_ROLL_DURATION_MS,
+  difficultyLabel,
+  draftRollDuration,
+  playerStageLevel,
   emptyEvSpread,
   evAllocationTotal,
   evSpreadTotal,
@@ -100,9 +105,39 @@ test('draft roll animation distinguishes automatic, type, generation, and Pokemo
   assert.equal(draftRollTransitionMode('picked'), 'both');
   assert.equal(draftRollTransitionMode('type_rerolled'), 'type');
   assert.equal(draftRollTransitionMode('generation_rerolled'), 'generation');
-  assert.equal(draftRollTransitionMode('pokemon_rerolled'), null);
+  assert.equal(draftRollTransitionMode('pokemon_rerolled'), 'pokemon');
+  assert.equal(draftRollTransitionMode('rerolled'), 'pokemon');
+});
+
+test('a restored offer replays nothing and reduced motion disables every reel', () => {
+  // Refresh/reconnect: no first-roll marker and no fingerprint change.
   assert.equal(draftRollTransitionMode(undefined, false), null);
   assert.equal(draftRollTransitionMode('picked', false, true), null);
+  assert.equal(draftRollTransitionMode('type_rerolled', false, true), null);
+  assert.equal(draftRollTransitionMode('generation_rerolled', false, true), null);
+  assert.equal(draftRollTransitionMode('pokemon_rerolled', false, true), null);
+  assert.equal(draftRollTransitionMode(undefined, true, true), null);
+});
+
+test('a Pokemon reroll locks both reels and only replays the candidate cards', () => {
+  const pokemonOnly = draftRollFrames(5, 'Steel', 'pokemon');
+
+  assert.deepEqual(pokemonOnly.generations, [5]);
+  assert.deepEqual(pokemonOnly.types, ['steel']);
+  assert.ok(draftRollDuration('pokemon') < draftRollDuration('both'));
+  assert.equal(draftRollDuration('pokemon'), DRAFT_POKEMON_ROLL_DURATION_MS);
+  assert.equal(draftRollDuration('generation'), DRAFT_ROLL_DURATION_MS);
+});
+
+test('difficulty labels and derived player levels never touch the opponent level', () => {
+  assert.equal(difficultyLabel('normal'), 'Normal');
+  assert.equal(difficultyLabel(undefined), 'Normal');
+  assert.ok(difficultyLabel('nightmare').includes('15'));
+  assert.equal(playerStageLevel(75, 'normal'), 75);
+  assert.equal(playerStageLevel(75, 'hard'), 70);
+  assert.equal(playerStageLevel(75, 'expert'), 65);
+  assert.equal(playerStageLevel(75, 'nightmare'), 60);
+  assert.equal(playerStageLevel(5, 'nightmare'), 1);
 });
 
 test('draft roll frames settle quickly on authoritative Roman generation and type', () => {
@@ -114,8 +149,9 @@ test('draft roll frames settle quickly on authoritative Roman generation and typ
   assert.equal(both.generations.at(-1), 3);
   assert.equal(both.types.at(-1), 'water');
   assert.deepEqual(typeOnly.generations, [3]);
-  assert.equal(typeOnly.types.length, 8);
-  assert.equal(generationOnly.generations.length, 8);
+  assert.equal(typeOnly.types.length, DRAFT_REEL_FRAMES);
+  assert.equal(both.generations.length, DRAFT_REEL_FRAMES);
+  assert.equal(generationOnly.generations.length, DRAFT_REEL_FRAMES);
   assert.deepEqual(generationOnly.types, ['water']);
   assert.ok(DRAFT_ROLL_DURATION_MS >= 400 && DRAFT_ROLL_DURATION_MS <= 800);
 });

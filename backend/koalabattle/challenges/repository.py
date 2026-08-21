@@ -6,7 +6,7 @@ from collections import defaultdict
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 
 from koalabattle.models.orm import ChallengeRunRow
 from koalabattle.storage import Database
@@ -143,6 +143,17 @@ class ChallengeRepository:
             await session.commit()
             return stored
 
+    async def delete(self, run_id: UUID) -> bool:
+        async with self.database.sessions() as session:
+            row = await session.get(ChallengeRunRow, str(run_id))
+            if row is None:
+                return False
+            await session.execute(
+                delete(ChallengeRunRow).where(ChallengeRunRow.id == str(run_id))
+            )
+            await session.commit()
+            return True
+
     async def list(self, *, limit: int = 100, offset: int = 0) -> tuple[ChallengeRunSummary, ...]:
         async with self.database.sessions() as session:
             rows = (
@@ -163,6 +174,7 @@ class ChallengeRepository:
                         definition_name=run.definition.name,
                         definition_version=run.definition.version,
                         status=run.status,
+                        difficulty=run.difficulty,
                         current_stage_index=run.current_stage_index,
                         stage_count=len(run.definition.stages),
                         stages_cleared=sum(item.status == "won" for item in run.stage_results),

@@ -381,6 +381,8 @@ export interface MatchArchive {
   }>;
 }
 
+export type ChallengeDifficulty = 'normal' | 'hard' | 'expert' | 'nightmare';
+
 export type ChallengeStatus = 'drafting' | 'preparing' | 'training' | 'team_review' | 'ready' | 'battle_queued' | 'battling' | 'stage_result' | 'completed' | 'failed' | 'cancelled' | 'abandoned';
 
 export interface DraftCandidate {
@@ -452,6 +454,7 @@ export interface ChallengeRunView {
     battle_controller: { agent_type: AgentType; provider?: ProviderKind | null; model?: string | null };
     opponent_controller: { agent_type: AgentType; provider?: ProviderKind | null; model?: string | null };
     battle_experience: 'quick-sim' | 'fast-watch' | 'normal';
+    difficulty: ChallengeDifficulty;
     rerolls_remaining: number;
     type_rerolls_remaining: number;
     generation_rerolls_remaining: number;
@@ -490,6 +493,8 @@ export interface ChallengeStageSummary {
   title: string;
   theme: string;
   level: number;
+  /** Level applied to the player's derived stage team after the difficulty modifier. */
+  player_level: number;
   specialty: string | null;
   trainer_asset_id: string | null;
   visual_accent: string;
@@ -501,6 +506,7 @@ export interface ChallengeRunSummary {
   definition_name: string;
   definition_version: string;
   status: ChallengeStatus;
+  difficulty: ChallengeDifficulty;
   current_stage_index: number;
   stage_count: number;
   stages_cleared: number;

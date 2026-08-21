@@ -40,7 +40,8 @@ parameters:
 - `roster=1|0` — the six-slot squad row under each player;
 - `hudScale=0.8…1.6` — multiplies every HUD text and bar size.
 
-**Copy OBS URL** on the control page writes the settings you tuned in the live preview into
+**Copy OBS URL**, in the control page's **Tools** menu, writes the settings you tuned in the
+collapsed **Presentation settings** panel into
 these parameters, so the captured source matches what you saw rather than falling back to the
 capture browser's own stored defaults.
 

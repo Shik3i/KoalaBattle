@@ -6,73 +6,130 @@ from pathlib import Path
 
 from koalabattle.challenges.service import _definition
 
+# Species are authored per trainer theme. Roster size and set quality escalate; these are
+# regression-locked so a later stage can never quietly become smaller or weaker.
 EXPECTED_SPECIES = {
-    "brock": ("Geodude", "Onix"),
-    "misty": ("Staryu", "Starmie"),
-    "lt-surge": ("Voltorb", "Pikachu", "Raichu"),
-    "erika": ("Victreebel", "Tangela", "Vileplume"),
-    "koga": ("Koffing", "Muk", "Koffing", "Weezing"),
-    "sabrina": ("Kadabra", "Mr. Mime", "Venomoth", "Alakazam"),
-    "blaine": ("Growlithe", "Ponyta", "Rapidash", "Arcanine"),
-    "giovanni": ("Rhyhorn", "Dugtrio", "Nidoqueen", "Nidoking", "Rhydon"),
-    "lorelei": ("Dewgong", "Cloyster", "Slowbro", "Jynx", "Lapras"),
-    "bruno": ("Onix", "Hitmonchan", "Hitmonlee", "Onix", "Machamp"),
-    "agatha": ("Gengar", "Golbat", "Haunter", "Arbok", "Gengar"),
-    "lance": ("Gyarados", "Dragonair", "Dragonair", "Aerodactyl", "Dragonite"),
+    "brock": ("Onix", "Golem", "Rhyhorn"),
+    "misty": ("Starmie", "Cloyster", "Quagsire"),
+    "lt-surge": ("Raichu", "Magneton", "Jolteon", "Electivire"),
+    "erika": ("Venusaur", "Victreebel", "Roserade", "Vileplume"),
+    "koga": ("Crobat", "Drapion", "Muk-Alola", "Venomoth", "Weezing-Galar"),
+    "sabrina": ("Alakazam", "Espeon", "Slowbro", "Jynx", "Mr. Mime"),
+    "blaine": ("Ninetales", "Charizard", "Arcanine", "Magmortar", "Rapidash"),
+    "giovanni": ("Nidoking", "Nidoqueen", "Rhyperior", "Dugtrio", "Golem", "Kangaskhan"),
+    "lorelei": ("Cloyster", "Lapras", "Jynx", "Weavile", "Slowbro", "Articuno"),
+    "bruno": ("Machamp", "Hitmonlee", "Hitmonchan", "Hitmontop", "Steelix", "Poliwrath"),
+    "agatha": ("Gengar", "Marowak-Alola", "Arbok", "Nidoking", "Golbat", "Weezing"),
+    "lance": ("Dragonite", "Salamence", "Kingdra", "Gyarados", "Aerodactyl", "Garchomp"),
     "champion-blue": (
         "Pidgeot",
         "Alakazam",
-        "Rhydon",
+        "Rhyperior",
         "Gyarados",
         "Exeggutor",
         "Charizard",
     ),
 }
 
+NATURES = {
+    "Adamant", "Bold", "Brave", "Calm", "Careful", "Gentle", "Hasty", "Impish", "Jolly",
+    "Lax", "Lonely", "Mild", "Modest", "Naive", "Naughty", "Quiet", "Rash", "Relaxed",
+    "Sassy", "Serious", "Timid",
+}
+
+
+def _sets(stage_team: str) -> list[dict[str, object]]:
+    parsed: list[dict[str, object]] = []
+    for block in stage_team.split("\n\n"):
+        lines = block.splitlines()
+        heading = lines[0]
+        parsed.append(
+            {
+                "species": heading.split(" @ ")[0].strip(),
+                "item": heading.split(" @ ")[1].strip() if " @ " in heading else None,
+                "ability": next(
+                    (
+                        line.removeprefix("Ability: ")
+                        for line in lines
+                        if line.startswith("Ability: ")
+                    ),
+                    None,
+                ),
+                "nature": next(
+                    (line.removesuffix(" Nature") for line in lines if line.endswith(" Nature")),
+                    None,
+                ),
+                "evs": next(
+                    (line.removeprefix("EVs: ") for line in lines if line.startswith("EVs: ")), None
+                ),
+                "ivs": next(
+                    (line.removeprefix("IVs: ") for line in lines if line.startswith("IVs: ")), None
+                ),
+                "moves": [line.removeprefix("- ") for line in lines if line.startswith("- ")],
+            }
+        )
+    return parsed
+
 
 def _source_snapshot() -> list[dict[str, object]]:
     definition = _definition("kanto-gym-gauntlet")
-    snapshot: list[dict[str, object]] = []
-    for stage in definition.stages:
-        team: list[dict[str, object]] = []
-        for block in stage.opponent_team.split("\n\n"):
-            lines = block.splitlines()
-            team.append(
-                {
-                    "species": lines[0],
-                    "level": next(
-                        line.removeprefix("Level: ") for line in lines if line.startswith("Level: ")
-                    ),
-                    "moves": [line.removeprefix("- ") for line in lines if line.startswith("- ")],
-                }
-            )
-        snapshot.append({"id": stage.id, "team": team})
-    return snapshot
+    return [
+        {"id": stage.id, "level": stage.level, "team": _sets(stage.opponent_team)}
+        for stage in definition.stages
+    ]
 
 
-def test_kanto_content_uses_sourced_red_blue_rosters() -> None:
+def test_kanto_content_uses_authored_theme_teams() -> None:
     definition = _definition("kanto-gym-gauntlet")
 
-    assert definition.version == "8.0.0"
+    assert definition.version == "9.0.0"
     assert definition.draft_rules.rerolls == 3
     assert definition.draft_rules.type_rerolls == 1
     assert definition.draft_rules.generation_rerolls == 1
+    assert definition.source is not None
     assert definition.source.game == "Pokémon Red and Blue"
-    assert definition.source.generation == 1
-    assert "Champion Blue when the player chose Bulbasaur" in definition.source.variant
+    assert "KoalaBattle-authored" in definition.source.variant
     assert {
-        stage.id: tuple(block.splitlines()[0] for block in stage.opponent_team.split("\n\n"))
+        stage.id: tuple(str(entry["species"]) for entry in _sets(stage.opponent_team))
         for stage in definition.stages
     } == EXPECTED_SPECIES
     assert all(stage.trainer_asset_id and stage.specialty for stage in definition.stages)
     assert definition.stages[0].trainer_asset_id == "brock-gen1rb"
 
 
-def test_kanto_source_levels_and_moves_are_regression_locked() -> None:
+def test_every_opponent_set_is_a_complete_competitive_set() -> None:
+    definition = _definition("kanto-gym-gauntlet")
+
+    for stage in definition.stages:
+        for entry in _sets(stage.opponent_team):
+            label = f"{stage.id}/{entry['species']}"
+            assert entry["ability"], label
+            assert entry["item"], label
+            assert entry["nature"] in NATURES, label
+            assert entry["evs"], label
+            total = sum(int(part.split(" ")[0]) for part in str(entry["evs"]).split(" / "))
+            assert 500 <= total <= 510, f"{label} allocates {total} EVs"
+            moves = entry["moves"]
+            assert isinstance(moves, list) and len(moves) == 4, label
+
+
+def test_roster_size_and_move_count_never_regress_across_the_campaign() -> None:
+    definition = _definition("kanto-gym-gauntlet")
+    sizes = [len(_sets(stage.opponent_team)) for stage in definition.stages]
+    levels = [stage.level for stage in definition.stages]
+
+    assert sizes == sorted(sizes), sizes
+    assert levels == sorted(levels), levels
+    assert sizes[0] >= 3, "even the opening gym fields a real team"
+    # Every Elite Four member and the Champion field a full six.
+    assert all(size == 6 for size in sizes[-5:]), sizes
+
+
+def test_kanto_opponent_sets_are_regression_locked() -> None:
     payload = json.dumps(_source_snapshot(), sort_keys=True, separators=(",", ":")).encode()
 
     assert hashlib.sha256(payload).hexdigest() == (
-        "b99985260c37ae8d6066c725d0ef5f0fbc33fdba4736531e0cbd745a641c75d2"
+        "b5f827cb73a54513d49cafc2762d59d78fd22373eb79ad1496cffd8d1d42bc84"
     )
 
 

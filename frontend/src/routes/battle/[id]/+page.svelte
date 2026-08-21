@@ -28,6 +28,16 @@
   let config: RendererConfig = defaultRendererConfig();
   let lifecycle: Partial<Record<Side, AgentLifecycleState>> = { p1: 'idle', p2: 'idle' };
   let activeTab: Side | null = null;
+  let toolMenu: HTMLDetailsElement | null = null;
+
+  function closeToolMenu(event: Event) {
+    if (!toolMenu?.open) return;
+    if (event instanceof KeyboardEvent) {
+      if (event.key === 'Escape') toolMenu.open = false;
+      return;
+    }
+    if (!toolMenu.contains(event.target as Node)) toolMenu.open = false;
+  }
 
   $: agentStatus = Object.fromEntries(Object.entries(lifecycle).map(([side, state]) => [
     side, state === 'waiting' || state === 'thinking' || state === 'retrying' ? 'thinking'
@@ -106,9 +116,13 @@
     if (requestedSpeed === '4') config = { ...config, playbackSpeed: 4 };
     activeMatchId = data.id;
     window.addEventListener('keydown', handleManualShortcut);
+    window.addEventListener('keydown', closeToolMenu);
+    window.addEventListener('pointerdown', closeToolMenu);
     void connect();
     return () => {
       window.removeEventListener('keydown', handleManualShortcut);
+      window.removeEventListener('keydown', closeToolMenu);
+      window.removeEventListener('pointerdown', closeToolMenu);
       stopSocket?.(); timeline?.destroy();
       if (copyTimer) clearTimeout(copyTimer);
       if (configBroadcastTimer) clearTimeout(configBroadcastTimer);
@@ -392,35 +406,41 @@
   }
 </script>
 
-<div class="live-head">
-  <div>
-    <span class="eyebrow">{match?.challenge_run_id ? `Draft stage · ${match.challenge_stage_id || 'campaign'}` : 'Match control'} · {data.id.slice(0, 8)}</span>
-    <h1>{match ? (match.config.name || `${match.config.players[0].display_name} vs ${match.config.players[1].display_name}`) : 'Loading battle…'}</h1>
-  </div>
-  {#if match}<div class="battle-context">{#if match.challenge_run_id}<a class="button secondary compact" href={`/challenges/${match.challenge_run_id}`}><i class="ph ph-map-trifold" aria-hidden="true"></i>Draft map</a>{/if}<span class={`status-pill ${match.status}`}>{match.status}</span></div>{/if}
-</div>
-
 <!--
-  Two-tab workflow: this page controls the match, the battle view is what you watch and
-  record. Both links are first-class so nobody has to scroll a capture surface to paste.
+  Game screen first: one compact identity row, then the battle. Battle-view, OBS and
+  presentation controls stay one click away in the tools menu instead of pushing the
+  renderer below the fold.
 -->
-<section class="view-bar panel">
-  <div class="view-copy">
-    <strong>Battle view</strong>
-    <span>Clean full-screen battle with no controls. Keep it open in a second tab or add it to OBS.</span>
+<div class="live-head">
+  <div class="head-id">
+    <span class="eyebrow">{match?.challenge_run_id ? `Draft stage · ${match.challenge_stage_id || 'campaign'}` : 'Match control'} · {data.id.slice(0, 8)}</span>
+    <h1 title={match ? (match.config.name || `${match.config.players[0].display_name} vs ${match.config.players[1].display_name}`) : undefined}>{match ? (match.config.name || `${match.config.players[0].display_name} vs ${match.config.players[1].display_name}`) : 'Loading battle…'}</h1>
   </div>
-  <div class="view-actions">
-    <a class="button" href={`/watch/${data.id}`} target="_blank" rel="noopener"><i class="ph ph-monitor-play" aria-hidden="true"></i>Open battle view</a>
-    <button class="button secondary" on:click={() => copyText('watch', battleViewUrl)}>{copied === 'watch' ? 'Copied' : 'Copy battle view URL'}</button>
-    <button class="button secondary" on:click={() => copyText('obs', obsUrl)}>{copied === 'obs' ? 'Copied' : 'Copy OBS URL'}</button>
-    <a class="button ghost" href={obsUrl} target="_blank" rel="noopener">Open OBS overlay</a>
+  <div class="battle-context">
+    {#if match}{#if match.challenge_run_id}<a class="button secondary compact" href={`/challenges/${match.challenge_run_id}`}><i class="ph ph-map-trifold" aria-hidden="true"></i>Draft map</a>{/if}<span class={`status-pill ${match.status}`}>{match.status}</span>{/if}
+    <details bind:this={toolMenu} class="tool-menu">
+      <summary title="Battle view, OBS and streaming tools"><i class="ph ph-sliders-horizontal" aria-hidden="true"></i><span>Tools</span></summary>
+      <!-- Activating an item closes the menu; leaving it open hides the battle. -->
+      <div class="tool-menu-panel" on:click={() => toolMenu && (toolMenu.open = false)} role="none">
+        <span class="tool-menu-label">Battle view</span>
+        <a class="tool-menu-item" href={`/watch/${data.id}`} target="_blank" rel="noopener"><i class="ph ph-monitor-play" aria-hidden="true"></i>Open battle view</a>
+        <button type="button" class="tool-menu-item" on:click={() => copyText('watch', battleViewUrl)}><i class="ph ph-copy" aria-hidden="true"></i>{copied === 'watch' ? 'Copied' : 'Copy battle view URL'}</button>
+        <span class="tool-menu-label">Streaming / advanced</span>
+        <button type="button" class="tool-menu-item" on:click={() => copyText('obs', obsUrl)}><i class="ph ph-broadcast" aria-hidden="true"></i>{copied === 'obs' ? 'Copied' : 'Copy OBS URL'}</button>
+        <a class="tool-menu-item" href={obsUrl} target="_blank" rel="noopener"><i class="ph ph-arrow-square-out" aria-hidden="true"></i>Open OBS overlay</a>
+        <p class="tool-menu-note">The battle view is a clean full-screen battle with no controls. Both links carry the presentation settings below.</p>
+      </div>
+    </details>
   </div>
-</section>
+</div>
 
 <section class="preview">
   <BattleRenderer presentation={snapshot?.state || null} {config} {agentStatus} />
   <!-- Every control here edits the renderer above as you touch it, and the same settings
-       drive the battle-view tab and the OBS source, so what you tune is what gets captured. -->
+       drive the battle-view tab and the OBS source, so what you tune is what gets captured.
+       Collapsed by default so the battle, not the mixing desk, owns the screen. -->
+  <details class="preview-settings">
+  <summary><i class="ph ph-faders" aria-hidden="true"></i>Presentation settings</summary>
   <div class="preview-tools">
     <div class="tool-group">
       <span class="tool-label">Frame</span>
@@ -464,6 +484,7 @@
       <span class:sync-error={configSyncError} class="preview-note" role={configSyncError ? 'alert' : undefined}>{configSyncError || 'Live preview. The battle-view tab and the OBS source use these same settings.'}</span>
     </div>
   </div>
+  </details>
 </section>
 
 {#if match && humanSides.length && !pendingSides.some((side) => isHuman(side)) && !['completed','failed','cancelled','interrupted'].includes(match.status)}
@@ -637,19 +658,29 @@
 {/if}
 
 <style>
-  .live-head{display:flex;justify-content:space-between;align-items:flex-end;gap:1rem;margin-bottom:1.25rem}
-  .live-head h1{margin:.25rem 0 0;font-size:var(--step-3)}
-  .battle-context{display:flex;align-items:center;gap:.6rem}
-  .view-bar{display:flex;align-items:center;justify-content:space-between;gap:1.25rem;padding:1rem 1.25rem;box-shadow:none}
-  .view-copy{display:grid;gap:.15rem}
-  .view-copy strong{font-size:.95rem}
-  .view-copy span{max-width:56ch;color:var(--muted);font-size:.78rem;line-height:1.5}
-  .view-actions{display:flex;flex-wrap:wrap;gap:.5rem}
+  /* One compact identity row. Everything technical lives in the tools menu. */
+  .live-head{position:relative;z-index:40;display:flex;justify-content:space-between;align-items:center;gap:1rem;margin-bottom:.55rem}
+  .head-id{min-width:0}
+  .live-head .eyebrow{font-size:.58rem}
+  .live-head h1{margin:.1rem 0 0;overflow:hidden;font-size:clamp(1.05rem,1.7vw,1.4rem);text-overflow:ellipsis;white-space:nowrap}
+  .battle-context{display:flex;flex-shrink:0;align-items:center;gap:.5rem}
+  .tool-menu{position:relative}
+  .tool-menu>summary{display:flex;align-items:center;gap:.4rem;padding:.34rem .7rem;border:1px solid var(--border);border-radius:999px;background:var(--panel);color:var(--muted);font:650 .74rem var(--display);cursor:pointer;list-style:none}
+  .tool-menu>summary::-webkit-details-marker{display:none}
+  .tool-menu>summary:hover,.tool-menu[open]>summary{border-color:color-mix(in srgb,var(--accent) 45%,var(--border));color:var(--text)}
+  .tool-menu-panel{position:absolute;z-index:30;top:calc(100% + .4rem);right:0;display:grid;gap:.18rem;width:min(19rem,80vw);padding:.5rem;border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--panel);box-shadow:var(--shadow)}
+  .tool-menu-label{margin:.3rem .35rem .1rem;color:var(--accent);font:700 .58rem var(--mono);letter-spacing:.13em;text-transform:uppercase}
+  .tool-menu-item{display:flex;align-items:center;gap:.5rem;width:100%;padding:.45rem .55rem;border:0;border-radius:.5rem;background:transparent;color:var(--text);font:600 .8rem var(--display);text-align:left;cursor:pointer}
+  .tool-menu-item:hover{background:var(--surface)}
+  .tool-menu-note{margin:.35rem .35rem 0;color:var(--muted);font-size:.68rem;line-height:1.45}
+  .preview-settings{margin-top:.7rem;border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--panel)}
+  .preview-settings>summary{display:flex;align-items:center;gap:.45rem;padding:.6rem .9rem;color:var(--muted);font:650 .78rem var(--display);cursor:pointer}
+  .preview-settings[open]>summary{color:var(--text)}
   .human-wait{display:flex;align-items:center;gap:1rem;margin:1rem 0;padding:1rem;border-color:color-mix(in srgb,var(--accent) 42%,var(--border));box-shadow:none}
   .human-wait>div{flex:1}.human-wait h2{margin:.2rem 0;font-size:1rem}.human-wait p{margin:.2rem 0;color:var(--muted);font-size:.72rem}
   .wait-pulse{width:12px;aspect-ratio:1;border-radius:50%;background:var(--accent);box-shadow:0 0 0 6px color-mix(in srgb,var(--accent) 14%,transparent);animation:wait-pulse 1.6s ease-in-out infinite}@keyframes wait-pulse{50%{opacity:.4}}
-  .preview{margin-top:1rem}
-  .preview-tools{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:1rem;margin-top:.8rem;padding:1rem 1.1rem;border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--panel)}
+  .preview{margin-top:0}
+  .preview-tools{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:1rem;padding:0 1.1rem 1rem;border-top:1px solid var(--border);padding-top:1rem}
   .tool-group{display:grid;align-content:start;gap:.5rem;min-width:0}
   .tool-label{color:var(--accent);font:700 .62rem var(--mono);letter-spacing:.14em;text-transform:uppercase}
   .preview-tools label{min-width:0}
@@ -762,7 +793,7 @@
   .context-diff span{padding:.28rem .45rem;border:1px solid var(--border);border-radius:999px;color:var(--accent);font:.62rem var(--mono)}
 
   @media(max-width:980px){
-    .view-bar{align-items:stretch;flex-direction:column}
+    .live-head{align-items:flex-start;flex-direction:column;gap:.5rem}
     .manual-grid{grid-template-columns:1fr}
     .interview-grid{grid-template-columns:1fr}
     .team-inspector{grid-template-columns:1fr}

@@ -956,6 +956,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except ValueError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
 
+    @app.post("/api/challenges/{run_id}/delete")
+    async def challenge_delete(
+        run_id: UUID, payload: RevisionInput, request: Request
+    ) -> dict[str, bool]:
+        try:
+            await _challenges(request).delete(run_id, payload.expected_revision)
+            return {"deleted": True}
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="challenge not found") from error
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+
     @app.post("/api/challenges/{run_id}/cancel", response_model=ChallengeRunView)
     async def challenge_cancel(
         run_id: UUID, payload: RevisionInput, request: Request

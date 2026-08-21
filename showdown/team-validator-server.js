@@ -126,6 +126,24 @@ function recommendedMoves(formatDex, validator, entry, abilityName, requiredItem
       moveSources.set(moveId, existing.concat(sources || []));
     }
   }
+  const stats = entry.baseStats || {};
+  const prefersPhysical = Number(stats.atk || 0) >= Number(stats.spa || 0);
+  const preferredCategory = prefersPhysical ? 'Physical' : 'Special';
+  const accuracyOf = (move) => Number(move.accuracy === true ? 100 : move.accuracy || 0) / 100;
+  // A usable set needs the right attacking category and distinct coverage types, not the
+  // four highest-power STAB moves the Pokemon happens to learn.
+  const score = (move) => {
+    const stab = entry.types.includes(move.type) ? 1.5 : 1;
+    const fit = move.category === preferredCategory ? 1 : 0.4;
+    const recharge = move.self && move.self.volatileStatus === 'mustrecharge';
+    const charge = Boolean(move.flags && move.flags.charge);
+    const penalty = move.selfdestruct ? 0.25
+      : recharge || charge ? 0.5
+      : move.hasCrashDamage ? 0.75
+      : move.recoil ? 0.85
+      : 1;
+    return Number(move.basePower || 0) * accuracyOf(move) * stab * fit * penalty;
+  };
   const candidates = [...moveSources.entries()]
     .filter(([, sources]) => sources.some((source) => {
       if (source.charAt(1) === 'S') return false;
@@ -134,33 +152,39 @@ function recommendedMoves(formatDex, validator, entry, abilityName, requiredItem
     }))
     .map(([moveId]) => formatDex.moves.get(moveId))
     .filter((move) => move && move.exists !== false &&
-      (!move.isNonstandard || move.isNonstandard === 'Past') && !unreliable.has(move.id))
-    .sort((left, right) => {
-      const leftDamaging = left.category !== 'Status' && Number(left.basePower) > 0 ? 1 : 0;
-      const rightDamaging = right.category !== 'Status' && Number(right.basePower) > 0 ? 1 : 0;
-      const leftStab = entry.types.includes(left.type) ? 1 : 0;
-      const rightStab = entry.types.includes(right.type) ? 1 : 0;
-      const leftReliablePower = Number(left.basePower || 0) * Number(left.accuracy === true ? 100 : left.accuracy || 0);
-      const rightReliablePower = Number(right.basePower || 0) * Number(right.accuracy === true ? 100 : right.accuracy || 0);
-      const leftPenalty = left.selfdestruct || left.recoil || left.hasCrashDamage ? 1 : 0;
-      const rightPenalty = right.selfdestruct || right.recoil || right.hasCrashDamage ? 1 : 0;
-      return rightDamaging - leftDamaging || rightStab - leftStab || leftPenalty - rightPenalty ||
-        rightReliablePower - leftReliablePower || left.name.localeCompare(right.name);
-    });
-  const selected = [];
-  for (const move of candidates) {
+      (!move.isNonstandard || move.isNonstandard === 'Past') && !unreliable.has(move.id) &&
+      move.category !== 'Status' && Number(move.basePower) > 0)
+    .sort((left, right) => score(right) - score(left) || left.name.localeCompare(right.name));
+
+  // Campaign stages normalize teams down to level 35 on the hardest difficulty, so a
+  // move is only "recommended" when it is still legal there. Otherwise event-exclusive
+  // moves silently break the derived low-level stage team.
+  const legal = (move) => {
     const heading = entry.name + (requiredItem ? ` @ ${requiredItem}` : '');
     const team = [
       heading,
-      'Level: 50',
+      'Level: 35',
       ...(abilityName ? [`Ability: ${abilityName}`] : []),
       'EVs: 1 HP',
       `- ${move.name}`
     ].join('\n');
-    if (!(validator.validateTeam(Teams.import(team)) || []).length) {
-      selected.push(move.name);
-      if (selected.length === 4) break;
-    }
+    return !(validator.validateTeam(Teams.import(team)) || []).length;
+  };
+
+  const selected = [];
+  const usedTypes = new Set();
+  // Pass one: at most one move per attacking type, so the set always has real coverage.
+  for (const move of candidates) {
+    if (selected.length === 4) break;
+    if (usedTypes.has(move.type) || !legal(move)) continue;
+    usedTypes.add(move.type);
+    selected.push(move.name);
+  }
+  // Pass two: only if the Pokemon simply cannot learn four distinct attacking types.
+  for (const move of candidates) {
+    if (selected.length === 4) break;
+    if (selected.includes(move.name) || !legal(move)) continue;
+    selected.push(move.name);
   }
   return selected;
 }

@@ -12,8 +12,9 @@ Manual mode is designed around two browser tabs:
 | Battle view | `/watch/:matchId` | What you watch and what OBS captures. No controls, no scroll |
 | Control | `/battle/:matchId` | Copy prompts, paste responses, run the match |
 
-The control page exposes **Open battle view**, **Copy battle view URL** and **Copy OBS URL**,
-so the capture surface never has to be scrolled to reach a paste box.
+The control page's **Tools** menu exposes **Open battle view**, **Copy battle view URL**,
+**Copy OBS URL** and **Open OBS overlay**, so the capture surface never has to be scrolled to
+reach a paste box while the battle itself stays the top of the page.
 
 1. Choose **Manual Web Chat** independently for P1 or P2.
 2. On the control page, pick the agent's tab. The workspace is headed by that agent's own
