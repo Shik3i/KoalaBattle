@@ -1,14 +1,26 @@
 {
   "id": "kanto-gym-gauntlet",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "name": "Kanto Gym Gauntlet",
-  "description": "Eight themed gyms, the Elite Four, and a final Champion battle.",
-  "format": "gen9natdexdraft",
+  "description": "The exact Pokémon Red and Blue Gym Leader, Elite Four, and Champion rosters and moves, adapted only where the modern battle engine requires it.",
+  "format": "gen9koalabattlecanonicalnatdexdraft",
   "mechanics_assumptions": [
-    "Generation 9 National Dex Draft singles",
-    "Mega Evolution, Z-Moves, Dynamax, and Terastallization are not offered by Challenge controllers",
-    "Both teams receive the same deterministic stage level"
+    "Opponent species, order, source levels, and moves match Pokémon Red and Blue",
+    "Campaign battles normalize both teams to the same deterministic stage level",
+    "Generation 9 National Dex requires explicit modern abilities and a harmless EV marker",
+    "Mega Evolution, Z-Moves, Dynamax, and Terastallization are not offered by Challenge controllers"
   ],
+  "source": {
+    "game": "Pokémon Red and Blue",
+    "generation": 1,
+    "variant": "English Red/Blue teams; Champion Blue when the player chose Bulbasaur",
+    "references": [
+      "https://www.bisafans.de/spiele/editionen/rot-blau/arenaleiter.php",
+      "https://www.serebii.net/rb/gyms.shtml",
+      "https://www.serebii.net/rb/elitefour.shtml"
+    ],
+    "compatibility_note": "The source games had no abilities, natures, held items, or modern EVs. KoalaBattle preserves every recorded species, order, source level, and move, adds only an explicit legal ability plus Showdown's non-stat-changing EV confirmation marker, and applies the campaign's equal level normalization."
+  },
   "draft_rules": {
     "roster_size": 6,
     "starting_credits": 68,
@@ -26,105 +38,105 @@
       "id": "brock",
       "name": "Brock",
       "title": "Pewter Gym Leader",
-      "theme": "Rock-solid opening pressure",
+      "theme": "Pokémon Red/Blue · Boulder Badge",
       "level": 50,
-      "opponent_team": "Aerodactyl @ Heavy-Duty Boots\nAbility: Pressure\nEVs: 252 Atk / 5 SpD / 252 Spe\nJolly Nature\n- Stealth Rock\n- Taunt\n- Stone Edge\n- Earthquake\n\nRhyperior @ Leftovers\nAbility: Solid Rock\nEVs: 252 HP / 252 Atk / 5 SpD\nAdamant Nature\n- Earthquake\n- Stone Edge\n- Ice Punch\n- Swords Dance\n\nGarganacl @ Leftovers\nAbility: Purifying Salt\nEVs: 252 HP / 5 Def / 252 SpD\nCareful Nature\n- Salt Cure\n- Recover\n- Body Press\n- Iron Defense"
+      "opponent_team": "Geodude\nLevel: 12\nAbility: Rock Head\n- Tackle\n- Defense Curl\n\nOnix\nLevel: 14\nAbility: Rock Head\n- Tackle\n- Screech\n- Bide"
     },
     {
       "id": "misty",
       "name": "Misty",
       "title": "Cerulean Gym Leader",
-      "theme": "Rain tempo and fast Water offense",
+      "theme": "Pokémon Red/Blue · Cascade Badge",
       "level": 55,
-      "opponent_team": "Pelipper @ Damp Rock\nAbility: Drizzle\nEVs: 248 HP / 252 Def / 8 SpD\nBold Nature\n- Scald\n- Hurricane\n- Roost\n- U-turn\n\nBarraskewda @ Choice Band\nAbility: Swift Swim\nEVs: 252 Atk / 4 SpD / 252 Spe\nAdamant Nature\n- Liquidation\n- Close Combat\n- Psychic Fangs\n- Flip Turn\n\nRotom-Wash @ Leftovers\nAbility: Levitate\nEVs: 252 HP / 200 Def / 56 Spe\nBold Nature\n- Hydro Pump\n- Volt Switch\n- Will-O-Wisp\n- Protect"
+      "opponent_team": "Staryu\nLevel: 18\nAbility: Natural Cure\n- Tackle\n- Water Gun\n\nStarmie\nLevel: 21\nAbility: Natural Cure\n- Tackle\n- Water Gun\n- Harden\n- Bubble Beam"
     },
     {
       "id": "lt-surge",
       "name": "Lt. Surge",
       "title": "Vermilion Gym Leader",
-      "theme": "Electric momentum and paralysis",
+      "theme": "Pokémon Red/Blue · Thunder Badge",
       "level": 60,
-      "opponent_team": "Zapdos @ Heavy-Duty Boots\nAbility: Static\nEVs: 248 HP / 220 Def / 40 Spe\nBold Nature\n- Discharge\n- Hurricane\n- Roost\n- Volt Switch\n\nIron Hands @ Assault Vest\nAbility: Quark Drive\nEVs: 252 Atk / 84 SpD / 172 Spe\nAdamant Nature\n- Drain Punch\n- Wild Charge\n- Ice Punch\n- Volt Switch\n\nRotom-Mow @ Choice Scarf\nAbility: Levitate\nEVs: 4 Def / 252 SpA / 252 Spe\nTimid Nature\n- Leaf Storm\n- Volt Switch\n- Thunderbolt\n- Trick"
+      "opponent_team": "Voltorb\nLevel: 21\nAbility: Soundproof\n- Tackle\n- Screech\n- Sonic Boom\n\nPikachu\nLevel: 18\nAbility: Static\n- Thunder Shock\n- Thunder Wave\n- Growl\n- Quick Attack\n\nRaichu\nLevel: 24\nAbility: Static\n- Thunderbolt\n- Thunder Shock\n- Thunder Wave\n- Growl"
     },
     {
       "id": "erika",
       "name": "Erika",
       "title": "Celadon Gym Leader",
-      "theme": "Grassy Terrain and layered sustain",
+      "theme": "Pokémon Red/Blue · Rainbow Badge",
       "level": 65,
-      "opponent_team": "Rillaboom @ Choice Band\nAbility: Grassy Surge\nEVs: 252 Atk / 4 SpD / 252 Spe\nAdamant Nature\n- Grassy Glide\n- Wood Hammer\n- U-turn\n- Knock Off\n\nVenusaur @ Life Orb\nAbility: Chlorophyll\nEVs: 4 Def / 252 SpA / 252 Spe\nModest Nature\n- Giga Drain\n- Sludge Bomb\n- Earth Power\n- Growth\n\nSerperior @ Leftovers\nAbility: Contrary\nEVs: 56 HP / 200 SpA / 252 Spe\nTimid Nature\n- Leaf Storm\n- Glare\n- Substitute\n- Leech Seed\n\nFerrothorn @ Leftovers\nAbility: Iron Barbs\nEVs: 252 HP / 48 Def / 208 SpD\nCareful Nature\n- Power Whip\n- Knock Off\n- Leech Seed\n- Spikes"
+      "opponent_team": "Victreebel\nLevel: 29\nAbility: Chlorophyll\n- Wrap\n- Poison Powder\n- Sleep Powder\n- Razor Leaf\n\nTangela\nLevel: 24\nAbility: Chlorophyll\n- Bind\n- Constrict\n\nVileplume\nLevel: 29\nAbility: Chlorophyll\n- Poison Powder\n- Mega Drain\n- Sleep Powder\n- Petal Dance"
     },
     {
       "id": "koga",
       "name": "Koga",
       "title": "Fuchsia Gym Leader",
-      "theme": "Poison hazards and disruptive speed",
+      "theme": "Pokémon Red/Blue · Soul Badge",
       "level": 70,
-      "opponent_team": "Glimmora @ Focus Sash\nAbility: Toxic Debris\nEVs: 4 Def / 252 SpA / 252 Spe\nTimid Nature\n- Stealth Rock\n- Mortal Spin\n- Power Gem\n- Earth Power\n\nToxapex @ Rocky Helmet\nAbility: Regenerator\nEVs: 252 HP / 252 Def / 4 SpD\nBold Nature\n- Scald\n- Toxic Spikes\n- Haze\n- Recover\n\nSneasler @ Grassy Seed\nAbility: Unburden\nEVs: 252 Atk / 4 SpD / 252 Spe\nAdamant Nature\n- Close Combat\n- Dire Claw\n- Acrobatics\n- Swords Dance\n\nGengar @ Choice Scarf\nAbility: Cursed Body\nEVs: 4 Def / 252 SpA / 252 Spe\nTimid Nature\n- Shadow Ball\n- Sludge Wave\n- Focus Blast\n- Trick"
+      "opponent_team": "Koffing\nLevel: 37\nAbility: Levitate\n- Tackle\n- Smog\n- Sludge\n- Smokescreen\n\nMuk\nLevel: 39\nAbility: Stench\n- Disable\n- Poison Gas\n- Minimize\n- Sludge\n\nKoffing\nLevel: 37\nAbility: Levitate\n- Tackle\n- Smog\n- Sludge\n- Smokescreen\n\nWeezing\nLevel: 43\nAbility: Levitate\n- Smog\n- Sludge\n- Toxic\n- Self-Destruct"
     },
     {
       "id": "sabrina",
       "name": "Sabrina",
       "title": "Saffron Gym Leader",
-      "theme": "Psychic Terrain and calculated control",
+      "theme": "Pokémon Red/Blue · Marsh Badge",
       "level": 75,
-      "opponent_team": "Indeedee-F @ Terrain Extender\nAbility: Psychic Surge\nEVs: 252 HP / 252 Def / 4 SpD\nBold Nature\n- Psychic\n- Dazzling Gleam\n- Healing Wish\n- Trick\n\nAlakazam @ Life Orb\nAbility: Magic Guard\nEVs: 4 Def / 252 SpA / 252 Spe\nTimid Nature\n- Psychic\n- Focus Blast\n- Shadow Ball\n- Recover\n\nHatterene @ Leftovers\nAbility: Magic Bounce\nEVs: 252 HP / 204 Def / 52 Spe\nBold Nature\n- Psyshock\n- Draining Kiss\n- Mystical Fire\n- Calm Mind\n\nSlowking @ Heavy-Duty Boots\nAbility: Regenerator\nEVs: 252 HP / 4 Def / 252 SpD\nCalm Nature\n- Future Sight\n- Scald\n- Slack Off\n- Teleport"
+      "opponent_team": "Kadabra\nLevel: 38\nAbility: Synchronize\n- Disable\n- Psybeam\n- Recover\n- Psychic\n\nMr. Mime\nLevel: 37\nAbility: Soundproof\n- Confusion\n- Barrier\n- Light Screen\n- Double Slap\n\nVenomoth\nLevel: 38\nAbility: Shield Dust\n- Poison Powder\n- Leech Life\n- Stun Spore\n- Psybeam\n\nAlakazam\nLevel: 43\nAbility: Synchronize\n- Psybeam\n- Recover\n- Psywave\n- Reflect"
     },
     {
       "id": "blaine",
       "name": "Blaine",
       "title": "Cinnabar Gym Leader",
-      "theme": "Sun offense and escalating heat",
+      "theme": "Pokémon Red/Blue · Volcano Badge",
       "level": 80,
-      "opponent_team": "Torkoal @ Heat Rock\nAbility: Drought\nEVs: 248 HP / 252 Def / 8 SpD\nBold Nature\n- Lava Plume\n- Stealth Rock\n- Rapid Spin\n- Yawn\n\nCinderace @ Heavy-Duty Boots\nAbility: Libero\nEVs: 252 Atk / 4 SpD / 252 Spe\nJolly Nature\n- Pyro Ball\n- High Jump Kick\n- U-turn\n- Court Change\n\nVolcarona @ Heavy-Duty Boots\nAbility: Flame Body\nEVs: 4 Def / 252 SpA / 252 Spe\nTimid Nature\n- Fiery Dance\n- Bug Buzz\n- Giga Drain\n- Quiver Dance\n\nHeatran @ Air Balloon\nAbility: Flash Fire\nEVs: 252 SpA / 4 SpD / 252 Spe\nTimid Nature\n- Magma Storm\n- Earth Power\n- Flash Cannon\n- Taunt\n\nCharizard @ Choice Specs\nAbility: Solar Power\nEVs: 4 Def / 252 SpA / 252 Spe\nTimid Nature\n- Fire Blast\n- Hurricane\n- Focus Blast\n- Scorching Sands"
+      "opponent_team": "Growlithe\nLevel: 42\nAbility: Intimidate\n- Ember\n- Leer\n- Take Down\n- Agility\n\nPonyta\nLevel: 40\nAbility: Flash Fire\n- Tail Whip\n- Stomp\n- Growl\n- Fire Spin\n\nRapidash\nLevel: 42\nAbility: Flash Fire\n- Tail Whip\n- Stomp\n- Growl\n- Fire Spin\n\nArcanine\nLevel: 47\nAbility: Intimidate\n- Roar\n- Ember\n- Take Down\n- Fire Blast"
     },
     {
       "id": "giovanni",
       "name": "Giovanni",
       "title": "Viridian Gym Leader",
-      "theme": "Sand, Ground pressure, and complete field control",
+      "theme": "Pokémon Red/Blue · Earth Badge",
       "level": 85,
-      "opponent_team": "Hippowdon @ Smooth Rock\nAbility: Sand Stream\nEVs: 252 HP / 144 Def / 112 SpD\nImpish Nature\n- Earthquake\n- Slack Off\n- Stealth Rock\n- Whirlwind\n\nExcadrill @ Life Orb\nAbility: Sand Rush\nEVs: 252 Atk / 4 Def / 252 Spe\nAdamant Nature\n- Earthquake\n- Iron Head\n- Rock Slide\n- Swords Dance\n\nGreat Tusk @ Leftovers\nAbility: Protosynthesis\nEVs: 252 HP / 4 Atk / 252 Def\nImpish Nature\n- Earthquake\n- Close Combat\n- Knock Off\n- Rapid Spin\n\nGarchomp @ Rocky Helmet\nAbility: Rough Skin\nEVs: 252 HP / 164 Def / 92 Spe\nImpish Nature\n- Earthquake\n- Dragon Tail\n- Spikes\n- Fire Blast\n\nLandorus-Therian @ Choice Scarf\nAbility: Intimidate\nEVs: 252 Atk / 4 Def / 252 Spe\nJolly Nature\n- Earthquake\n- Stone Edge\n- U-turn\n- Knock Off\n\nClodsire @ Heavy-Duty Boots\nAbility: Unaware\nEVs: 252 HP / 4 Def / 252 SpD\nCareful Nature\n- Earthquake\n- Toxic\n- Recover\n- Spikes"
+      "opponent_team": "Rhyhorn\nLevel: 45\nAbility: Rock Head\n- Stomp\n- Tail Whip\n- Fury Attack\n- Horn Attack\n\nDugtrio\nLevel: 42\nAbility: Sand Veil\n- Growl\n- Dig\n- Sand Attack\n- Slash\n\nNidoqueen\nLevel: 44\nAbility: Poison Point\n- Scratch\n- Tail Whip\n- Poison Sting\n- Body Slam\n\nNidoking\nLevel: 45\nAbility: Poison Point\n- Tackle\n- Horn Attack\n- Poison Sting\n- Thrash\n\nRhydon\nLevel: 50\nAbility: Rock Head\n- Stomp\n- Tail Whip\n- Fissure\n- Horn Drill"
     },
     {
       "id": "lorelei",
       "name": "Lorelei",
       "title": "Elite Four · First",
-      "theme": "Snow screens and relentless Ice pressure",
+      "theme": "Pokémon Red/Blue · Indigo Plateau",
       "level": 90,
-      "opponent_team": "Ninetales-Alola @ Light Clay\nAbility: Snow Warning\nEVs: 4 Def / 252 SpA / 252 Spe\nTimid Nature\n- Aurora Veil\n- Freeze-Dry\n- Moonblast\n- Encore\n\nBaxcalibur @ Loaded Dice\nAbility: Thermal Exchange\nEVs: 252 Atk / 4 SpD / 252 Spe\nJolly Nature\n- Icicle Spear\n- Glaive Rush\n- Earthquake\n- Dragon Dance\n\nWeavile @ Choice Band\nAbility: Pressure\nEVs: 252 Atk / 4 SpD / 252 Spe\nJolly Nature\n- Triple Axel\n- Knock Off\n- Ice Shard\n- Pursuit\n\nRotom-Wash @ Leftovers\nAbility: Levitate\nEVs: 252 HP / 200 Def / 56 Spe\nBold Nature\n- Hydro Pump\n- Volt Switch\n- Will-O-Wisp\n- Pain Split\n\nSlowking @ Heavy-Duty Boots\nAbility: Regenerator\nEVs: 252 HP / 4 Def / 252 SpD\nCalm Nature\n- Future Sight\n- Scald\n- Slack Off\n- Teleport\n\nMamoswine @ Focus Sash\nAbility: Thick Fat\nEVs: 252 Atk / 4 Def / 252 Spe\nJolly Nature\n- Earthquake\n- Icicle Crash\n- Ice Shard\n- Stealth Rock"
+      "opponent_team": "Dewgong\nLevel: 54\nAbility: Thick Fat\n- Growl\n- Aurora Beam\n- Rest\n- Take Down\n\nCloyster\nLevel: 53\nAbility: Shell Armor\n- Supersonic\n- Clamp\n- Aurora Beam\n- Spike Cannon\n\nSlowbro\nLevel: 54\nAbility: Oblivious\n- Water Gun\n- Growl\n- Withdraw\n- Amnesia\n\nJynx\nLevel: 56\nAbility: Oblivious\n- Double Slap\n- Ice Punch\n- Body Slam\n- Thrash\n\nLapras\nLevel: 56\nAbility: Water Absorb\n- Body Slam\n- Confuse Ray\n- Hydro Pump\n- Blizzard"
     },
     {
       "id": "bruno",
       "name": "Bruno",
       "title": "Elite Four · Second",
-      "theme": "Physical breakers and Fighting-type momentum",
+      "theme": "Pokémon Red/Blue · Indigo Plateau",
       "level": 92,
-      "opponent_team": "Great Tusk @ Heavy-Duty Boots\nAbility: Protosynthesis\nEVs: 252 HP / 4 Atk / 252 Def\nImpish Nature\n- Headlong Rush\n- Close Combat\n- Knock Off\n- Rapid Spin\n\nIron Hands @ Assault Vest\nAbility: Quark Drive\nEVs: 252 Atk / 84 SpD / 172 Spe\nAdamant Nature\n- Drain Punch\n- Wild Charge\n- Ice Punch\n- Volt Switch\n\nHawlucha @ Grassy Seed\nAbility: Unburden\nEVs: 252 Atk / 4 SpD / 252 Spe\nAdamant Nature\n- Close Combat\n- Acrobatics\n- Roost\n- Swords Dance\n\nKommo-o @ Leftovers\nAbility: Bulletproof\nEVs: 252 HP / 4 Def / 252 Spe\nTimid Nature\n- Clanging Scales\n- Body Press\n- Iron Defense\n- Taunt\n\nZapdos-Galar @ Choice Scarf\nAbility: Defiant\nEVs: 252 Atk / 4 SpD / 252 Spe\nJolly Nature\n- Close Combat\n- Brave Bird\n- U-turn\n- Knock Off\n\nBreloom @ Focus Sash\nAbility: Technician\nEVs: 252 Atk / 4 SpD / 252 Spe\nJolly Nature\n- Spore\n- Mach Punch\n- Bullet Seed\n- Swords Dance"
+      "opponent_team": "Onix\nLevel: 53\nAbility: Rock Head\n- Rock Throw\n- Rage\n- Slam\n- Harden\n\nHitmonchan\nLevel: 55\nAbility: Keen Eye\n- Ice Punch\n- Mega Punch\n- Thunder Punch\n- Counter\n\nHitmonlee\nLevel: 55\nAbility: Limber\n- Jump Kick\n- Focus Energy\n- High Jump Kick\n- Mega Kick\n\nOnix\nLevel: 56\nAbility: Rock Head\n- Rock Throw\n- Rage\n- Slam\n- Harden\n\nMachamp\nLevel: 58\nAbility: Guts\n- Leer\n- Focus Energy\n- Fissure\n- Submission"
     },
     {
       "id": "agatha",
       "name": "Agatha",
       "title": "Elite Four · Third",
-      "theme": "Ghost traps, status, and impossible trades",
+      "theme": "Pokémon Red/Blue · Indigo Plateau",
       "level": 94,
-      "opponent_team": "Dragapult @ Choice Specs\nAbility: Infiltrator\nEVs: 4 Def / 252 SpA / 252 Spe\nTimid Nature\n- Shadow Ball\n- Draco Meteor\n- Flamethrower\n- U-turn\n\nGholdengo @ Air Balloon\nAbility: Good as Gold\nEVs: 4 Def / 252 SpA / 252 Spe\nTimid Nature\n- Make It Rain\n- Shadow Ball\n- Focus Blast\n- Nasty Plot\n\nGengar @ Choice Scarf\nAbility: Cursed Body\nEVs: 4 Def / 252 SpA / 252 Spe\nTimid Nature\n- Shadow Ball\n- Sludge Wave\n- Focus Blast\n- Trick\n\nSkeledirge @ Heavy-Duty Boots\nAbility: Unaware\nEVs: 248 HP / 252 Def / 8 SpD\nBold Nature\n- Torch Song\n- Hex\n- Will-O-Wisp\n- Slack Off\n\nSinistcha @ Leftovers\nAbility: Heatproof\nEVs: 252 HP / 160 Def / 96 SpD\nBold Nature\n- Matcha Gotcha\n- Shadow Ball\n- Strength Sap\n- Calm Mind\n\nSableye @ Heavy-Duty Boots\nAbility: Prankster\nEVs: 252 HP / 252 Def / 4 SpD\nImpish Nature\n- Knock Off\n- Will-O-Wisp\n- Recover\n- Encore"
+      "opponent_team": "Gengar\nLevel: 56\nAbility: Cursed Body\n- Confuse Ray\n- Night Shade\n- Hypnosis\n- Dream Eater\n\nGolbat\nLevel: 56\nAbility: Inner Focus\n- Supersonic\n- Confuse Ray\n- Wing Attack\n- Haze\n\nHaunter\nLevel: 55\nAbility: Levitate\n- Confuse Ray\n- Night Shade\n- Hypnosis\n- Dream Eater\n\nArbok\nLevel: 58\nAbility: Intimidate\n- Bite\n- Glare\n- Screech\n- Acid\n\nGengar\nLevel: 60\nAbility: Cursed Body\n- Confuse Ray\n- Night Shade\n- Toxic\n- Dream Eater"
     },
     {
       "id": "lance",
       "name": "Lance",
       "title": "Elite Four · Final",
-      "theme": "Layered Dragon offense with no safe turn",
+      "theme": "Pokémon Red/Blue · Indigo Plateau",
       "level": 96,
-      "opponent_team": "Dragonite @ Heavy-Duty Boots\nAbility: Multiscale\nEVs: 252 Atk / 4 SpD / 252 Spe\nAdamant Nature\n- Dragon Dance\n- Extreme Speed\n- Earthquake\n- Ice Spinner\n\nGarchomp @ Rocky Helmet\nAbility: Rough Skin\nEVs: 252 HP / 164 Def / 92 Spe\nImpish Nature\n- Earthquake\n- Dragon Tail\n- Spikes\n- Fire Blast\n\nDragapult @ Choice Specs\nAbility: Infiltrator\nEVs: 4 Def / 252 SpA / 252 Spe\nTimid Nature\n- Draco Meteor\n- Shadow Ball\n- Flamethrower\n- U-turn\n\nLatios @ Soul Dew\nAbility: Levitate\nEVs: 4 Def / 252 SpA / 252 Spe\nTimid Nature\n- Draco Meteor\n- Luster Purge\n- Aura Sphere\n- Roost\n\nHydreigon @ Choice Scarf\nAbility: Levitate\nEVs: 4 Def / 252 SpA / 252 Spe\nTimid Nature\n- Draco Meteor\n- Dark Pulse\n- Earth Power\n- U-turn\n\nGoodra-Hisui @ Assault Vest\nAbility: Sap Sipper\nEVs: 252 HP / 252 SpA / 4 SpD\nModest Nature\n- Draco Meteor\n- Flash Cannon\n- Thunderbolt\n- Flamethrower"
+      "opponent_team": "Gyarados\nLevel: 58\nAbility: Intimidate\n- Hydro Pump\n- Dragon Rage\n- Leer\n- Hyper Beam\n\nDragonair\nLevel: 56\nAbility: Shed Skin\n- Agility\n- Slam\n- Dragon Rage\n- Hyper Beam\n\nDragonair\nLevel: 56\nAbility: Shed Skin\n- Agility\n- Slam\n- Dragon Rage\n- Hyper Beam\n\nAerodactyl\nLevel: 60\nAbility: Rock Head\n- Supersonic\n- Take Down\n- Bite\n- Hyper Beam\n\nDragonite\nLevel: 62\nAbility: Inner Focus\n- Agility\n- Slam\n- Barrier\n- Hyper Beam"
     },
     {
-      "id": "champion",
-      "name": "Champion",
+      "id": "champion-blue",
+      "name": "Blue",
       "title": "Indigo Plateau Champion",
-      "theme": "A balanced final exam for the drafted roster",
+      "theme": "Pokémon Red/Blue · player chose Bulbasaur",
       "level": 100,
-      "opponent_team": "Meowscarada @ Choice Band\nAbility: Protean\nEVs: 252 Atk / 4 SpD / 252 Spe\nJolly Nature\n- Flower Trick\n- Knock Off\n- U-turn\n- Triple Axel\n\nZapdos @ Heavy-Duty Boots\nAbility: Static\nEVs: 248 HP / 220 Def / 40 Spe\nBold Nature\n- Discharge\n- Hurricane\n- Roost\n- Volt Switch\n\nHeatran @ Leftovers\nAbility: Flash Fire\nEVs: 252 HP / 4 SpA / 252 SpD\nCalm Nature\n- Magma Storm\n- Earth Power\n- Stealth Rock\n- Taunt\n\nTapu Fini @ Choice Scarf\nAbility: Misty Surge\nEVs: 4 Def / 252 SpA / 252 Spe\nTimid Nature\n- Moonblast\n- Surf\n- Ice Beam\n- Trick\n\nGarchomp @ Life Orb\nAbility: Rough Skin\nEVs: 252 Atk / 4 SpD / 252 Spe\nJolly Nature\n- Scale Shot\n- Earthquake\n- Fire Fang\n- Swords Dance\n\nWeavile @ Heavy-Duty Boots\nAbility: Pressure\nEVs: 252 Atk / 4 SpD / 252 Spe\nJolly Nature\n- Triple Axel\n- Knock Off\n- Ice Shard\n- Swords Dance"
+      "opponent_team": "Pidgeot\nLevel: 61\nAbility: Keen Eye\n- Wing Attack\n- Mirror Move\n- Sky Attack\n- Whirlwind\n\nAlakazam\nLevel: 59\nAbility: Synchronize\n- Psybeam\n- Psychic\n- Reflect\n- Recover\n\nRhydon\nLevel: 61\nAbility: Rock Head\n- Leer\n- Tail Whip\n- Fury Attack\n- Horn Drill\n\nGyarados\nLevel: 63\nAbility: Intimidate\n- Dragon Rage\n- Hydro Pump\n- Hyper Beam\n- Leer\n\nExeggutor\nLevel: 61\nAbility: Chlorophyll\n- Hypnosis\n- Barrage\n- Stomp\n\nCharizard\nLevel: 65\nAbility: Blaze\n- Fire Blast\n- Rage\n- Slash\n- Fire Spin"
     }
   ]
 }

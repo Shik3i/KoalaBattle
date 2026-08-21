@@ -131,35 +131,34 @@ def _with_level(team_export: str, level: int) -> str:
                 lines.pop(index)
         else:
             lines.insert(1, f"Level: {level}")
-        if level < 100:
-            ev_index = next(
-                (index for index, line in enumerate(lines) if line.startswith("EVs:")), None
-            )
-            if ev_index is None:
-                lines.insert(2, "EVs: 1 HP")
-            else:
-                parts = lines[ev_index].removeprefix("EVs:").strip().split(" / ")
-                parsed = [re.fullmatch(r"(\d+) (HP|Atk|Def|SpA|SpD|Spe)", part) for part in parts]
-                if all(match is not None for match in parsed) and all(
-                    int(match.group(1)) % 4 == 0 for match in parsed if match is not None
-                ):
-                    changed = False
-                    for index, match in enumerate(parsed):
-                        assert match is not None
-                        value = int(match.group(1))
-                        if value < 252:
-                            parts[index] = f"{value + 1} {match.group(2)}"
-                            changed = True
-                            break
-                    if not changed:
-                        used = {match.group(2) for match in parsed if match is not None}
-                        stat = next(
-                            item
-                            for item in ("HP", "Atk", "Def", "SpA", "SpD", "Spe")
-                            if item not in used
-                        )
-                        parts.append(f"1 {stat}")
-                    lines[ev_index] = f"EVs: {' / '.join(parts)}"
+        ev_index = next(
+            (index for index, line in enumerate(lines) if line.startswith("EVs:")), None
+        )
+        if ev_index is None:
+            lines.insert(2, "EVs: 1 HP")
+        elif level < 100:
+            parts = lines[ev_index].removeprefix("EVs:").strip().split(" / ")
+            parsed = [re.fullmatch(r"(\d+) (HP|Atk|Def|SpA|SpD|Spe)", part) for part in parts]
+            if all(match is not None for match in parsed) and all(
+                int(match.group(1)) % 4 == 0 for match in parsed if match is not None
+            ):
+                changed = False
+                for index, match in enumerate(parsed):
+                    assert match is not None
+                    value = int(match.group(1))
+                    if value < 252:
+                        parts[index] = f"{value + 1} {match.group(2)}"
+                        changed = True
+                        break
+                if not changed:
+                    used = {match.group(2) for match in parsed if match is not None}
+                    stat = next(
+                        item
+                        for item in ("HP", "Atk", "Def", "SpA", "SpD", "Spe")
+                        if item not in used
+                    )
+                    parts.append(f"1 {stat}")
+                lines[ev_index] = f"EVs: {' / '.join(parts)}"
         normalized.append("\n".join(lines))
     return "\n\n".join(normalized)
 
@@ -236,9 +235,7 @@ class ChallengeService:
                 candidate.points,
             )
         enough_species = len(cheapest_by_species) >= default_rules.roster_size
-        cheapest_default = sum(
-            sorted(cheapest_by_species.values())[: default_rules.roster_size]
-        )
+        cheapest_default = sum(sorted(cheapest_by_species.values())[: default_rules.roster_size])
         budget_ready = enough_species and cheapest_default <= default_rules.starting_credits
         ready = source_verified and enough_species and budget_ready
         readiness_errors: list[str] = []
@@ -477,8 +474,7 @@ class ChallengeService:
         losses = sum(item.status == "lost" for item in run.stage_results)
         draws = sum(item.status == "draw" for item in run.stage_results)
         technical_failures = sum(
-            item.status in {"failed", "cancelled", "interrupted"}
-            for item in run.stage_results
+            item.status in {"failed", "cancelled", "interrupted"} for item in run.stage_results
         )
         latency_results = [
             item
@@ -495,9 +491,7 @@ class ChallengeService:
             if latency_decisions
             else None
         )
-        visible_candidates = {
-            pick.candidate.entry_id: pick.candidate for pick in run.picks
-        }
+        visible_candidates = {pick.candidate.entry_id: pick.candidate for pick in run.picks}
         if run.current_offer is not None:
             visible_candidates.update(
                 (candidate.entry_id, candidate) for candidate in run.current_offer.options
@@ -515,7 +509,7 @@ class ChallengeService:
                                 for stage in run.definition.stages
                             )
                         }
-                    )
+                    ),
                 }
             ),
             stages=stages,
@@ -922,9 +916,7 @@ class ChallengeService:
                 status=outcome,
                 winner=archive.winner.value if archive.winner else None,
                 turns=archive.turns,
-                duration_seconds=max(
-                    0, (archive.updated_at - archive.created_at).total_seconds()
-                ),
+                duration_seconds=max(0, (archive.updated_at - archive.created_at).total_seconds()),
                 estimated_cost=sum(
                     record.decision.estimated_cost.amount or 0 for record in archive.decisions
                 ),

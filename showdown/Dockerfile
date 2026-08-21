@@ -14,6 +14,8 @@ RUN apt-get update \
 
 WORKDIR /opt/showdown
 COPY showdown/config/config.js config/config.js
+COPY showdown/config/custom-formats.js config/custom-formats.js
+COPY showdown/config/custom-formats.js dist/config/custom-formats.js
 COPY showdown/team-validator-server.js team-validator-server.js
 EXPOSE 8000 8002
 CMD ["node", "pokemon-showdown", "start", "--no-security", "8000"]

@@ -17,6 +17,7 @@ from koalabattle.challenges.models import (
     BattleControllerSnapshot,
     ChallengeDefinition,
     ChallengeRun,
+    ChallengeSource,
     ChallengeStage,
     ChallengeStatus,
     CreateChallengeRun,
@@ -80,6 +81,13 @@ def _run(
         name="Fixture Challenge",
         description="Synthetic test campaign.",
         format="gen9natdexdraft",
+        source=ChallengeSource(
+            game="Synthetic fixture",
+            generation=9,
+            variant="Unit test",
+            references=("https://example.invalid/fixture",),
+            compatibility_note="Synthetic test data.",
+        ),
         draft_rules=draft_rules or DraftRules(roster_size=3, starting_credits=6, choice_count=3),
         training_rules=TrainingRules(global_ev_budget=1200),
         stages=(
@@ -604,10 +612,7 @@ async def test_failed_stage_remains_retryable_and_run_cancellation_stops_active_
 
 
 def test_level_normalization_replaces_or_inserts_without_mutating_source() -> None:
-    source = (
-        "Mon One\nLevel: 37\nEVs: 252 Atk / 4 SpD / 252 Spe\n- Tackle"
-        "\n\nMon Two\n- Splash"
-    )
+    source = "Mon One\nLevel: 37\nEVs: 252 Atk / 4 SpD / 252 Spe\n- Tackle\n\nMon Two\n- Splash"
     derived = _with_level(source, 85)
     assert derived.count("Level: 85") == 2
     assert "Level: 37" not in derived

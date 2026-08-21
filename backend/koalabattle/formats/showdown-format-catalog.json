@@ -1,5 +1,5 @@
 {
- "format_count": 342,
+ "format_count": 343,
  "formats": [
   {
    "best_of_default": null,
@@ -2190,6 +2190,36 @@
    "section": "Challengeable OMs",
    "team_source": "custom",
    "tournament_visible": true
+  },
+  {
+   "best_of_default": null,
+   "challenge_visible": true,
+   "custom_team_required": true,
+   "display_name": "KoalaBattle Canonical NatDex Draft",
+   "game_type": "singles",
+   "generation": 9,
+   "id": "gen9koalabattlecanonicalnatdexdraft",
+   "mechanics": {
+    "abilities": true,
+    "dynamax": false,
+    "held_item_switching": true,
+    "hidden_power_types": false,
+    "items": true,
+    "mega_evolution": false,
+    "natures": true,
+    "physical_special_split": true,
+    "terastallization": true,
+    "z_moves": false
+   },
+   "mod": "gen9",
+   "name": "[Gen 9] KoalaBattle Canonical NatDex Draft",
+   "player_count": 2,
+   "random_team": false,
+   "rated": true,
+   "search_visible": false,
+   "section": "KoalaBattle",
+   "team_source": "custom",
+   "tournament_visible": false
   },
   {
    "best_of_default": null,

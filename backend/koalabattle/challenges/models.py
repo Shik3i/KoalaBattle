@@ -110,6 +110,14 @@ class ChallengeStage(FrozenModel):
     opponent_team: str = Field(min_length=1, max_length=50_000)
 
 
+class ChallengeSource(FrozenModel):
+    game: str = Field(min_length=1, max_length=120)
+    generation: int = Field(ge=1, le=9)
+    variant: str = Field(min_length=1, max_length=160)
+    references: tuple[str, ...] = Field(min_length=1)
+    compatibility_note: str = Field(min_length=1, max_length=500)
+
+
 class ChallengeDefinition(FrozenModel):
     id: str = Field(pattern=r"^[a-z0-9-]+$", max_length=60)
     version: str = Field(min_length=1, max_length=30)
@@ -117,6 +125,7 @@ class ChallengeDefinition(FrozenModel):
     description: str = Field(max_length=500)
     format: str = Field(default="gen9natdexdraft", max_length=80)
     mechanics_assumptions: tuple[str, ...] = ()
+    source: ChallengeSource | None = None
     draft_rules: DraftRules = Field(default_factory=DraftRules)
     training_rules: TrainingRules = Field(default_factory=TrainingRules)
     stages: tuple[ChallengeStage, ...] = Field(min_length=1)

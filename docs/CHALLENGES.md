@@ -1,9 +1,17 @@
 # Draft Challenge mode
 
 Draft Challenge is a persistent solo campaign above the normal match engine. The first bundled
-definition is **Kanto Gym Gauntlet**: six drafted Pokémon, one shared EV budget, eight Kanto Gym
-Leaders, the Elite Four, and the Champion. Every stage creates a normal immutable KoalaBattle
-match and replay.
+definition is **Kanto Gym Gauntlet**: six drafted Pokémon, one shared EV budget, the exact
+Pokémon Red/Blue rosters and moves for all eight Kanto Gym Leaders, the Elite Four, and Champion
+Blue. Every stage creates a normal immutable KoalaBattle match and replay.
+
+The V2 content pack uses the English Pokémon Red/Blue teams. Champion Blue uses the documented
+variant for a player who chose Bulbasaur. Species order, source levels, and moves are sourced
+from Bisafans and Serebii and regression-locked. Source levels remain stored in the private team
+definitions; the actual Challenge fight still applies the campaign's equal level curve to both
+sides. Generation I had no abilities, natures, held items, or modern EVs, so the modern Showdown
+adapter adds only a legal explicit ability and the non-stat-changing EV confirmation marker.
+It does not replace recorded Pokémon or moves.
 
 ## Install a pricing board
 
@@ -75,8 +83,11 @@ grouped by introduction generation plus current type and only contain exact pinn
 forms covered by the imported context. Every offered choice is checked for a feasible completion
 of the remaining roster before it is shown.
 
-The bundled definition uses `gen9natdexdraft`, but its V1 Challenge matches deliberately disable
-special gimmick actions. Campaign level scaling rewrites both teams to the stage's exact level.
+The bundled definition inherits Gen 9 NatDex Draft through
+`gen9koalabattlecanonicalnatdexdraft`. It repeals only the OHKO and evasion clauses that would
+otherwise reject recorded Red/Blue moves or required modern compatibility abilities. Challenge
+matches deliberately disable special gimmick actions. Campaign level scaling rewrites both teams
+to the stage's exact level.
 For an intentional zero spread, final validation adds Showdown's harmless one-HP-EV confirmation
 marker only to the derived validated export. At levels below 100, a derived stage snapshot may add
 the same remainder when every allocated EV is divisible by four. Neither changes a battle stat or
@@ -94,8 +105,16 @@ Cancelling a run cancels its active normal match through the existing supervisor
 Campaign content is versioned data in
 `backend/koalabattle/challenges/content/kanto-gym-gauntlet.json`. Change its version whenever
 rules, stages, levels, or teams change; existing runs retain their original snapshot.
+Every future regional pack must declare one exact source game, generation, and battle variant;
+teams from different appearances or rematches must never be merged into an invented roster.
 
-## Current V1 limitations
+Bundled Kanto references:
+
+- <https://www.bisafans.de/spiele/editionen/rot-blau/arenaleiter.php>
+- <https://www.serebii.net/rb/gyms.shtml>
+- <https://www.serebii.net/rb/elitefour.shtml>
+
+## Current limitations
 
 - Pricing imports intentionally require an exact price column. Public community boards change
   layout and terminology over time, so KoalaBattle does not guess tier-to-credit conversions or
@@ -103,9 +122,9 @@ rules, stages, levels, or teams change; existing runs retain their original snap
   names to the importer.
 - Mega, Gigantamax, battle-only, cosmetic-only, unavailable, and unmatched form rows are reported
   but excluded. Challenge battles also disable Terastallization; Z-Moves, Mega Evolution, and
-  Dynamax actions are not part of V1.
+  Dynamax actions are not part of Challenge mode.
 - The completion summary reports progress, record, battles, technical failures, duration, turns,
   roster, credit use, rerolls, EV use, and aggregate provider latency/cost. It does not yet
   calculate campaign MVPs.
-- Every stage keeps its normal per-match replay and video artifacts. V1 does not concatenate them
-  into one campaign-length video or add a separate campaign reward economy.
+- Every stage keeps its normal per-match replay and video artifacts. Challenge mode does not yet
+  concatenate them into one campaign-length video or add a separate campaign reward economy.

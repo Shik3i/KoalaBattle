@@ -417,6 +417,13 @@ export interface ChallengeRunView {
       name: string;
       description: string;
       format: string;
+      source: {
+        game: string;
+        generation: number;
+        variant: string;
+        references: string[];
+        compatibility_note: string;
+      } | null;
       draft_rules: { roster_size: number; starting_credits: number; rerolls: number; choice_count: number; species_clause: boolean };
       training_rules: { global_ev_budget: number; per_pokemon_max: number; per_stat_max: number };
     };

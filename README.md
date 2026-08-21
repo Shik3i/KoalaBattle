@@ -122,8 +122,9 @@ are stored in SQLite.
 
 ## Draft Challenge
 
-Open `/challenges/new` to draft a persistent six-Pokémon roster and carry it through eight Kanto
-Gym Leaders, the Elite Four, and the Champion. Drafting, Training Camp, team validation, stage
+Open `/challenges/new` to draft a persistent six-Pokémon roster and carry it through the exact
+Pokémon Red/Blue rosters and moves of eight Kanto Gym Leaders, the Elite Four, and Champion Blue.
+Drafting, Training Camp, team validation, stage
 history, retries, normal-match control, and replays survive reloads and backend restarts.
 
 The operator must first import an authorized local draft pricing board; none is bundled or
