@@ -9,7 +9,9 @@ import {
   evAllocationTotal,
   evSpreadTotal,
   formatDuration,
-  legalEvValue
+  legalEvValue,
+  pokemonTypeColor,
+  recommendedEvPresets
 } from './challenge.ts';
 
 test('empty EV spreads are independent zeroed records', () => {
@@ -19,6 +21,29 @@ test('empty EV spreads are independent zeroed records', () => {
 
   assert.equal(second.hp, 0);
   assert.equal(evSpreadTotal(second), 0);
+});
+
+test('EV recommendations follow each Pokemon pinned base stats', () => {
+  const alakazam = recommendedEvPresets({
+    base_stats: { hp: 55, atk: 50, defense: 45, spa: 135, spd: 95, spe: 120 }
+  });
+  const blastoise = recommendedEvPresets({
+    base_stats: { hp: 79, atk: 83, defense: 100, spa: 85, spd: 105, spe: 78 }
+  });
+  const farfetchd = recommendedEvPresets({
+    base_stats: { hp: 52, atk: 90, defense: 55, spa: 58, spd: 62, spe: 60 }
+  });
+
+  assert.equal(alakazam[0].id, 'fast-special');
+  assert.equal(alakazam[0].recommended, true);
+  assert.equal(blastoise[0].id, 'special-wall');
+  assert.equal(new Set(blastoise.map((entry) => entry.id)).size, blastoise.length);
+  assert.deepEqual(farfetchd.map((entry) => entry.id), ['bulky-physical', 'special-wall', 'fast-physical']);
+});
+
+test('type presentation uses stable canonical colors and a safe fallback', () => {
+  assert.equal(pokemonTypeColor('Water'), '#6890F0');
+  assert.equal(pokemonTypeColor('Unknown'), '#7f8c9a');
 });
 
 test('spread totals include all six stats', () => {

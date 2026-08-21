@@ -5,7 +5,7 @@ definition is **Kanto Gym Gauntlet**: six drafted Pokémon, one shared EV budget
 Pokémon Red/Blue rosters and moves for all eight Kanto Gym Leaders, the Elite Four, and Champion
 Blue. Every stage creates a normal immutable KoalaBattle match and replay.
 
-The V2 content pack uses the English Pokémon Red/Blue teams. Champion Blue uses the documented
+The V3 content pack uses the English Pokémon Red/Blue teams. Champion Blue uses the documented
 variant for a player who chose Bulbasaur. Species order, source levels, and moves are sourced
 from Bisafans and Serebii and regression-locked. Source levels remain stored in the private team
 definitions; the actual Challenge fight still applies the campaign's equal level curve to both
@@ -60,7 +60,8 @@ Mega, and Gigantamax rows instead of silently treating them as legal picks.
    `1`–`8` select the corresponding visible choice. A refresh or backend restart returns the same
    persisted offer. A reroll consumes one persisted reroll.
 4. Allocate the shared EV budget. The backend enforces the configured global, per-Pokémon, and
-   per-stat limits.
+   per-stat limits. Training Camp derives three transparent starting presets from each drafted
+   Pokémon's pinned six base stats; the first is marked Recommended and every value remains editable.
 5. Complete the generated Showdown roster scaffold. Finalization requires the exact drafted
    forms and exact EV allocation and passes the result through the pinned Showdown validator.
 6. Launch the current stage. A win advances; loss, draw, cancellation, interruption, or engine
@@ -107,6 +108,11 @@ Campaign content is versioned data in
 rules, stages, levels, or teams change; existing runs retain their original snapshot.
 Every future regional pack must declare one exact source game, generation, and battle variant;
 teams from different appearances or rematches must never be merged into an invented roster.
+
+The V3 stage metadata maps each opponent to its exact Red/Blue trainer sprite identifier.
+`scripts/setup_assets.py install --profile full` installs only those 13 portraits below the
+ignored `data/assets/trainers/` boundary. The UI animates installed sprites and retains a
+deterministic fallback when optional local media is absent.
 
 Bundled Kanto references:
 

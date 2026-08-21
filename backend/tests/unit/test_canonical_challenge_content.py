@@ -52,7 +52,7 @@ def _source_snapshot() -> list[dict[str, object]]:
 def test_kanto_content_uses_sourced_red_blue_rosters() -> None:
     definition = _definition("kanto-gym-gauntlet")
 
-    assert definition.version == "2.0.0"
+    assert definition.version == "3.0.0"
     assert definition.source.game == "Pokémon Red and Blue"
     assert definition.source.generation == 1
     assert "Champion Blue when the player chose Bulbasaur" in definition.source.variant
@@ -60,6 +60,8 @@ def test_kanto_content_uses_sourced_red_blue_rosters() -> None:
         stage.id: tuple(block.splitlines()[0] for block in stage.opponent_team.split("\n\n"))
         for stage in definition.stages
     } == EXPECTED_SPECIES
+    assert all(stage.trainer_asset_id and stage.specialty for stage in definition.stages)
+    assert definition.stages[0].trainer_asset_id == "brock-gen1rb"
 
 
 def test_kanto_source_levels_and_moves_are_regression_locked() -> None:

@@ -53,6 +53,18 @@ def test_plan_prefers_canonical_source_when_upstream_names_collide() -> None:
     ]
 
 
+def test_trainer_category_normalizes_exact_red_blue_portrait_names() -> None:
+    script = _load_script()
+    category = script.CATEGORIES["trainers"]
+    plan = script.build_plan(
+        {"trainers": [*script.KANTO_RB_TRAINERS, "acerola.png"]},
+        {"trainers": category},
+    )
+
+    assert len(plan) == 14
+    assert ("trainers", "brock-gen1rb.png", Path("trainers/brockgen1rb.png")) in plan
+
+
 def test_status_and_verify_empty_installation(tmp_path: Path) -> None:
     result = subprocess.run(
         [

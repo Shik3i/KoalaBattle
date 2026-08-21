@@ -392,7 +392,17 @@ export interface DraftCandidate {
   introduction_generation: number;
   types: string[];
   base_stat_total: number | null;
+  base_stats: PokemonBaseStats | null;
   points: number;
+}
+
+export interface PokemonBaseStats {
+  hp: number;
+  atk: number;
+  defense: number;
+  spa: number;
+  spd: number;
+  spe: number;
 }
 
 export interface EvSpread {
@@ -446,11 +456,22 @@ export interface ChallengeRunView {
     updated_at: string;
     completed_at: string | null;
   };
-  stages: Array<{ id: string; name: string; title: string; theme: string; level: number }>;
-  current_stage: { id: string; name: string; title: string; theme: string; level: number } | null;
+  stages: ChallengeStageSummary[];
+  current_stage: ChallengeStageSummary | null;
   statistics: { stages_cleared: number; wins: number; losses: number; draws: number; total_battles: number; technical_failures: number; total_turns: number; duration_seconds: number; estimated_cost: number; average_decision_latency_ms: number | null; credits_spent: number; credits_remaining: number; rerolls_used: number; ev_used: number };
   team_export_scaffold: string | null;
   minimum_completion_cost: number;
+}
+
+export interface ChallengeStageSummary {
+  id: string;
+  name: string;
+  title: string;
+  theme: string;
+  level: number;
+  specialty: string | null;
+  trainer_asset_id: string | null;
+  visual_accent: string;
 }
 
 export interface ChallengeRunSummary {

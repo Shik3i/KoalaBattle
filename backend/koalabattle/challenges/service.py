@@ -69,6 +69,9 @@ def _public_stage(stage: ChallengeStage) -> PublicChallengeStage:
             "title": stage.title,
             "theme": stage.theme,
             "level": stage.level,
+            "specialty": stage.specialty,
+            "trainer_asset_id": stage.trainer_asset_id,
+            "visual_accent": stage.visual_accent,
         }
     )
 
@@ -323,6 +326,7 @@ class ChallengeService:
                     introduction_generation=species.introduction_generation,
                     types=species.types,
                     base_stat_total=species.base_stat_total,
+                    base_stats=species.base_stats,
                     points=price.points,
                 )
             )

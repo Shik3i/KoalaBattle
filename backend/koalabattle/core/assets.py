@@ -160,6 +160,19 @@ class LocalAssetProvider:
                 return candidate
         return None
 
+    def trainer(self, trainer_id: str) -> Path | None:
+        """Resolve one exact local trainer portrait without accepting paths."""
+        if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", trainer_id):
+            return None
+        normalized = normalize_species_id(trainer_id)
+        if not normalized:
+            return None
+        for extension in self._allowed_extensions:
+            candidate = (self.root / "trainers" / f"{normalized}{extension}").resolve()
+            if candidate.is_relative_to(self.root) and candidate.is_file():
+                return candidate
+        return None
+
     def effect(self, effect_id: str) -> Path | None:
         """Resolve a named optional move texture from known pack directories only."""
         if not re.fullmatch(r"[a-z0-9][a-z0-9._-]*", effect_id):

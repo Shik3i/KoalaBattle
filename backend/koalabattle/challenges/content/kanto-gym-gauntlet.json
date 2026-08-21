@@ -1,6 +1,6 @@
 {
   "id": "kanto-gym-gauntlet",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "name": "Kanto Gym Gauntlet",
   "description": "The exact Pokémon Red and Blue Gym Leader, Elite Four, and Champion rosters and moves, adapted only where the modern battle engine requires it.",
   "format": "gen9koalabattlecanonicalnatdexdraft",
@@ -40,6 +40,9 @@
       "title": "Pewter Gym Leader",
       "theme": "Pokémon Red/Blue · Boulder Badge",
       "level": 50,
+      "specialty": "Rock",
+      "trainer_asset_id": "brock-gen1rb",
+      "visual_accent": "#B8A038",
       "opponent_team": "Geodude\nLevel: 12\nAbility: Rock Head\n- Tackle\n- Defense Curl\n\nOnix\nLevel: 14\nAbility: Rock Head\n- Tackle\n- Screech\n- Bide"
     },
     {
@@ -48,6 +51,9 @@
       "title": "Cerulean Gym Leader",
       "theme": "Pokémon Red/Blue · Cascade Badge",
       "level": 55,
+      "specialty": "Water",
+      "trainer_asset_id": "misty-gen1rb",
+      "visual_accent": "#6890F0",
       "opponent_team": "Staryu\nLevel: 18\nAbility: Natural Cure\n- Tackle\n- Water Gun\n\nStarmie\nLevel: 21\nAbility: Natural Cure\n- Tackle\n- Water Gun\n- Harden\n- Bubble Beam"
     },
     {
@@ -56,6 +62,9 @@
       "title": "Vermilion Gym Leader",
       "theme": "Pokémon Red/Blue · Thunder Badge",
       "level": 60,
+      "specialty": "Electric",
+      "trainer_asset_id": "ltsurge-gen1rb",
+      "visual_accent": "#F8D030",
       "opponent_team": "Voltorb\nLevel: 21\nAbility: Soundproof\n- Tackle\n- Screech\n- Sonic Boom\n\nPikachu\nLevel: 18\nAbility: Static\n- Thunder Shock\n- Thunder Wave\n- Growl\n- Quick Attack\n\nRaichu\nLevel: 24\nAbility: Static\n- Thunderbolt\n- Thunder Shock\n- Thunder Wave\n- Growl"
     },
     {
@@ -64,6 +73,9 @@
       "title": "Celadon Gym Leader",
       "theme": "Pokémon Red/Blue · Rainbow Badge",
       "level": 65,
+      "specialty": "Grass",
+      "trainer_asset_id": "erika-gen1rb",
+      "visual_accent": "#78C850",
       "opponent_team": "Victreebel\nLevel: 29\nAbility: Chlorophyll\n- Wrap\n- Poison Powder\n- Sleep Powder\n- Razor Leaf\n\nTangela\nLevel: 24\nAbility: Chlorophyll\n- Bind\n- Constrict\n\nVileplume\nLevel: 29\nAbility: Chlorophyll\n- Poison Powder\n- Mega Drain\n- Sleep Powder\n- Petal Dance"
     },
     {
@@ -72,6 +84,9 @@
       "title": "Fuchsia Gym Leader",
       "theme": "Pokémon Red/Blue · Soul Badge",
       "level": 70,
+      "specialty": "Poison",
+      "trainer_asset_id": "koga-gen1rb",
+      "visual_accent": "#A040A0",
       "opponent_team": "Koffing\nLevel: 37\nAbility: Levitate\n- Tackle\n- Smog\n- Sludge\n- Smokescreen\n\nMuk\nLevel: 39\nAbility: Stench\n- Disable\n- Poison Gas\n- Minimize\n- Sludge\n\nKoffing\nLevel: 37\nAbility: Levitate\n- Tackle\n- Smog\n- Sludge\n- Smokescreen\n\nWeezing\nLevel: 43\nAbility: Levitate\n- Smog\n- Sludge\n- Toxic\n- Self-Destruct"
     },
     {
@@ -80,6 +95,9 @@
       "title": "Saffron Gym Leader",
       "theme": "Pokémon Red/Blue · Marsh Badge",
       "level": 75,
+      "specialty": "Psychic",
+      "trainer_asset_id": "sabrina-gen1rb",
+      "visual_accent": "#F85888",
       "opponent_team": "Kadabra\nLevel: 38\nAbility: Synchronize\n- Disable\n- Psybeam\n- Recover\n- Psychic\n\nMr. Mime\nLevel: 37\nAbility: Soundproof\n- Confusion\n- Barrier\n- Light Screen\n- Double Slap\n\nVenomoth\nLevel: 38\nAbility: Shield Dust\n- Poison Powder\n- Leech Life\n- Stun Spore\n- Psybeam\n\nAlakazam\nLevel: 43\nAbility: Synchronize\n- Psybeam\n- Recover\n- Psywave\n- Reflect"
     },
     {
@@ -88,6 +106,9 @@
       "title": "Cinnabar Gym Leader",
       "theme": "Pokémon Red/Blue · Volcano Badge",
       "level": 80,
+      "specialty": "Fire",
+      "trainer_asset_id": "blaine-gen1rb",
+      "visual_accent": "#F08030",
       "opponent_team": "Growlithe\nLevel: 42\nAbility: Intimidate\n- Ember\n- Leer\n- Take Down\n- Agility\n\nPonyta\nLevel: 40\nAbility: Flash Fire\n- Tail Whip\n- Stomp\n- Growl\n- Fire Spin\n\nRapidash\nLevel: 42\nAbility: Flash Fire\n- Tail Whip\n- Stomp\n- Growl\n- Fire Spin\n\nArcanine\nLevel: 47\nAbility: Intimidate\n- Roar\n- Ember\n- Take Down\n- Fire Blast"
     },
     {
@@ -96,6 +117,9 @@
       "title": "Viridian Gym Leader",
       "theme": "Pokémon Red/Blue · Earth Badge",
       "level": 85,
+      "specialty": "Ground",
+      "trainer_asset_id": "giovanni-gen1rb",
+      "visual_accent": "#E0C068",
       "opponent_team": "Rhyhorn\nLevel: 45\nAbility: Rock Head\n- Stomp\n- Tail Whip\n- Fury Attack\n- Horn Attack\n\nDugtrio\nLevel: 42\nAbility: Sand Veil\n- Growl\n- Dig\n- Sand Attack\n- Slash\n\nNidoqueen\nLevel: 44\nAbility: Poison Point\n- Scratch\n- Tail Whip\n- Poison Sting\n- Body Slam\n\nNidoking\nLevel: 45\nAbility: Poison Point\n- Tackle\n- Horn Attack\n- Poison Sting\n- Thrash\n\nRhydon\nLevel: 50\nAbility: Rock Head\n- Stomp\n- Tail Whip\n- Fissure\n- Horn Drill"
     },
     {
@@ -104,6 +128,9 @@
       "title": "Elite Four · First",
       "theme": "Pokémon Red/Blue · Indigo Plateau",
       "level": 90,
+      "specialty": "Ice",
+      "trainer_asset_id": "lorelei-gen1rb",
+      "visual_accent": "#98D8D8",
       "opponent_team": "Dewgong\nLevel: 54\nAbility: Thick Fat\n- Growl\n- Aurora Beam\n- Rest\n- Take Down\n\nCloyster\nLevel: 53\nAbility: Shell Armor\n- Supersonic\n- Clamp\n- Aurora Beam\n- Spike Cannon\n\nSlowbro\nLevel: 54\nAbility: Oblivious\n- Water Gun\n- Growl\n- Withdraw\n- Amnesia\n\nJynx\nLevel: 56\nAbility: Oblivious\n- Double Slap\n- Ice Punch\n- Body Slam\n- Thrash\n\nLapras\nLevel: 56\nAbility: Water Absorb\n- Body Slam\n- Confuse Ray\n- Hydro Pump\n- Blizzard"
     },
     {
@@ -112,6 +139,9 @@
       "title": "Elite Four · Second",
       "theme": "Pokémon Red/Blue · Indigo Plateau",
       "level": 92,
+      "specialty": "Fighting",
+      "trainer_asset_id": "bruno-gen1rb",
+      "visual_accent": "#C03028",
       "opponent_team": "Onix\nLevel: 53\nAbility: Rock Head\n- Rock Throw\n- Rage\n- Slam\n- Harden\n\nHitmonchan\nLevel: 55\nAbility: Keen Eye\n- Ice Punch\n- Mega Punch\n- Thunder Punch\n- Counter\n\nHitmonlee\nLevel: 55\nAbility: Limber\n- Jump Kick\n- Focus Energy\n- High Jump Kick\n- Mega Kick\n\nOnix\nLevel: 56\nAbility: Rock Head\n- Rock Throw\n- Rage\n- Slam\n- Harden\n\nMachamp\nLevel: 58\nAbility: Guts\n- Leer\n- Focus Energy\n- Fissure\n- Submission"
     },
     {
@@ -120,6 +150,9 @@
       "title": "Elite Four · Third",
       "theme": "Pokémon Red/Blue · Indigo Plateau",
       "level": 94,
+      "specialty": "Ghost",
+      "trainer_asset_id": "agatha-gen1rb",
+      "visual_accent": "#705898",
       "opponent_team": "Gengar\nLevel: 56\nAbility: Cursed Body\n- Confuse Ray\n- Night Shade\n- Hypnosis\n- Dream Eater\n\nGolbat\nLevel: 56\nAbility: Inner Focus\n- Supersonic\n- Confuse Ray\n- Wing Attack\n- Haze\n\nHaunter\nLevel: 55\nAbility: Levitate\n- Confuse Ray\n- Night Shade\n- Hypnosis\n- Dream Eater\n\nArbok\nLevel: 58\nAbility: Intimidate\n- Bite\n- Glare\n- Screech\n- Acid\n\nGengar\nLevel: 60\nAbility: Cursed Body\n- Confuse Ray\n- Night Shade\n- Toxic\n- Dream Eater"
     },
     {
@@ -128,6 +161,9 @@
       "title": "Elite Four · Final",
       "theme": "Pokémon Red/Blue · Indigo Plateau",
       "level": 96,
+      "specialty": "Dragon",
+      "trainer_asset_id": "lance-gen1rb",
+      "visual_accent": "#7038F8",
       "opponent_team": "Gyarados\nLevel: 58\nAbility: Intimidate\n- Hydro Pump\n- Dragon Rage\n- Leer\n- Hyper Beam\n\nDragonair\nLevel: 56\nAbility: Shed Skin\n- Agility\n- Slam\n- Dragon Rage\n- Hyper Beam\n\nDragonair\nLevel: 56\nAbility: Shed Skin\n- Agility\n- Slam\n- Dragon Rage\n- Hyper Beam\n\nAerodactyl\nLevel: 60\nAbility: Rock Head\n- Supersonic\n- Take Down\n- Bite\n- Hyper Beam\n\nDragonite\nLevel: 62\nAbility: Inner Focus\n- Agility\n- Slam\n- Barrier\n- Hyper Beam"
     },
     {
@@ -136,6 +172,9 @@
       "title": "Indigo Plateau Champion",
       "theme": "Pokémon Red/Blue · player chose Bulbasaur",
       "level": 100,
+      "specialty": "Champion",
+      "trainer_asset_id": "blue-gen1rbchampion",
+      "visual_accent": "#5C7CFA",
       "opponent_team": "Pidgeot\nLevel: 61\nAbility: Keen Eye\n- Wing Attack\n- Mirror Move\n- Sky Attack\n- Whirlwind\n\nAlakazam\nLevel: 59\nAbility: Synchronize\n- Psybeam\n- Psychic\n- Reflect\n- Recover\n\nRhydon\nLevel: 61\nAbility: Rock Head\n- Leer\n- Tail Whip\n- Fury Attack\n- Horn Drill\n\nGyarados\nLevel: 63\nAbility: Intimidate\n- Dragon Rage\n- Hydro Pump\n- Hyper Beam\n- Leer\n\nExeggutor\nLevel: 61\nAbility: Chlorophyll\n- Hypnosis\n- Barrage\n- Stomp\n\nCharizard\nLevel: 65\nAbility: Blaze\n- Fire Blast\n- Rage\n- Slash\n- Fire Spin"
     }
   ]

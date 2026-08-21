@@ -128,6 +128,14 @@ function speciesCatalog() {
         introduction_generation: Number(entry.gen),
         types: entry.types || [],
         base_stat_total: Object.values(entry.baseStats || {}).reduce((total, value) => total + Number(value || 0), 0) || null,
+        base_stats: entry.baseStats ? {
+          hp: Number(entry.baseStats.hp),
+          atk: Number(entry.baseStats.atk),
+          defense: Number(entry.baseStats.def),
+          spa: Number(entry.baseStats.spa),
+          spd: Number(entry.baseStats.spd),
+          spe: Number(entry.baseStats.spe)
+        } : null,
         battle_only: Boolean(entry.battleOnly),
         cosmetic: Boolean(base.cosmeticFormes && base.cosmeticFormes.includes(entry.name)),
         unavailable: Boolean(entry.isNonstandard && entry.isNonstandard !== 'Past'),

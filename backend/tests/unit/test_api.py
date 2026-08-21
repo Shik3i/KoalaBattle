@@ -127,6 +127,9 @@ def test_asset_status_and_resolution_api(tmp_path: Path) -> None:
     effects = assets / "effects" / "showdown-cc0"
     effects.mkdir(parents=True)
     (effects / "fireball.png").write_bytes(b"\x89PNG\r\n\x1a\nlocal-test")
+    trainers = assets / "trainers"
+    trainers.mkdir()
+    (trainers / "brockgen1rb.png").write_bytes(b"\x89PNG\r\n\x1a\ntrainer-test")
     settings = Settings(
         _env_file=None,
         database_url=f"sqlite+aiosqlite:///{tmp_path / 'assets.db'}",
@@ -146,6 +149,10 @@ def test_asset_status_and_resolution_api(tmp_path: Path) -> None:
         move_effect = client.get("/api/assets/effects/fireball")
         assert move_effect.status_code == 200
         assert move_effect.content.startswith(b"\x89PNG")
+        trainer = client.get("/api/assets/trainers/brock-gen1rb")
+        assert trainer.status_code == 200
+        assert trainer.content.endswith(b"trainer-test")
+        assert client.get("/api/assets/trainers/missing").status_code == 404
         assert client.get("/api/assets/effects/not-installed").status_code == 404
         assert client.get("/api/assets/audio/../secret").status_code in {404, 400}
 

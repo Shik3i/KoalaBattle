@@ -21,7 +21,23 @@ from urllib.request import Request, urlopen
 SOURCE_BASE = "https://play.pokemonshowdown.com/sprites/"
 SOURCE_REPOSITORY = "https://github.com/smogon/sprites"
 MANIFEST_NAME = "pokemon-showdown-assets.json"
-USER_AGENT = "KoalaBattle asset setup/0.10.0 (+https://github.com/Shik3i/KoalaBattle)"
+USER_AGENT = "KoalaBattle asset setup/0.11.0 (+https://github.com/Shik3i/KoalaBattle)"
+
+KANTO_RB_TRAINERS = (
+    "brock-gen1rb.png",
+    "misty-gen1rb.png",
+    "ltsurge-gen1rb.png",
+    "erika-gen1rb.png",
+    "koga-gen1rb.png",
+    "sabrina-gen1rb.png",
+    "blaine-gen1rb.png",
+    "giovanni-gen1rb.png",
+    "lorelei-gen1rb.png",
+    "bruno-gen1rb.png",
+    "agatha-gen1rb.png",
+    "lance-gen1rb.png",
+    "blue-gen1rbchampion.png",
+)
 
 
 @dataclass(frozen=True)
@@ -29,6 +45,7 @@ class Category:
     source: str
     target: Path
     extension: str
+    required_files: tuple[str, ...] = ()
 
 
 CATEGORIES = {
@@ -36,6 +53,9 @@ CATEGORIES = {
     "back": Category("gen5-back/", Path("pokemon/back"), ".png"),
     "animated-front": Category("ani/", Path("pokemon/animated/front"), ".gif"),
     "animated-back": Category("ani-back/", Path("pokemon/animated/back"), ".gif"),
+    "trainers": Category(
+        "trainers/", Path("trainers"), ".png", required_files=KANTO_RB_TRAINERS
+    ),
 }
 
 
@@ -94,12 +114,17 @@ def fetch_index(category: Category, source_base: str) -> list[str]:
     url = urljoin(source_base, category.source)
     html = request_bytes(url).decode("utf-8", errors="replace")
     names = parse_index(html, category.extension)
-    if len(names) < 100 or not any(name.startswith("pikachu.") for name in names):
+    required_missing = set(category.required_files) - set(names)
+    if (
+        len(names) < 100
+        or required_missing
+        or (not category.required_files and not any(name.startswith("pikachu.") for name in names))
+    ):
         raise RuntimeError(
             f"unexpected Pokemon Showdown directory structure at {url}: "
             f"found {len(names)} {category.extension} files"
         )
-    return names
+    return list(category.required_files) if category.required_files else names
 
 
 def sha256(path: Path) -> str:

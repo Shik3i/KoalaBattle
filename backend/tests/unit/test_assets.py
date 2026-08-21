@@ -48,6 +48,17 @@ def test_missing_and_malformed_names_never_escape_asset_root(tmp_path: Path) -> 
     assert provider.scan().unresolved_species == ("etcpasswd", "missingno")
 
 
+def test_resolves_exact_trainer_assets_without_path_access(tmp_path: Path) -> None:
+    trainers = tmp_path / "trainers"
+    trainers.mkdir()
+    brock = trainers / "brockgen1rb.png"
+    brock.write_bytes(b"png")
+    provider = LocalAssetProvider(tmp_path)
+
+    assert provider.trainer("brock-gen1rb") == brock
+    assert provider.trainer("../../brock-gen1rb") is None
+
+
 def test_scan_reports_installed_and_invalid_assets(tmp_path: Path) -> None:
     front = tmp_path / "pokemon" / "front"
     backgrounds = tmp_path / "backgrounds"

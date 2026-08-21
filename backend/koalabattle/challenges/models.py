@@ -107,6 +107,11 @@ class ChallengeStage(FrozenModel):
     title: str = Field(min_length=1, max_length=100)
     theme: str = Field(min_length=1, max_length=80)
     level: int = Field(ge=1, le=100)
+    specialty: str | None = Field(default=None, min_length=1, max_length=40)
+    trainer_asset_id: str | None = Field(
+        default=None, pattern=r"^[a-z0-9][a-z0-9-]*$", max_length=80
+    )
+    visual_accent: str = Field(default="#7bf0a2", pattern=r"^#[0-9a-fA-F]{6}$")
     opponent_team: str = Field(min_length=1, max_length=50_000)
 
 
@@ -131,6 +136,15 @@ class ChallengeDefinition(FrozenModel):
     stages: tuple[ChallengeStage, ...] = Field(min_length=1)
 
 
+class PokemonBaseStats(FrozenModel):
+    hp: int = Field(ge=1, le=255)
+    atk: int = Field(ge=1, le=255)
+    defense: int = Field(ge=1, le=255)
+    spa: int = Field(ge=1, le=255)
+    spd: int = Field(ge=1, le=255)
+    spe: int = Field(ge=1, le=255)
+
+
 class DraftCandidate(FrozenModel):
     entry_id: str
     species: str
@@ -140,6 +154,7 @@ class DraftCandidate(FrozenModel):
     introduction_generation: int = Field(ge=1, le=9)
     types: tuple[str, ...] = Field(min_length=1, max_length=2)
     base_stat_total: int | None = Field(default=None, ge=1, le=2000)
+    base_stats: PokemonBaseStats | None = None
     points: int = Field(ge=1)
 
 
@@ -223,6 +238,9 @@ class PublicChallengeStage(FrozenModel):
     title: str
     theme: str
     level: int
+    specialty: str | None = None
+    trainer_asset_id: str | None = None
+    visual_accent: str = "#7bf0a2"
 
 
 class ChallengeRunStats(FrozenModel):

@@ -7,6 +7,8 @@ from urllib.request import Request, urlopen
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
+from .models import PokemonBaseStats
+
 
 class SpeciesMetadata(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -18,6 +20,7 @@ class SpeciesMetadata(BaseModel):
     introduction_generation: int = Field(ge=1, le=9)
     types: tuple[str, ...] = Field(min_length=1, max_length=2)
     base_stat_total: int | None = Field(default=None, ge=1, le=2000)
+    base_stats: PokemonBaseStats | None = None
     battle_only: bool = False
     cosmetic: bool = False
     unavailable: bool = False

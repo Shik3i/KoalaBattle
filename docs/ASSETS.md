@@ -4,8 +4,9 @@ Repository audit result: Git tracks **0 files** below `data/assets/` and `data/v
 checkout therefore starts with no Pokémon front/back/animated sprite, icon, trainer,
 background, effect, or audio category. An API or resolver does not imply an installed pack.
 
-The opt-in validation installation performed on 2026-08-15 contained 6,535 resolver-compatible
-files: 1,665 static front, 1,661 static back, 1,628 animated front, and 1,581 animated back.
+The opt-in validation installation performed on 2026-08-21 contained 6,548 resolver-compatible
+files: 1,665 static front, 1,661 static back, 1,628 animated front, 1,581 animated back,
+and the 13 exact Red/Blue Kanto campaign trainer portraits.
 Those local files and their manifest remain ignored and are not part of the repository.
 
 KoalaBattle ships no Pokémon sprites, artwork, trainer images, backgrounds, music, or sound
@@ -26,7 +27,8 @@ python3 scripts/setup_assets.py remove
 ```
 
 `install` first verifies that each remote directory still has a plausible current listing and
-known `pikachu` entry. Downloads are atomic and checksummed. Repeated installs retain valid
+known sentinel entries. The trainer category is an exact 13-file allowlist for the bundled
+Red/Blue campaign rather than a bulk mirror. Downloads are atomic and checksummed. Repeated installs retain valid
 files. `remove` deletes only files named in `data/vendor/pokemon-showdown-assets.json`; unrelated
 operator media is preserved.
 
@@ -36,7 +38,7 @@ canonical alphanumeric ID. It never silently overwrites one downloaded file with
 
 Source deployment: <https://play.pokemonshowdown.com/sprites/>. Upstream build/source:
 <https://github.com/smogon/sprites>. The verified directories are `gen5/`, `gen5-back/`,
-`ani/`, and `ani-back/`. Deployed filenames are normalized to the resolver's alphanumeric
+`ani/`, `ani-back/`, and `trainers/`. Deployed filenames are normalized to the resolver's alphanumeric
 Showdown IDs.
 
 ## Storage and resolver
@@ -71,7 +73,8 @@ remain the default fallback when no texture is installed.
 The resolver checks canonical IDs plus legacy installer names and refuses paths that resolve
 outside `KOALABATTLE_ASSET_ROOT`. APIs: `GET /api/assets/status`,
 `POST /api/assets/rescan`, `GET /api/assets/resolve/pokemon/:species`, and the content route
-`GET /api/assets/pokemon/:species`. Missing media returns 404.
+`GET /api/assets/pokemon/:species`, and `GET /api/assets/trainers/:trainerId`. Missing media
+returns 404 and the UI renders an accessible built-in fallback.
 
 ## Branding media (logos, backgrounds, watermarks, fonts)
 

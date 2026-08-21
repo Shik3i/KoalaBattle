@@ -1250,6 +1250,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="local audio asset not installed")
         return FileResponse(path)
 
+    @app.get("/api/assets/trainers/{trainer_id}")
+    async def trainer_asset(trainer_id: str, request: Request) -> FileResponse:
+        path = _assets(request).trainer(trainer_id)
+        if path is None:
+            raise HTTPException(status_code=404, detail="local trainer asset not installed")
+        return FileResponse(path)
+
     @app.get("/api/assets/effects/{effect_id}")
     async def move_effect_asset(effect_id: str, request: Request) -> FileResponse:
         path = _assets(request).effect(effect_id)
