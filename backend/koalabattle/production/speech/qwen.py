@@ -118,7 +118,7 @@ class QwenLocalSpeechProvider(SpeechProvider):
         )
         try:
             with urlopen(request, timeout=self.timeout_seconds) as response:  # noqa: S310
-                body = response.read()
+                body = bytes(response.read())
                 content_type = response.headers.get_content_type()
         except HTTPError as error:
             detail = error.read().decode(errors="replace")[:800]

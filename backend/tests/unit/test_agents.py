@@ -80,6 +80,29 @@ async def test_manual_agent_accepts_fenced_json(agent_request: AgentRequest) -> 
 
 
 @pytest.mark.asyncio
+async def test_human_direct_action_uses_the_same_exact_legal_action_boundary(
+    agent_request: AgentRequest,
+) -> None:
+    notified = asyncio.Event()
+
+    async def notify(_: AgentRequest) -> None:
+        notified.set()
+
+    broker = ManualDecisionBroker(notify)
+    task = asyncio.create_task(ManualAgent(broker).decide(agent_request))
+    await notified.wait()
+    with pytest.raises(ValueError, match="illegal action"):
+        await broker.submit_action(agent_request.request_id, "move:99")
+    await broker.submit_action(agent_request.request_id, "switch:1")
+    decision = await task
+    assert decision.action == "switch:1"
+    assert decision.commentary == ""
+    assert decision.provider == "human"
+    assert decision.model == "direct-control"
+    assert decision.provider_metadata == {"agent": "human"}
+
+
+@pytest.mark.asyncio
 async def test_manual_double_submission_is_rejected_and_memory_is_replaced(
     agent_request: AgentRequest,
 ) -> None:

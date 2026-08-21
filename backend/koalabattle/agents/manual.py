@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from time import perf_counter
+from typing import Literal
 from uuid import UUID
 
 from koalabattle.core.models import AgentDecision, AgentRequest
@@ -20,6 +22,7 @@ class _PendingDecision:
     started_at: float
     attempts: int = 0
     errors: tuple[str, ...] = ()
+    source: Literal["manual", "human"] = "manual"
 
 
 class ManualDecisionBroker:
@@ -36,6 +39,7 @@ class ManualDecisionBroker:
         await self._notify(request)
         try:
             response, raw = await pending.future
+            human = pending.source == "human"
             return AgentDecision(
                 request_id=request.request_id,
                 match_id=request.match_id,
@@ -51,12 +55,12 @@ class ManualDecisionBroker:
                     else None
                 ),
                 raw_response=raw,
-                provider_metadata={"agent": "manual"},
+                provider_metadata={"agent": pending.source},
                 latency_ms=round((perf_counter() - pending.started_at) * 1000),
                 validation_attempts=pending.attempts,
                 validation_errors=pending.errors,
-                provider="manual",
-                model="web-chat",
+                provider=pending.source,
+                model="direct-control" if human else "web-chat",
             )
         finally:
             async with self._lock:
@@ -72,7 +76,13 @@ class ManualDecisionBroker:
                 {action.id for action in pending.request.legal_actions},
             )
 
-    async def submit(self, request_id: UUID, raw_response: str) -> StructuredDecision:
+    async def submit(
+        self,
+        request_id: UUID,
+        raw_response: str,
+        *,
+        source: Literal["manual", "human"] = "manual",
+    ) -> StructuredDecision:
         async with self._lock:
             pending = self._pending.get(request_id)
             if pending is None:
@@ -80,6 +90,7 @@ class ManualDecisionBroker:
             pending.attempts += 1
             if pending.future.done():
                 raise KeyError("manual decision request has already been answered")
+            pending.source = source
 
             try:
                 response = parse_structured_decision(
@@ -97,6 +108,13 @@ class ManualDecisionBroker:
                 raise ValueError(message) from error
             pending.future.set_result((response, raw_response))
             return response
+
+    async def submit_action(self, request_id: UUID, action: str) -> StructuredDecision:
+        return await self.submit(
+            request_id,
+            json.dumps({"action": action, "commentary": "", "strategy_memory": None}),
+            source="human",
+        )
 
     async def cancel_match(self, match_id: UUID) -> None:
         async with self._lock:

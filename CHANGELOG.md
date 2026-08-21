@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+- added persistent Draft Challenge runs with deterministic budget-safe offers, Training Camp EV
+  allocation, pinned-Showdown team validation, direct Human Player control, and a versioned Kanto
+  Gym Gauntlet campaign built on normal immutable matches and replays;
+- added explicit local CSV/TSV/XLSX draft-board import, provenance hashes, strict form coverage,
+  restart recovery, optimistic revisions, and operator documentation; and
+- added a first-class Challenge setup, campaign map, draft, roster, training, team-review, stage,
+  retry, complete battle history, keyboard drafting, and completion UI; and
+- hardened pricing integrity verification, AI draft failure boundaries, opponent-team redaction,
+  multi-process revision checks, paginated restart recovery, real Showdown content CI, and the
+  patched `pip 26.2` runtime build tool.
+
 ## 0.11.0 - 2026-08-20
 
 - replaced placeholder product branding with a dedicated KoalaBattle mark and Phosphor UI icons;

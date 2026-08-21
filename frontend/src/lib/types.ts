@@ -1,5 +1,5 @@
 export type Side = 'p1' | 'p2';
-export type AgentType = 'random' | 'manual' | 'api';
+export type AgentType = 'random' | 'manual' | 'human' | 'api';
 export type ProviderKind = 'openai' | 'gemini' | 'anthropic' | 'deepseek' | 'openai-compatible' | 'fake';
 export type AgentLifecycleState = 'idle' | 'waiting' | 'thinking' | 'retrying' | 'decided' | 'executing' | 'error' | 'finished';
 
@@ -350,6 +350,8 @@ export interface MatchArchive {
   tournament_id: string | null;
   series_id: string | null;
   queue_position: number | null;
+  challenge_run_id: string | null;
+  challenge_stage_id: string | null;
   events: BattleEvent[];
   decisions: Array<{
     id: number;
@@ -376,6 +378,104 @@ export interface MatchArchive {
     raw_response?: string | null;
     parsed_response?: Record<string, unknown> | null;
   }>;
+}
+
+export type ChallengeStatus = 'drafting' | 'training' | 'team_review' | 'ready' | 'battle_queued' | 'battling' | 'stage_result' | 'completed' | 'failed' | 'cancelled' | 'abandoned';
+
+export interface DraftCandidate {
+  entry_id: string;
+  species: string;
+  showdown_id: string;
+  base_species_id: string;
+  national_dex_number: number;
+  introduction_generation: number;
+  types: string[];
+  base_stat_total: number | null;
+  points: number;
+}
+
+export interface EvSpread {
+  hp: number;
+  atk: number;
+  def: number;
+  spa: number;
+  spd: number;
+  spe: number;
+}
+
+export interface ChallengeRunView {
+  run: {
+    id: string;
+    name: string;
+    status: ChallengeStatus;
+    revision: number;
+    seed: number;
+    definition: {
+      id: string;
+      version: string;
+      name: string;
+      description: string;
+      format: string;
+      draft_rules: { roster_size: number; starting_credits: number; rerolls: number; choice_count: number; species_clause: boolean };
+      training_rules: { global_ev_budget: number; per_pokemon_max: number; per_stat_max: number };
+    };
+    pricing: { schema_version: string; parser_version: string; board_name: string; context: string; catalog_hash: string; source_sha256: string; imported_at: string; mechanics_assumptions: string[] };
+    draft_controller: { kind: 'human' | 'agent' | 'random'; provider?: ProviderKind | null; model?: string | null };
+    draft_controller_history: Array<{ kind: 'human' | 'agent' | 'random'; provider?: ProviderKind | null; model?: string | null }>;
+    battle_controller: { agent_type: AgentType; provider?: ProviderKind | null; model?: string | null };
+    opponent_controller: { agent_type: AgentType; provider?: ProviderKind | null; model?: string | null };
+    credits_remaining: number;
+    rerolls_remaining: number;
+    current_offer: { round: number; nonce: number; generation: number; type: string; options: DraftCandidate[]; fingerprint: string } | null;
+    picks: Array<{ round: number; candidate: DraftCandidate; selected_by: 'human' | 'agent' | 'random'; created_at: string }>;
+    ev_allocations: Record<string, EvSpread>;
+    team_snapshot_id: string | null;
+    current_stage_index: number;
+    active_match_id: string | null;
+    stage_results: Array<{ stage_id: string; stage_index: number; match_id: string; status: 'won' | 'lost' | 'draw' | 'failed' | 'cancelled' | 'interrupted'; winner: string | null; turns: number; duration_seconds: number; estimated_cost: number; average_decision_latency_ms: number | null; decision_count: number; started_at: string; completed_at: string }>;
+    error: string | null;
+    created_at: string;
+    updated_at: string;
+    completed_at: string | null;
+  };
+  stages: Array<{ id: string; name: string; title: string; theme: string; level: number }>;
+  current_stage: { id: string; name: string; title: string; theme: string; level: number } | null;
+  statistics: { stages_cleared: number; wins: number; losses: number; draws: number; total_battles: number; technical_failures: number; total_turns: number; duration_seconds: number; estimated_cost: number; average_decision_latency_ms: number | null; credits_spent: number; credits_remaining: number; rerolls_used: number; ev_used: number };
+  team_export_scaffold: string | null;
+  minimum_completion_cost: number;
+}
+
+export interface ChallengeRunSummary {
+  id: string;
+  name: string;
+  definition_name: string;
+  definition_version: string;
+  status: ChallengeStatus;
+  current_stage_index: number;
+  stage_count: number;
+  stages_cleared: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PricingStatus {
+  available: boolean;
+  ready: boolean;
+  path: string;
+  catalog_hash: string | null;
+  board_name: string | null;
+  context: string | null;
+  imported_at: string | null;
+  parsed_entries: number;
+  eligible_entries: number;
+  priced_entries: number;
+  banned_entries: number;
+  missing_entries: number;
+  unsupported_entries: number;
+  source_verified: boolean;
+  verification_detail: string;
+  excluded_entries: Array<{ species: string; state: string; reason: string }>;
+  errors: string[];
 }
 
 export type ProductionTrack = 'visual' | 'commentary' | 'voice' | 'captions' | 'sfx' | 'music' | 'director';

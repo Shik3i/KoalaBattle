@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { actionIndexForKey, actionPreview, shortcutFor } from './manual-action.ts';
+import { actionIndexForKey, actionPreview, isForcedSwitch, shortcutFor } from './manual-action.ts';
 import type { BattleAction } from './types.ts';
 
 const move = (patch: Partial<BattleAction>): BattleAction => ({
@@ -19,4 +19,11 @@ test('manual shortcuts only map the visible one through nine keys', () => {
   assert.equal(shortcutFor(9), null);
   assert.equal(actionIndexForKey('7'), 6);
   assert.equal(actionIndexForKey('0'), null);
+});
+
+test('forced switch state is derived only from the authoritative legal actions', () => {
+  const switching = { id: 'switch:2', type: 'switch', name: 'Bench', slot: 2, terastallize: false } as BattleAction;
+  assert.equal(isForcedSwitch({ legal_actions: [switching] }), true);
+  assert.equal(isForcedSwitch({ legal_actions: [switching, move({})] }), false);
+  assert.equal(isForcedSwitch({ legal_actions: [] }), false);
 });

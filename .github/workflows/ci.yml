@@ -15,7 +15,7 @@ concurrency:
 jobs:
   backend:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -30,6 +30,15 @@ jobs:
       - run: mypy backend/koalabattle
       - run: pytest -q backend/tests/unit
       - run: python scripts/check_docs.py
+      - name: Start pinned Showdown validators
+        run: docker compose up -d --build --wait team-validator
+      - name: Validate Challenge campaign teams
+        env:
+          KOALABATTLE_RUN_SHOWDOWN_TEST: "1"
+        run: pytest -q backend/tests/integration/test_challenge_content.py
+      - name: Stop pinned Showdown validators
+        if: always()
+        run: docker compose down
 
   frontend:
     runs-on: ubuntu-latest

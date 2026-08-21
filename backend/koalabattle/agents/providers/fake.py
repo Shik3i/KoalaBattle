@@ -37,16 +37,6 @@ class FakeProvider:
         on_text_delta: TextDeltaCallback | None = None,
     ) -> ProviderResponse:
         self.calls += 1
-        if request.output_schema_name == "koalabattle_team":
-            return ProviderResponse(
-                text=json.dumps({"team": _FAKE_GEN9OU_TEAM}),
-                model=request.model,
-                usage=ProviderUsage(input_tokens=400, output_tokens=500, total_tokens=900),
-                request_id=f"fake-team-{self.calls}",
-                finish_reason="stop",
-            )
-        if self._action is None:
-            self._action = _first_legal_action(request.prompt)
         if self.scenario == "timeout":
             await asyncio.sleep(request.timeout_seconds + 1)
         if self.scenario == "provider_error":
@@ -61,6 +51,40 @@ class FakeProvider:
                 "deterministic fake rate limit",
                 retryable=True,
             )
+        if request.output_schema_name == "koalabattle_team":
+            if self.scenario == "malformed_then_valid" and self.calls == 1:
+                text = "not-json"
+            elif self.scenario == "invalid_then_valid" and self.calls == 1:
+                text = json.dumps({"team": "not a legal team"})
+            else:
+                text = json.dumps({"team": _FAKE_GEN9OU_TEAM})
+            return ProviderResponse(
+                text=text,
+                model=request.model,
+                usage=ProviderUsage(input_tokens=400, output_tokens=500, total_tokens=900),
+                request_id=f"fake-team-{self.calls}",
+                finish_reason="stop",
+            )
+        if request.output_schema_name == "koalabattle_draft_action":
+            legal = request.output_schema.get("properties", {}).get("action", {}).get("enum", [])
+            action = next((item for item in legal if str(item).startswith("pick:")), None)
+            if not isinstance(action, str):
+                raise ValueError("fake draft request has no pick action")
+            if self.scenario == "malformed_then_valid" and self.calls == 1:
+                text = "not-json"
+            elif self.scenario == "invalid_then_valid" and self.calls == 1:
+                text = json.dumps({"action": "pick:not-legal"})
+            else:
+                text = json.dumps({"action": action})
+            return ProviderResponse(
+                text=text,
+                model=request.model,
+                usage=ProviderUsage(input_tokens=200, output_tokens=8, total_tokens=208),
+                request_id=f"fake-draft-{self.calls}",
+                finish_reason="stop",
+            )
+        if self._action is None:
+            self._action = _first_legal_action(request.prompt)
         if self.scenario == "malformed_then_valid" and self.calls == 1:
             text = "not-json"
         elif self.scenario == "invalid_then_valid" and self.calls == 1:

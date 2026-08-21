@@ -345,6 +345,8 @@ class MatchSupervisor:
         poke_env_version: str | None,
         tournament_id: UUID | None = None,
         series_id: UUID | None = None,
+        challenge_run_id: UUID | None = None,
+        challenge_stage_id: str | None = None,
     ) -> MatchArchive:
         if self._dispatcher is None:
             await self.start()
@@ -358,6 +360,8 @@ class MatchSupervisor:
             poke_env_version=poke_env_version,
             tournament_id=tournament_id,
             series_id=series_id,
+            challenge_run_id=challenge_run_id,
+            challenge_stage_id=challenge_stage_id,
         )
         await self.repository.enqueue_match(archive.id)
         self._wake.set()

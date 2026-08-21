@@ -1,0 +1,6 @@
+Synthetic helper,Fixture only
+Pokemon,SV NatDex,Notes
+Examplemon Alpha,12,priced row
+Examplemon Beta,7,priced row
+Examplemon Gamma,Banned,explicit unavailable row
+Examplemon Delta,,explicit missing row

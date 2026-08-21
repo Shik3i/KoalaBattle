@@ -25,6 +25,7 @@ Pokémon Showdown. No Pokémon artwork, sprites, audio, or other third-party med
 
 - Run isolated Random, Manual Web Chat, API, or mixed-agent battles.
 - Build durable Single Elimination and Round Robin tournaments with bounded concurrency.
+- Draft a budgeted team, train it once, and take it through a persistent Kanto Gym Gauntlet.
 - Inspect player-scoped decisions and immutable event history without exposing private context
   to spectator or OBS clients.
 - Direct live productions with commentary, free Edge neural speech, captions, music/SFX slots,
@@ -103,6 +104,24 @@ not expose prompts, raw responses, context snapshots, or fixed opponent teams. S
 Global concurrency defaults to two active matches. Additional work remains durably queued.
 Tournament templates, presets, participants, series, results, costs, and bracket dependencies
 are stored in SQLite.
+
+## Draft Challenge
+
+Open `/challenges/new` to draft a persistent six-Pokémon roster and carry it through eight Kanto
+Gym Leaders, the Elite Four, and the Champion. Drafting, Training Camp, team validation, stage
+history, retries, normal-match control, and replays survive reloads and backend restarts.
+
+The operator must first import an authorized local draft pricing board; none is bundled or
+downloaded at startup:
+
+```bash
+.venv/bin/python scripts/setup_draft_prices.py import ./my-board.xlsx \
+  --board-name "My SV NatDex copy" --sheet Pokedex --price-column "SV NatDex"
+.venv/bin/python scripts/setup_draft_prices.py verify
+```
+
+Setup, rules, accepted table shapes, form exclusions, controller modes, mechanics assumptions,
+and recovery behavior: [Draft Challenge](docs/CHALLENGES.md).
 
 ## Battle formats
 
@@ -249,6 +268,7 @@ Details: [Development](docs/DEVELOPMENT.md). Documentation index: [docs/README.m
 
 - `backend/koalabattle/orchestration`: queue, isolated sessions, lifecycle, real-time hub
 - `backend/koalabattle/tournaments`: engine-independent brackets, standings, persistence
+- `backend/koalabattle/challenges`: pricing snapshots, draft/training domain, campaign ownership
 - `backend/koalabattle/engines/showdown`: the only `poke-env` boundary
 - `backend/koalabattle/storage`: SQLite match archive and ordering guarantees
 - `backend/koalabattle/replay`: pure recorded-event reducer

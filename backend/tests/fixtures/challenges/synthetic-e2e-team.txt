@@ -1,0 +1,49 @@
+Doduo
+Ability: Early Bird
+EVs: 4 HP
+Jolly Nature
+- Brave Bird
+- Double-Edge
+- Knock Off
+- Roost
+
+Rattata
+Ability: Guts
+EVs: 4 HP
+Jolly Nature
+- Facade
+- Quick Attack
+- Crunch
+- U-turn
+
+Farfetch'd
+Ability: Defiant
+EVs: 4 HP
+Jolly Nature
+- Brave Bird
+- Knock Off
+- Leaf Blade
+- Roost
+
+Meowth
+Ability: Technician
+EVs: 4 HP
+Jolly Nature
+- Fake Out
+- Knock Off
+- U-turn
+- Taunt
+
+Eevee
+Ability: Adaptability
+EVs: 4 HP
+Jolly Nature
+- Double-Edge
+- Quick Attack
+- Bite
+- Wish
+
+Ditto
+Ability: Imposter
+EVs: 4 HP
+- Transform

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Awaitable, Callable
+from typing import TYPE_CHECKING
 from urllib.error import URLError
 from urllib.request import urlopen
 from uuid import UUID
@@ -61,6 +63,9 @@ from koalabattle.teams import (
 from koalabattle.tournaments.models import CreateTournament, TournamentArchive, TournamentStatus
 from koalabattle.tournaments.repository import TournamentRepository
 
+if TYPE_CHECKING:
+    from koalabattle.challenges.models import DraftControllerSnapshot
+
 
 class BattleService:
     def __init__(
@@ -83,6 +88,7 @@ class BattleService:
         # them from its browser-local vault after a backend restart.
         self._runtime_provider_keys: dict[ProviderKind, str] = {}
         self._runtime_provider_base_urls: dict[ProviderKind, str] = {}
+        self._challenge_terminal_hook: Callable[[UUID, MatchArchive], Awaitable[None]] | None = None
         self.supervisor = MatchSupervisor(
             repository,
             self.hub,
@@ -93,6 +99,11 @@ class BattleService:
             on_start=self._match_starting,
             on_terminal=self._match_terminal,
         )
+
+    def set_challenge_terminal_hook(
+        self, hook: Callable[[UUID, MatchArchive], Awaitable[None]]
+    ) -> None:
+        self._challenge_terminal_hook = hook
 
     async def start(self) -> tuple[UUID, ...]:
         await self.formats.refresh()
@@ -112,6 +123,8 @@ class BattleService:
         *,
         tournament_id: UUID | None = None,
         series_id: UUID | None = None,
+        challenge_run_id: UUID | None = None,
+        challenge_stage_id: str | None = None,
     ) -> MatchArchive:
         hydrated_players: list[PlayerConfig] = []
         for player in config.players:
@@ -145,6 +158,8 @@ class BattleService:
             poke_env_version="0.15.0",
             tournament_id=tournament_id,
             series_id=series_id,
+            challenge_run_id=challenge_run_id,
+            challenge_stage_id=challenge_stage_id,
         )
 
     async def validate_team(
@@ -207,7 +222,7 @@ class BattleService:
             seed = None if config.random_seed is None else config.random_seed + index
             if player.agent_type is AgentType.RANDOM:
                 agents[player.side] = RandomAgent(seed)
-            elif player.agent_type is AgentType.MANUAL:
+            elif player.agent_type in {AgentType.MANUAL, AgentType.HUMAN}:
                 agents[player.side] = ManualAgent(manual_broker)
             else:
                 agents[player.side] = ApiAgent(
@@ -258,6 +273,18 @@ class BattleService:
         if not self.settings.enable_fake_provider:
             raise ValueError("Fake provider is disabled; set KOALABATTLE_ENABLE_FAKE_PROVIDER=true")
         return FakeProvider(player.configuration.fake_scenario)
+
+    def provider_for_draft(self, controller: DraftControllerSnapshot) -> LLMProvider:
+        return self._provider_for(
+            PlayerConfig(
+                side=Side.P1,
+                display_name="Challenge draft controller",
+                agent_type=AgentType.API,
+                provider=controller.provider.value if controller.provider else None,
+                model=controller.model,
+                configuration=controller.configuration,
+            )
+        )
 
     @staticmethod
     def _required_key(kind: ProviderKind, value: str | None) -> str:
@@ -439,6 +466,13 @@ class BattleService:
         session, _ = await self.supervisor.find_pending(request_id)
         await session.submit_manual_decision(request_id, raw_response)
 
+    async def submit_human_decision(self, request_id: UUID, action: str) -> None:
+        session, pending = await self.supervisor.find_pending(request_id)
+        player = next(item for item in session.archive.config.players if item.side is pending.side)
+        if player.agent_type is not AgentType.HUMAN:
+            raise ValueError("decision request belongs to a Manual Web Chat controller")
+        await session.manual_broker.submit_action(request_id, action)
+
     async def pause_match(self, match_id: UUID) -> None:
         await self.supervisor.pause_match(match_id)
 
@@ -609,6 +643,8 @@ class BattleService:
             await self.tournaments.mark_series_running(summary.series_id)
 
     async def _match_terminal(self, match_id: UUID, archive: MatchArchive) -> None:
+        if archive.challenge_run_id is not None and self._challenge_terminal_hook is not None:
+            await self._challenge_terminal_hook(match_id, archive)
         if archive.tournament_id is None or archive.series_id is None:
             return
         _, _, participant_a, participant_b, _ = await self.tournaments.series_execution(

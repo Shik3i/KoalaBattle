@@ -8,7 +8,8 @@
   import { connectLiveSocket } from '$lib/presentation/live-socket';
   import { defaultRendererConfig, HUD_SCALE_RANGE, type AgentPresentationStatus, type CommentaryMode, type EffectQuality, type MoveEffectSkin, type RendererConfig, type RendererLayout, type RendererTheme, type TimelineSnapshot } from '$lib/presentation/types';
   import type { AgentLifecycleState, AgentRequest, BattleAction, BattleEvent, MatchArchive, Side } from '$lib/types';
-  import { actionIndexForKey, actionPreview, shortcutFor } from '$lib/manual-action';
+  import { actionIndexForKey, actionPreview, isForcedSwitch, shortcutFor } from '$lib/manual-action';
+  import { challengeErrorMessage } from '$lib/challenge';
 
   export let data: { id: string };
   let match: MatchArchive | null = null;
@@ -16,6 +17,7 @@
   let responses: Partial<Record<Side, string>> = {};
   let validation: Partial<Record<Side, string>> = {};
   let submitting: Partial<Record<Side, boolean>> = {};
+  let accepted: Partial<Record<Side, string>> = {};
   let copied: string | null = null;
   let copyTimer: ReturnType<typeof setTimeout> | null = null;
   let configBroadcastTimer: ReturnType<typeof setTimeout> | null = null;
@@ -33,6 +35,7 @@
   ])) as Partial<Record<Side, AgentPresentationStatus>>;
 
   $: pendingSides = (Object.keys(pending) as Side[]).filter((side) => pending[side]);
+  $: humanSides = (['p1', 'p2'] as Side[]).filter((side) => isHuman(side));
   // The player who can actually act is preselected, so nobody has to hunt for the right tab.
   $: activeTab = activeTab && pendingSides.includes(activeTab) ? activeTab : pendingSides[0] || null;
   $: battleViewUrl = typeof location === 'undefined' ? '' : `${location.origin}/watch/${data.id}`;
@@ -67,12 +70,13 @@
   function agentKind(side: Side) {
     const player = playerFor(side);
     if (!player) return '';
+    if (player.agent_type === 'human') return 'Human Player';
     if (player.agent_type === 'manual') return 'Manual Web Chat';
     if (player.agent_type === 'random') return 'Random agent';
     return [player.provider, player.model].filter(Boolean).join(' · ');
   }
-  function isManual(side: Side) {
-    return playerFor(side)?.agent_type === 'manual';
+  function isHuman(side: Side) {
+    return playerFor(side)?.agent_type === 'human';
   }
   function tabState(side: Side) {
     if (submitting[side]) return 'Submitting…';
@@ -143,6 +147,7 @@
     if (!sameRequest) {
       responses = { ...responses, [request.side]: '' };
       validation = { ...validation, [request.side]: '' };
+      accepted = { ...accepted, [request.side]: '' };
     }
   }
   function handleMessage(message: StreamMessage) {
@@ -169,6 +174,7 @@
       const side = (Object.keys(pending) as Side[]).find((item) => pending[item]?.request_id === message.request_id);
       if (side) {
         lifecycle = { ...lifecycle, [side]: 'executing' };
+        accepted = { ...accepted, [side]: 'Action accepted · waiting for the opponent' };
         pending = { ...pending }; delete pending[side];
       }
       if (match && Object.keys(pending).length === 0) match.status = 'running';
@@ -222,13 +228,27 @@
     } catch (caught) { validation = { ...validation, [side]: caught instanceof Error ? caught.message : String(caught) }; }
     finally { submitting = { ...submitting, [side]: false }; }
   }
-  function chooseAction(side: Side, action: BattleAction) {
-    responses = {
-      ...responses,
-      [side]: JSON.stringify({ action: action.id, commentary: '', strategy_memory: null }, null, 2)
-    };
+  async function chooseAction(side: Side, action: BattleAction) {
+    const request = pending[side]; if (!request) return;
     validation = { ...validation, [side]: `Selected ${action.name} · submitting…` };
-    void submit(side);
+    submitting = { ...submitting, [side]: true };
+    try {
+      await api(`/api/human-decisions/${request.request_id}`, {
+        method: 'POST', body: JSON.stringify({ action: action.id })
+      });
+      lifecycle = { ...lifecycle, [side]: 'executing' };
+      accepted = { ...accepted, [side]: `${action.name} accepted · waiting for the opponent` };
+      validation = { ...validation, [side]: '' };
+      pending = { ...pending }; delete pending[side];
+      if (match && Object.keys(pending).length === 0) match.status = 'running';
+      setTimeout(() => { void refreshLiveState().catch(() => undefined); }, 500);
+    } catch (caught) {
+      const detail = caught instanceof Error ? caught.message : String(caught);
+      validation = { ...validation, [side]: challengeErrorMessage(detail) };
+      if (detail.toLowerCase().includes('not pending')) void refreshLiveState();
+    } finally {
+      submitting = { ...submitting, [side]: false };
+    }
   }
   function handleManualShortcut(event: KeyboardEvent) {
     const target = event.target as HTMLElement | null;
@@ -236,9 +256,9 @@
     if (!activeTab || event.metaKey || event.ctrlKey || event.altKey) return;
     const index = actionIndexForKey(event.key);
     const request = activeTab ? pending[activeTab] : null;
-    if (index == null || !request?.legal_actions[index] || submitting[activeTab]) return;
+    if (index == null || !isHuman(activeTab) || !request?.legal_actions[index] || submitting[activeTab]) return;
     event.preventDefault();
-    chooseAction(activeTab, request.legal_actions[index]);
+    void chooseAction(activeTab, request.legal_actions[index]);
   }
   function actionSummary(action: BattleAction) {
     if (action.type === 'switch') {
@@ -362,10 +382,10 @@
 
 <div class="live-head">
   <div>
-    <span class="eyebrow">Match control · {data.id.slice(0, 8)}</span>
+    <span class="eyebrow">{match?.challenge_run_id ? `Challenge stage · ${match.challenge_stage_id || 'campaign'}` : 'Match control'} · {data.id.slice(0, 8)}</span>
     <h1>{match ? (match.config.name || `${match.config.players[0].display_name} vs ${match.config.players[1].display_name}`) : 'Loading battle…'}</h1>
   </div>
-  {#if match}<span class={`status-pill ${match.status}`}>{match.status}</span>{/if}
+  {#if match}<div class="battle-context">{#if match.challenge_run_id}<a class="button secondary compact" href={`/challenges/${match.challenge_run_id}`}><i class="ph ph-map-trifold" aria-hidden="true"></i>Challenge map</a>{/if}<span class={`status-pill ${match.status}`}>{match.status}</span></div>{/if}
 </div>
 
 <!--
@@ -433,10 +453,18 @@
   </div>
 </section>
 
+{#if match && humanSides.length && !pendingSides.some((side) => isHuman(side)) && !['completed','failed','cancelled','interrupted'].includes(match.status)}
+  <section class="human-wait panel" role="status">
+    <span class="wait-pulse"></span>
+    <div><span class="eyebrow">Human Player</span><h2>{humanSides.map((side) => accepted[side] || `${agentLabel(side)} is waiting for the next legal turn`).join(' · ')}</h2><p>The battle state is live. Move and switch controls appear automatically when your next decision is legal.</p></div>
+    {#if match.challenge_run_id}<a class="button secondary compact" href={`/challenges/${match.challenge_run_id}`}>Challenge overview</a>{/if}
+  </section>
+{/if}
+
 {#if pendingSides.length}
   <section class="workspace">
     <!-- Agent identity is the primary heading; P1/P2 is secondary metadata. -->
-    <div class="agent-tabs" role="tablist" aria-label="Manual agents waiting for a response">
+    <div class="agent-tabs" role="tablist" aria-label="Players waiting for an action">
       {#each (['p1', 'p2'] as Side[]).filter((side) => playerFor(side)) as side}
         <button
           role="tab"
@@ -464,18 +492,19 @@
               <h2>{agentLabel(side)}</h2>
               <p>Player {side === 'p1' ? '1' : '2'} · Turn {request.turn} · {agentKind(side)}</p>
             </div>
-            <button class="button" on:click={() => copyText(`prompt-${side}`, request.prompt)}>
+            {#if !isHuman(side)}<button class="button" on:click={() => copyText(`prompt-${side}`, request.prompt)}>
               <i class="ph ph-copy" aria-hidden="true"></i>{copied === `prompt-${side}` ? 'Copied' : 'Copy prompt'}
-            </button>
+            </button>{/if}
           </header>
 
           <div class="manual-grid">
-            {#if isManual(side)}
+            {#if isHuman(side)}
               <section class="action-picker" aria-label="Choose a legal battle action">
                 <div class="column-head">
-                  <h3>Choose your action</h3>
-                  <span class="meta">Click or press 1–9 · submits immediately</span>
+                  <h3>{isForcedSwitch(request) ? 'Choose a replacement' : 'Choose your action'}</h3>
+                  <span class="meta">{isForcedSwitch(request) ? 'Forced switch · only legal replacements are shown' : 'Click or press 1–9 · submits immediately'}</span>
                 </div>
+                {#if isForcedSwitch(request)}<p class="forced-note" role="status"><i class="ph ph-warning" aria-hidden="true"></i>Your active Pokémon cannot continue. Select one of the legal, non-fainted replacements below.</p>{/if}
                 <div class="action-grid">
                   {#each request.legal_actions as action, index (action.id)}
                     {@const preview = actionPreview(action)}
@@ -490,7 +519,7 @@
                 </div>
               </section>
             {/if}
-            <section class="column">
+            {#if !isHuman(side)}<section class="column">
               <div class="column-head">
                 <h3>Prompt</h3>
                 <span class="meta">{request.context_metrics?.rendered_characters ?? request.prompt.length} chars · ≈{request.context_metrics?.estimated_tokens ?? Math.ceil(request.prompt.length / 4)} tokens</span>
@@ -518,10 +547,10 @@
                   <button class:loading={submitting[side]} class="button" disabled={submitting[side]} on:click={() => submit(side)}>{submitting[side] ? 'Submitting…' : 'Submit'}</button>
                 </div>
               </footer>
-            </section>
+            </section>{/if}
           </div>
 
-          <details class="legal-actions">
+          {#if !isHuman(side)}<details class="legal-actions">
             <summary>Legal actions ({request.legal_actions.length}) · click to prefill a response</summary>
             <ul>
               {#each request.legal_actions as action}
@@ -534,7 +563,7 @@
                 </li>
               {/each}
             </ul>
-          </details>
+          </details>{/if}
         </article>
       {/if}
     {/each}
@@ -597,11 +626,15 @@
 <style>
   .live-head{display:flex;justify-content:space-between;align-items:flex-end;gap:1rem;margin-bottom:1.25rem}
   .live-head h1{margin:.25rem 0 0;font-size:var(--step-3)}
+  .battle-context{display:flex;align-items:center;gap:.6rem}
   .view-bar{display:flex;align-items:center;justify-content:space-between;gap:1.25rem;padding:1rem 1.25rem;box-shadow:none}
   .view-copy{display:grid;gap:.15rem}
   .view-copy strong{font-size:.95rem}
   .view-copy span{max-width:56ch;color:var(--muted);font-size:.78rem;line-height:1.5}
   .view-actions{display:flex;flex-wrap:wrap;gap:.5rem}
+  .human-wait{display:flex;align-items:center;gap:1rem;margin:1rem 0;padding:1rem;border-color:color-mix(in srgb,var(--accent) 42%,var(--border));box-shadow:none}
+  .human-wait>div{flex:1}.human-wait h2{margin:.2rem 0;font-size:1rem}.human-wait p{margin:.2rem 0;color:var(--muted);font-size:.72rem}
+  .wait-pulse{width:12px;aspect-ratio:1;border-radius:50%;background:var(--accent);box-shadow:0 0 0 6px color-mix(in srgb,var(--accent) 14%,transparent);animation:wait-pulse 1.6s ease-in-out infinite}@keyframes wait-pulse{50%{opacity:.4}}
   .preview{margin-top:1rem}
   .preview-tools{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:1rem;margin-top:.8rem;padding:1rem 1.1rem;border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--panel)}
   .tool-group{display:grid;align-content:start;gap:.5rem;min-width:0}
@@ -643,6 +676,7 @@
   /* Constrained readable columns: prompt and response never stretch to an ultra-wide monitor. */
   .manual-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem;max-width:1180px}
   .action-picker{grid-column:1/-1;display:grid;gap:.6rem;padding:.9rem;border:1px solid color-mix(in srgb,var(--accent) 38%,var(--border));border-radius:.75rem;background:color-mix(in srgb,var(--accent) 5%,var(--panel))}
+  .forced-note{display:flex;align-items:center;gap:.45rem;margin:0;padding:.6rem;border:1px solid color-mix(in srgb,var(--warning) 40%,var(--border));border-radius:.55rem;background:color-mix(in srgb,var(--warning) 7%,transparent);color:var(--warning);font-size:.7rem}
   .action-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:.55rem}
   .action-choice{position:relative;display:grid;gap:.14rem;min-height:112px;padding:.7rem 2.2rem .7rem .75rem;border:1px solid var(--border);border-left:3px solid var(--side-color);border-radius:.6rem;background:var(--panel-strong);color:var(--text);text-align:left;cursor:pointer;transition:border-color .16s ease,transform .16s ease,background .16s ease}
   .action-choice:hover:not(:disabled){border-color:var(--side-color);background:color-mix(in srgb,var(--side-color) 12%,var(--panel-strong));transform:translateY(-1px)}
@@ -735,6 +769,8 @@
     .column footer div{display:grid;grid-template-columns:1fr 1fr}
     .audit-stats{justify-content:space-between}
     .audit-actions{display:grid}
+    .human-wait{align-items:stretch;flex-direction:column}
     .decision>summary{grid-template-columns:1fr}
   }
+  @media(prefers-reduced-motion:reduce){.wait-pulse,.agent-tabs button.actionable:not(.active) em{animation:none}}
 </style>

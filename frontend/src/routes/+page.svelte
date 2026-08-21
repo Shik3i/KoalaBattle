@@ -8,9 +8,9 @@
 
 <section class="hero">
   <span class="eyebrow">Battle production, locally controlled</span>
-  <h1>Direct every match. See the whole tournament.</h1>
-  <p class="lede">Run isolated Gen 9 Random Battles concurrently, mix API, Manual Web Chat, and free local Random agents, then schedule persistent Single Elimination or Round Robin tournaments.</p>
-  <div class="actions"><a class="button" href="/admin"><i class="ph ph-squares-four" aria-hidden="true"></i>Open director</a><a class="button secondary" href="/tournaments/new"><i class="ph ph-trophy" aria-hidden="true"></i>Create tournament</a><a class="button secondary" href="/new"><i class="ph ph-sword" aria-hidden="true"></i>Create match</a></div>
+  <h1>Direct every match. Build a lasting campaign.</h1>
+  <p class="lede">Run isolated battles, durable tournaments, or a seeded Draft Challenge where every Gym stage is played and archived through the same Pokémon Showdown engine.</p>
+  <div class="actions"><a class="button" href="/challenges/new"><i class="ph ph-map-trifold" aria-hidden="true"></i>Start challenge</a><a class="button secondary" href="/tournaments/new"><i class="ph ph-trophy" aria-hidden="true"></i>Create tournament</a><a class="button secondary" href="/new"><i class="ph ph-sword" aria-hidden="true"></i>Create match</a></div>
 </section>
 <section class="principles">
   <article><span><i class="ph ph-cube" aria-hidden="true"></i>01</span><h2>Sessions isolated</h2><p>Every match owns its engine, agents, waiters, lifecycle, stream, and OBS URL.</p></article>

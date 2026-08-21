@@ -110,6 +110,40 @@ function dexNames() {
 }
 
 let cachedCatalog = null;
+let cachedSpecies = null;
+
+/** Draft metadata comes directly from the same pinned Dex that validates the final team. */
+function speciesCatalog() {
+  if (cachedSpecies) return cachedSpecies;
+  const species = Dex.species
+    .all()
+    .filter((entry) => entry.exists !== false && Number(entry.num) > 0)
+    .map((entry) => {
+      const base = Dex.species.get(entry.baseSpecies || entry.name);
+      return {
+        id: entry.id,
+        name: entry.name,
+        base_species_id: Dex.toID(entry.baseSpecies || entry.name),
+        national_dex_number: Number(entry.num),
+        introduction_generation: Number(entry.gen),
+        types: entry.types || [],
+        base_stat_total: Object.values(entry.baseStats || {}).reduce((total, value) => total + Number(value || 0), 0) || null,
+        battle_only: Boolean(entry.battleOnly),
+        cosmetic: Boolean(base.cosmeticFormes && base.cosmeticFormes.includes(entry.name)),
+        unavailable: Boolean(entry.isNonstandard && entry.isNonstandard !== 'Past'),
+        is_mega: String(entry.forme || '').toLowerCase().startsWith('mega'),
+        is_gmax: String(entry.forme || '').toLowerCase() === 'gmax'
+      };
+    })
+    .sort((left, right) => left.national_dex_number - right.national_dex_number || left.id.localeCompare(right.id));
+  cachedSpecies = {
+    schema_version: CATALOG_SCHEMA_VERSION,
+    showdown_version: process.env.KOALABATTLE_SHOWDOWN_VERSION || 'pinned-local-build',
+    species_count: species.length,
+    species
+  };
+  return cachedSpecies;
+}
 
 function catalog() {
   if (cachedCatalog) return cachedCatalog;
@@ -174,6 +208,10 @@ const server = http.createServer((request, response) => {
   }
   if (request.method === 'GET' && request.url === '/dex-names') {
     reply(response, 200, dexNames());
+    return;
+  }
+  if (request.method === 'GET' && request.url === '/dex-species') {
+    reply(response, 200, speciesCatalog());
     return;
   }
   if (request.method !== 'POST' || request.url !== '/validate') {

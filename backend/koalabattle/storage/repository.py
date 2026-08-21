@@ -70,6 +70,8 @@ class BattleRepository:
         poke_env_version: str | None,
         tournament_id: UUID | None = None,
         series_id: UUID | None = None,
+        challenge_run_id: UUID | None = None,
+        challenge_stage_id: str | None = None,
     ) -> MatchArchive:
         now = datetime.now(UTC)
         row = MatchRow(
@@ -89,6 +91,8 @@ class BattleRepository:
             config_json=_json(config),
             tournament_id=str(tournament_id) if tournament_id else None,
             series_id=str(series_id) if series_id else None,
+            challenge_run_id=str(challenge_run_id) if challenge_run_id else None,
+            challenge_stage_id=challenge_stage_id,
         )
         row.players = [
             PlayerRow(
@@ -431,6 +435,8 @@ class BattleRepository:
             tournament_id=UUID(row.tournament_id) if row.tournament_id else None,
             series_id=UUID(row.series_id) if row.series_id else None,
             queue_position=row.queue_position,
+            challenge_run_id=UUID(row.challenge_run_id) if row.challenge_run_id else None,
+            challenge_stage_id=row.challenge_stage_id,
             estimated_cost=estimated_cost,
         )
 
@@ -481,6 +487,8 @@ class BattleRepository:
             tournament_id=UUID(row.tournament_id) if row.tournament_id else None,
             series_id=UUID(row.series_id) if row.series_id else None,
             queue_position=row.queue_position,
+            challenge_run_id=UUID(row.challenge_run_id) if row.challenge_run_id else None,
+            challenge_stage_id=row.challenge_stage_id,
             events=events,
             decisions=decisions,
         )

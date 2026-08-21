@@ -25,6 +25,24 @@ from koalabattle.branding import (
     UnsupportedMedia,
     UploadBrandAsset,
 )
+from koalabattle.challenges import (
+    ChallengeRepository,
+    ChallengeRunSummary,
+    ChallengeRunView,
+    ChallengeService,
+)
+from koalabattle.challenges.models import (
+    CreateChallengeRun,
+    DraftPickInput,
+    DraftRerollInput,
+    FinalizeTeamInput,
+    PricingStatus,
+    RevisionInput,
+    TrainingInput,
+)
+from koalabattle.challenges.pricing import DraftPriceStore
+from koalabattle.challenges.service import redact_challenge_match
+from koalabattle.challenges.species import ShowdownSpeciesCatalog
 from koalabattle.config import Settings, get_settings
 from koalabattle.core.assets import (
     AssetResolution,
@@ -96,6 +114,7 @@ from koalabattle.video import (
 
 from .schemas import (
     CreateMatchRequest,
+    HumanDecisionInput,
     ManualDecisionInput,
     PromptRenderInput,
     ProviderConfigurationInput,
@@ -118,11 +137,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         repository = BattleRepository(database)
         tournaments = TournamentRepository(database)
         service = BattleService(repository, resolved, tournaments)
+        challenge_repository = ChallengeRepository(database)
+        challenges = ChallengeService(
+            challenge_repository,
+            DraftPriceStore(resolved.draft_prices_root),
+            ShowdownSpeciesCatalog(resolved.team_validator_url),
+            service,
+        )
+        service.set_challenge_terminal_hook(challenges.on_match_terminal)
         app.state.database = database
         app.state.repository = repository
         app.state.service = service
         app.state.tournaments = tournaments
         app.state.teams = service.teams
+        app.state.challenges = challenges
         app.state.assets = LocalAssetProvider(resolved.asset_root)
         app.state.branding = BrandingService(database, resolved.branding_root)
         production = ProductionService(database, repository, resolved)
@@ -136,6 +164,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.orchestrator = orchestrator
         try:
             await service.start()
+            await challenges.reconcile()
             await production.start()
             await video.start()
             yield
@@ -630,7 +659,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         archive = await _repository(request).get_match(match_id)
         if archive is None:
             raise HTTPException(status_code=404, detail="match not found")
-        return archive
+        return redact_challenge_match(archive)
 
     @app.get("/api/matches/{match_id}/presentation")
     async def get_presentation_match(match_id: UUID, request: Request) -> dict[str, object]:
@@ -696,6 +725,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=422, detail=str(error)) from error
         return {"status": "accepted"}
 
+    @app.post("/api/human-decisions/{request_id}", status_code=status.HTTP_202_ACCEPTED)
+    async def submit_human_decision(
+        request_id: UUID, payload: HumanDecisionInput, request: Request
+    ) -> dict[str, str]:
+        try:
+            await _service(request).submit_human_decision(request_id, payload.action)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="decision request not pending") from error
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        return {"status": "accepted"}
+
     @app.post("/api/decisions/{request_id}/validate")
     async def validate_decision(
         request_id: UUID, payload: ManualDecisionInput, request: Request
@@ -709,6 +750,152 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
         return {"status": "valid", "decision": decision.model_dump(mode="json")}
+
+    @app.get("/api/challenge-prices/status", response_model=PricingStatus)
+    async def challenge_pricing_status(request: Request) -> PricingStatus:
+        return await _challenges(request).pricing_status()
+
+    @app.get("/api/challenges", response_model=tuple[ChallengeRunSummary, ...])
+    async def list_challenges(
+        request: Request, limit: int = 100, offset: int = 0
+    ) -> tuple[ChallengeRunSummary, ...]:
+        return await _challenges(request).repository.list(
+            limit=min(max(limit, 1), 250), offset=max(offset, 0)
+        )
+
+    @app.post(
+        "/api/challenges",
+        response_model=ChallengeRunView,
+        status_code=status.HTTP_201_CREATED,
+    )
+    async def create_challenge(payload: CreateChallengeRun, request: Request) -> ChallengeRunView:
+        try:
+            return await _challenges(request).create(payload)
+        except (RuntimeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.get("/api/challenges/{run_id}", response_model=ChallengeRunView)
+    async def get_challenge(run_id: UUID, request: Request) -> ChallengeRunView:
+        try:
+            return await _challenges(request).get(run_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="challenge not found") from error
+
+    @app.post("/api/challenges/{run_id}/draft/pick", response_model=ChallengeRunView)
+    async def challenge_draft_pick(
+        run_id: UUID, payload: DraftPickInput, request: Request
+    ) -> ChallengeRunView:
+        try:
+            run = await _challenges(request).pick(
+                run_id,
+                payload.entry_id,
+                payload.offer_fingerprint,
+                payload.expected_revision,
+            )
+            return _challenges(request).view(run)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="challenge not found") from error
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+
+    @app.post("/api/challenges/{run_id}/draft/reroll", response_model=ChallengeRunView)
+    async def challenge_draft_reroll(
+        run_id: UUID, payload: DraftRerollInput, request: Request
+    ) -> ChallengeRunView:
+        try:
+            run = await _challenges(request).reroll(
+                run_id, payload.offer_fingerprint, payload.expected_revision
+            )
+            return _challenges(request).view(run)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="challenge not found") from error
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+
+    @app.post("/api/challenges/{run_id}/draft/agent", response_model=ChallengeRunView)
+    async def challenge_agent_draft(
+        run_id: UUID, payload: RevisionInput, request: Request
+    ) -> ChallengeRunView:
+        try:
+            run = await _challenges(request).agent_action(run_id, payload.expected_revision)
+            return _challenges(request).view(run)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="challenge not found") from error
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        except Exception as error:
+            detail = safe_error_detail(error)
+            LOGGER.warning("Challenge draft agent failed: %s", detail)
+            raise HTTPException(status_code=502, detail=detail) from error
+
+    @app.post("/api/challenges/{run_id}/draft/takeover", response_model=ChallengeRunView)
+    async def challenge_draft_takeover(
+        run_id: UUID, payload: RevisionInput, request: Request
+    ) -> ChallengeRunView:
+        try:
+            run = await _challenges(request).take_over_draft(
+                run_id, payload.expected_revision
+            )
+            return _challenges(request).view(run)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="challenge not found") from error
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+
+    @app.post("/api/challenges/{run_id}/training", response_model=ChallengeRunView)
+    async def challenge_training(
+        run_id: UUID, payload: TrainingInput, request: Request
+    ) -> ChallengeRunView:
+        try:
+            run = await _challenges(request).save_training(
+                run_id, payload.allocations, payload.expected_revision
+            )
+            return _challenges(request).view(run)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="challenge not found") from error
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+
+    @app.post("/api/challenges/{run_id}/team", response_model=ChallengeRunView)
+    async def challenge_finalize_team(
+        run_id: UUID, payload: FinalizeTeamInput, request: Request
+    ) -> ChallengeRunView:
+        try:
+            run = await _challenges(request).finalize_team(
+                run_id, payload.team_text, payload.expected_revision
+            )
+            return _challenges(request).view(run)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="challenge not found") from error
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.post("/api/challenges/{run_id}/launch")
+    async def challenge_launch(
+        run_id: UUID, payload: RevisionInput, request: Request
+    ) -> dict[str, object]:
+        try:
+            run, match = await _challenges(request).launch_stage(run_id, payload.expected_revision)
+            return {
+                "run": _challenges(request).view(run).model_dump(mode="json"),
+                "match": redact_challenge_match(match).model_dump(mode="json"),
+            }
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="challenge not found") from error
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.post("/api/challenges/{run_id}/cancel", response_model=ChallengeRunView)
+    async def challenge_cancel(
+        run_id: UUID, payload: RevisionInput, request: Request
+    ) -> ChallengeRunView:
+        try:
+            run = await _challenges(request).cancel(run_id, payload.expected_revision)
+            return _challenges(request).view(run)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="challenge not found") from error
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
 
     @app.get("/api/formats", response_model=FormatCatalog)
     async def list_formats(request: Request, supported_only: bool = False) -> FormatCatalog:
@@ -1160,6 +1347,10 @@ def _branding(request: Request) -> BrandingService:
 
 def _tournaments(request: Request) -> TournamentRepository:
     return cast(TournamentRepository, request.app.state.tournaments)
+
+
+def _challenges(request: Request) -> ChallengeService:
+    return cast(ChallengeService, request.app.state.challenges)
 
 
 def _teams(request: Request) -> TeamRepository:

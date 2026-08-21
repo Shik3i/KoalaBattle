@@ -136,7 +136,7 @@
 </script>
 
 <div class="replay-head">
-  <div><span class="eyebrow">Deterministic production replay</span><h1>{match ? `${match.config.players[0].display_name} vs ${match.config.players[1].display_name}` : 'Loading replay…'}</h1></div>
+  <div><span class="eyebrow">{match?.challenge_run_id ? `Challenge replay · ${match.challenge_stage_id || 'stage'}` : 'Deterministic production replay'}</span><h1>{match ? (match.config.name || `${match.config.players[0].display_name} vs ${match.config.players[1].display_name}`) : 'Loading replay…'}</h1>{#if match?.challenge_run_id}<a class="challenge-back" href={`/challenges/${match.challenge_run_id}`}><i class="ph ph-map-trifold" aria-hidden="true"></i>Back to Challenge progression</a>{/if}</div>
   {#if snapshot}<span>TURN {snapshot.currentTurn} · EVENT {snapshot.index}/{snapshot.eventCount}</span>{/if}
 </div>
 
@@ -210,6 +210,7 @@
 {#if error}<p class="error">{error}</p>{/if}
 
 <style>
+  .challenge-back{display:inline-flex;align-items:center;gap:.35rem;margin-top:.35rem;color:var(--accent);font-size:.72rem}
   .studio-entry{margin-top:1rem;padding:1rem;display:grid;gap:.9rem}
   .studio-entry-head{display:flex;justify-content:space-between;align-items:flex-end;gap:1rem;flex-wrap:wrap}
   .studio-entry h2{margin:0;font-size:1.1rem}

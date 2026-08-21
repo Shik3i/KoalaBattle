@@ -83,6 +83,8 @@ class _KoalaPlayer(Player):
             )
             return ForfeitBattleOrder()
         actions = legal_actions(battle)
+        if not self.context.config.allow_terastallization:
+            actions = tuple(action for action in actions if not action.terastallize)
         if not actions:
             return self.choose_default_move()
         self.decision_sequence += 1

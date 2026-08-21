@@ -55,6 +55,12 @@ accepts generic results; `BattleService` is the adapter that turns a ready serie
 more engine-specific matches. See [Orchestration](ORCHESTRATION.md) and
 [Tournaments](TOURNAMENTS.md).
 
+`backend/koalabattle/challenges` is another orchestration layer above normal matches. It owns
+versioned pricing, draft, training, campaign, and stage-progression snapshots, then derives two
+immutable validated team snapshots and creates a linked normal match. The battle engine does not
+know challenge rules. Terminal match results flow back through a narrow hook; presentation and
+replay remain unchanged. See [Draft Challenge](CHALLENGES.md).
+
 ## Event sourcing
 
 SQLite is the historical source. `battle_events(match_id, sequence)` has a uniqueness

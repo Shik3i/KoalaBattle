@@ -12,5 +12,6 @@ frontend/build
 data/*.db
 data/*.db-*
 data/assets
+data/draft-prices
 data/vendor
 .DS_Store

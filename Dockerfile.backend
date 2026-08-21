@@ -10,7 +10,8 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 COPY README.md LICENSE ./
 COPY backend ./backend
-RUN python -m pip install --no-cache-dir ./backend
+RUN python -m pip install --no-cache-dir pip==26.2 \
+    && python -m pip install --no-cache-dir --timeout 120 --retries 10 ./backend
 
 EXPOSE 8001
 CMD ["sh", "-c", "cd /app/backend && alembic upgrade head && uvicorn koalabattle.api.main:app --host 0.0.0.0 --port 8001"]

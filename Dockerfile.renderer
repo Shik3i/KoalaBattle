@@ -10,6 +10,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 COPY README.md LICENSE ./
 COPY backend ./backend
-RUN python -m pip install --no-cache-dir './backend[renderer]'
+RUN python -m pip install --no-cache-dir pip==26.2 \
+    && python -m pip install --no-cache-dir './backend[renderer]'
 
 CMD ["python", "-m", "koalabattle.video.worker"]

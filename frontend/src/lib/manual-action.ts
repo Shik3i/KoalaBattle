@@ -1,4 +1,4 @@
-import type { BattleAction } from './types.ts';
+import type { AgentRequest, BattleAction } from './types.ts';
 
 export interface ActionPreview {
   impact: string;
@@ -35,4 +35,9 @@ export function shortcutFor(index: number): string | null {
 
 export function actionIndexForKey(key: string): number | null {
   return /^[1-9]$/.test(key) ? Number(key) - 1 : null;
+}
+
+export function isForcedSwitch(request: Pick<AgentRequest, 'legal_actions'>): boolean {
+  return request.legal_actions.length > 0
+    && request.legal_actions.every((action) => action.type === 'switch');
 }

@@ -107,6 +107,11 @@ class ManualDecisionInput(BaseModel):
     raw_response: str = Field(min_length=2, max_length=10_000)
 
 
+class HumanDecisionInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    action: str = Field(pattern=r"^(move|switch):[1-9][0-9]*$", max_length=80)
+
+
 class RendererConfigInput(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
@@ -115,18 +120,14 @@ class RendererConfigInput(BaseModel):
     theme: Literal["pokemon-route", "pokemon-stadium", "koala-dark", "koala-light"]
     preset: Literal["live", "video", "fast", "instant"]
     playback_speed: float | Literal["instant"] = Field(alias="playbackSpeed")
-    commentary_mode: Literal["latest", "last-3", "full", "hidden"] = Field(
-        alias="commentaryMode"
-    )
+    commentary_mode: Literal["latest", "last-3", "full", "hidden"] = Field(alias="commentaryMode")
     show_battle_log: bool = Field(alias="showBattleLog")
     show_turn: bool = Field(alias="showTurn")
     show_agent_state: bool = Field(alias="showAgentState")
     transparent_background: bool = Field(alias="transparentBackground")
     animated_sprites: bool = Field(alias="animatedSprites")
     effects: Literal["off", "low", "standard", "high"]
-    move_effect_skin: Literal["broadcast", "retro", "procedural"] = Field(
-        alias="moveEffectSkin"
-    )
+    move_effect_skin: Literal["broadcast", "retro", "procedural"] = Field(alias="moveEffectSkin")
     reduced_motion: bool = Field(alias="reducedMotion")
     show_damage_numbers: bool = Field(alias="showDamageNumbers")
     near_side: Literal["p1", "p2"] = Field(alias="nearSide")

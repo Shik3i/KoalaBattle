@@ -18,12 +18,14 @@ surfaces must not escape `engines/showdown`.
 
 ## Test layers
 
-- unit: contracts, lifecycle, scheduling races, generic tournaments, validation, agents, assets
+- unit: contracts, lifecycle, scheduling races, generic tournaments, draft challenges,
+  validation, agents, assets
 - storage: SQLite migrations, ordering, audit, tournament persistence, reopen/recovery
 - integration: two concurrent real Gen 9 Random Battles, real Gen 1 and Gen 9 Random Battles,
   a validated imported-team Gen 1 OU battle, a live-vs-snapshot format catalog check, plus one
   validated fixed-team Gen 9 OU
-  battle with parse/pack/completion/persistence/replay
+  battle with parse/pack/completion/persistence/replay, and every Kanto Gym Gauntlet stage team
+  at its authored level
 - presentation: Node tests for reducer restoration and deterministic scheduler operations
 - frontend: `npm test`, Svelte diagnostics, production build, and rendered browser QA
 

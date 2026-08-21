@@ -17,6 +17,7 @@ restricted presentation data.
 
 ## Run battles and tournaments
 
+- [Draft Challenge and Kanto Gym Gauntlet](CHALLENGES.md)
 - [Battle formats, generation support, and capability rules](FORMATS.md)
 - [Match orchestration, isolation, queueing, and recovery](ORCHESTRATION.md)
 - [Tournament formats, series scheduling, and standings](TOURNAMENTS.md)

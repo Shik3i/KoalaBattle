@@ -48,6 +48,10 @@ class MatchRow(Base):
         String(36), ForeignKey("tournament_series.id", ondelete="SET NULL"), index=True
     )
     queue_position: Mapped[int | None] = mapped_column(Integer, index=True)
+    challenge_run_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("challenge_runs.id", ondelete="SET NULL"), index=True
+    )
+    challenge_stage_id: Mapped[str | None] = mapped_column(String(60), index=True)
 
     players: Mapped[list[PlayerRow]] = relationship(
         back_populates="match", cascade="all, delete-orphan", lazy="raise"
@@ -341,6 +345,26 @@ class TeamBuildAuditRow(Base):
     latency_ms: Mapped[int] = mapped_column(Integer, nullable=False)
     schema_version: Mapped[str] = mapped_column(String(20), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class ChallengeRunRow(Base):
+    __tablename__ = "challenge_runs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    definition_id: Mapped[str] = mapped_column(String(60), nullable=False, index=True)
+    definition_version: Mapped[str] = mapped_column(String(30), nullable=False)
+    name: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, index=True)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    current_stage_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    active_match_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("matches.id", ondelete="SET NULL"), index=True
+    )
+    state_json: Mapped[str] = mapped_column(Text, nullable=False)
+    schema_version: Mapped[str] = mapped_column(String(20), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class MatchTemplateRow(Base):

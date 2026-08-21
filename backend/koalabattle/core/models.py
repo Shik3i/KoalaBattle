@@ -34,6 +34,7 @@ class Side(StrEnum):
 class AgentType(StrEnum):
     RANDOM = "random"
     MANUAL = "manual"
+    HUMAN = "human"
     API = "api"
 
 
@@ -530,6 +531,7 @@ class MatchConfig(FrozenModel):
     context_profile: ContextProfileId = ContextProfileId.STANDARD
     memory_policy: MemoryPolicyId = MemoryPolicyId.STRATEGY_NOTE
     banter_enabled: bool = False
+    allow_terastallization: bool = True
     team_policy: TeamPolicy = TeamPolicy.SHOWDOWN_RANDOM
     limits: MatchLimits = Field(default_factory=MatchLimits)
 
@@ -610,6 +612,8 @@ class MatchArchive(FrozenModel):
     tournament_id: UUID | None = None
     series_id: UUID | None = None
     queue_position: int | None = None
+    challenge_run_id: UUID | None = None
+    challenge_stage_id: str | None = None
     events: tuple[BattleEvent, ...] = ()
     decisions: tuple[DecisionRecord, ...] = ()
 
@@ -627,4 +631,6 @@ class MatchSummary(FrozenModel):
     tournament_id: UUID | None = None
     series_id: UUID | None = None
     queue_position: int | None = None
+    challenge_run_id: UUID | None = None
+    challenge_stage_id: str | None = None
     estimated_cost: float = 0
