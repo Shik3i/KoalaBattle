@@ -16,12 +16,12 @@ function configuration() {
   };
 }
 
-async function createDraft(request: APIRequestContext) {
+async function createDraft(request: APIRequestContext, seed = 20260822) {
   const response = await request.post(`${apiBase}/api/challenges`, {
     data: {
       name: 'Playwright release regression',
       definition_id: 'kanto-gym-gauntlet',
-      seed: 20260822,
+      seed,
       draft_controller: { kind: 'human', provider: null, model: null, configuration: configuration() },
       battle_controller: { agent_type: 'tactical-auto', provider: null, model: null, configuration: configuration() },
       opponent_controller: { agent_type: 'tactical-auto', provider: null, model: null, configuration: configuration() },
@@ -62,6 +62,26 @@ test('Draft rarity, pick and reload recovery work in a real browser', async ({ p
   await expect(page.getByRole('heading', { name: '1 / 6' })).toBeVisible();
   await expect(page.getByRole('button', { name: /^Draft / })).toHaveCount(3);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
+});
+
+test('an unavailable reroll explains itself and the active-game shell stays compact', async ({ page, request }) => {
+  const consoleErrors: string[] = [];
+  page.on('console', (message) => {
+    if (message.type() === 'error') consoleErrors.push(message.text());
+  });
+  const created = await createDraft(request, 1787424372);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(`/challenges/${created.run.id}`);
+  await page.getByRole('button', { name: /^Draft Metagross/ }).click();
+
+  const reroll = page.getByRole('button', { name: /Reroll Pokémon/ });
+  await expect(reroll).toHaveAttribute('aria-disabled', 'true');
+  await expect(reroll).toHaveAttribute('title', /remaining pool cannot fill another offer/i);
+  await reroll.focus();
+  await expect(page.locator('.reroll-control').first()).toHaveAttribute('data-tooltip', /remaining pool cannot fill another offer/i);
+  expect(await page.locator('.app-header').evaluate((header) => Math.round(header.getBoundingClientRect().height))).toBe(56);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
+  expect(consoleErrors).toEqual([]);
 });
 
 test('Battle and Replay use the renderer while private audit stays collapsed', async ({ page, request }) => {

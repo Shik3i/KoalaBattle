@@ -56,7 +56,7 @@
   <div class="overlay-shell"><slot /></div>
 {:else}
   <a class="skip-link" href="#main-content">Skip to main content</a>
-  <header class="app-header">
+  <header class:focus-route={focusRoute} class="app-header">
     <a class="brand" href="/" aria-label="KoalaBattle home"><img src="/koalabattle-mark.svg" alt="" /><span>KoalaBattle</span></a>
     <!--
       Three primary destinations only: Home, Battle (matches, tournaments, replays) and

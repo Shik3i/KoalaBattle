@@ -18,6 +18,9 @@ const browserClock: TimelineClock = {
   clear: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>)
 };
 
+const INTRO_READABILITY_HOLD_MS = 2_000;
+const RESULT_READABILITY_HOLD_MS = 2_000;
+
 const EVENT_DURATIONS: Record<string, number> = {
   move_used: 520,
   move_missed: 420,
@@ -30,7 +33,7 @@ const EVENT_DURATIONS: Record<string, number> = {
   pokemon_fainted: 760,
   agent_decision: 340,
   agent_progress: 20,
-  turn_started: 240,
+  turn_started: 480,
   state_snapshot: 100,
   battle_finished: 900
 };
@@ -53,6 +56,8 @@ export class PresentationTimeline {
   private speed: PlaybackSpeed = 1;
   private preset: PresentationPreset = 'live';
   private timer: unknown = null;
+  private introHoldComplete = false;
+  private resultHoldComplete = false;
   private readonly listeners = new Set<(snapshot: TimelineSnapshot) => void>();
 
   constructor(
@@ -126,6 +131,8 @@ export class PresentationTimeline {
     this.playing = false;
     this.index = 0;
     this.state = createPresentationState(this.match);
+    this.introHoldComplete = false;
+    this.resultHoldComplete = false;
     this.emit();
   }
 
@@ -133,6 +140,8 @@ export class PresentationTimeline {
     this.clearTimer();
     this.index = Math.max(0, Math.min(Math.trunc(index), this.events.length));
     this.state = reduceEvents(createPresentationState(this.match), this.events, this.index);
+    this.introHoldComplete = this.index > 0;
+    this.resultHoldComplete = this.index >= this.events.length && this.state.finished;
     this.emit();
   }
 
@@ -199,7 +208,24 @@ export class PresentationTimeline {
 
   private schedule(): void {
     if (!this.playing || this.timer !== null) return;
+    if (this.index === 0 && this.events.length > 0 && !this.introHoldComplete) {
+      this.introHoldComplete = true;
+      this.timer = this.clock.set(() => {
+        this.timer = null;
+        this.schedule();
+      }, INTRO_READABILITY_HOLD_MS);
+      return;
+    }
     if (this.index >= this.events.length) {
+      if (this.state.finished && !this.resultHoldComplete) {
+        this.resultHoldComplete = true;
+        this.timer = this.clock.set(() => {
+          this.timer = null;
+          this.playing = false;
+          this.emit();
+        }, RESULT_READABILITY_HOLD_MS);
+        return;
+      }
       if (!this.follow) {
         this.playing = false;
         this.emit();

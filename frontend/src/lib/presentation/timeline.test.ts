@@ -46,10 +46,12 @@ test('scheduler orders events deterministically and ignores historical wall-cloc
   const clock = new FakeClock();
   const timeline = new PresentationTimeline(match, events, clock);
   timeline.play();
-  assert.equal(clock.tasks[0].delay, 240);
+  assert.equal(clock.tasks[0].delay, 2000);
+  clock.runNext();
+  assert.equal(clock.tasks[1].delay, 480);
   clock.runNext();
   assert.equal(timeline.snapshot().index, 1);
-  assert.equal(clock.tasks[1].delay, 520);
+  assert.equal(clock.tasks[2].delay, 520);
   timeline.setSpeed(2);
   assert.equal(clock.tasks.at(-1)?.delay, 260);
 });
@@ -87,6 +89,8 @@ test('follow mode accepts ordered live events without duplicate sequences', () =
   timeline.append(events[0]);
   assert.equal(timeline.snapshot().eventCount, 2);
   clock.runNext();
+  assert.equal(timeline.snapshot().state.eventSequence, 0);
+  clock.runNext();
   assert.equal(timeline.snapshot().state.eventSequence, 1);
 });
 
@@ -97,5 +101,33 @@ test('follow mode accelerates when a fast match creates a large backlog', () => 
   }));
   const timeline = new PresentationTimeline(match, backlog, clock, true);
   timeline.play();
-  assert.equal(clock.tasks[0].delay, 33);
+  assert.equal(clock.tasks[0].delay, 2000);
+  clock.runNext();
+  assert.equal(clock.tasks[1].delay, 33);
+});
+
+test('intro and completed result cards each receive an unscaled two-second reading hold', () => {
+  const clock = new FakeClock();
+  const finished = {
+    id: 5,
+    match_id: 'match-1',
+    sequence: 1,
+    turn: 1,
+    event_type: 'battle_finished',
+    logical_offset_ms: 1,
+    payload: { winner: 'p1', winner_name: 'Alpha' }
+  } satisfies BattleEvent;
+  const timeline = new PresentationTimeline(match, [finished], clock, true);
+  timeline.setSpeed(4);
+  timeline.play();
+
+  assert.equal(clock.tasks[0].delay, 2000);
+  clock.runNext();
+  assert.equal(clock.tasks[1].delay, 225);
+  clock.runNext();
+  assert.equal(timeline.snapshot().state.finished, true);
+  assert.equal(timeline.snapshot().playing, true);
+  assert.equal(clock.tasks[2].delay, 2000);
+  clock.runNext();
+  assert.equal(timeline.snapshot().playing, false);
 });

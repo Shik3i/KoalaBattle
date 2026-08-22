@@ -289,7 +289,7 @@
     if (!fastDraftWatch || !match?.challenge_run_id) return;
     const challengeRunId = match.challenge_run_id;
     const waitForPresentation = () => {
-      if (snapshot && snapshot.index >= snapshot.eventCount && snapshot.state.finished) {
+      if (snapshot && snapshot.index >= snapshot.eventCount && snapshot.state.finished && !snapshot.playing) {
         void goto(`/challenges/${challengeRunId}#latest-result`);
         return;
       }
