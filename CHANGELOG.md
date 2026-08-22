@@ -95,7 +95,21 @@
   scrolling on a laptop viewport, battle-view/OBS actions moved into a compact Tools menu,
   presentation controls collapsed, campaign progress reduced to a compact rail, and the
   Generation/Type roll redesigned as a real inline slot reel with masked edges, staggered
-  deceleration, and a lock flash.
+  deceleration, and a lock flash;
+- replaced the incomplete Draft recommendation allowlist with real data from the pinned Showdown
+  build: validated Battle Factory sets are preferred, then generation-specific Random Battle sets,
+  then deterministic sets assembled from the format Dex's legal learnsets, abilities, required
+  items, natures, IVs, and EVs and accepted by the current-format validator. The current pinned
+  `gen9natdexdraft` catalog now has a legal set for all 1,216 draftable entries out of 1,417 catalog
+  forms; only Ditto, Unown, Cosmog, and Cosmoem legitimately have fewer than four moves;
+- preserved Showdown's species-level `maxHP` override in Draft metadata and stage preparation, so
+  Shedinja (Ninjatom) has exactly one HP at every campaign level instead of passing through the
+  ordinary HP formula; and
+- completed a gameplay/performance/UX hardening pass: duplicate same-revision AI draft requests
+  share one provider call, stale route/WebSocket responses cannot overwrite a newer Draft run or
+  battle, completed legacy runs no longer require newly generated team scaffolds, challenge views
+  return only visible candidates, replay completion waits for the authoritative timeline, and
+  narrow Draft/battle controls expose 44 px touch targets without horizontal overflow.
 
 ## 0.11.0 - 2026-08-20
 

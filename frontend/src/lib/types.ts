@@ -412,8 +412,26 @@ export interface DraftCandidate {
   types: string[];
   base_stat_total: number | null;
   base_stats: PokemonBaseStats | null;
+  /** Showdown's species-level HP override; Shedinja is always exactly 1 HP. */
+  max_hp: number | null;
   abilities: PokemonAbility[];
   recommended_moves: string[];
+  required_item: string | null;
+  showdown_set: ShowdownCompetitiveSet | null;
+}
+
+export interface ShowdownCompetitiveSet {
+  source: 'showdown-battle-factory' | 'showdown-random-battle' | 'showdown-dex-validated';
+  source_generation: number;
+  source_tier: string;
+  species: string;
+  item: string;
+  ability: string;
+  nature: string;
+  moves: string[];
+  evs: EvSpread;
+  ivs: EvSpread;
+  tera_type: string | null;
 }
 
 export interface PokemonAbility {

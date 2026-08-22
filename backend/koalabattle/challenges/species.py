@@ -9,7 +9,7 @@ from urllib.request import Request, urlopen
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, model_validator
 
-from .models import PokemonAbility, PokemonBaseStats
+from .models import PokemonAbility, PokemonBaseStats, ShowdownCompetitiveSet
 
 
 def showdown_id(value: str) -> str:
@@ -27,8 +27,10 @@ class SpeciesMetadata(BaseModel):
     types: tuple[str, ...] = Field(min_length=1, max_length=2)
     base_stat_total: int | None = Field(default=None, ge=1, le=2000)
     base_stats: PokemonBaseStats | None = None
+    max_hp: int | None = Field(default=None, ge=1, le=999)
     abilities: tuple[PokemonAbility, ...] = ()
     recommended_moves: tuple[str, ...] = Field(default=(), max_length=4)
+    showdown_set: ShowdownCompetitiveSet | None = None
     required_item: str | None = Field(default=None, min_length=1, max_length=120)
     battle_only: bool = False
     cosmetic: bool = False

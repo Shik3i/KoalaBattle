@@ -38,6 +38,11 @@ def _without_retired_fields(payload: Any) -> Any:
     cleaned: dict[str, Any] = dict(payload)
     for field in RETIRED_RUN_FIELDS:
         cleaned.pop(field, None)
+    # A pre-fix automatic-progression failure could persist Showdown's complete
+    # multi-Pokemon validation response beyond the public model's 1000-char bound.
+    # Keep the saved audit readable without allowing one bad row to block startup.
+    if isinstance(cleaned.get("error"), str):
+        cleaned["error"] = cleaned["error"][:1000]
     return cleaned
 
 

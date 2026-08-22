@@ -112,9 +112,7 @@ def derive_battle_summary(archive: MatchArchive) -> ChallengeBattleSummary:
     )
 
 
-def _resolve_draft_action(
-    raw: str, legal: list[str], offer: DraftOffer
-) -> str | None:
+def _resolve_draft_action(raw: str, legal: list[str], offer: DraftOffer) -> str | None:
     """Map a model's answer onto one exact legal action.
 
     Only `json_schema` providers get the enum enforced; DeepSeek documents `json_object`,
@@ -188,6 +186,8 @@ def _ev_line(spread: EvSpread) -> str | None:
 
 def _recommended_ev_spread(candidate: DraftCandidate) -> EvSpread:
     """Return the same deterministic first-choice preset shown by Training Camp."""
+    if candidate.showdown_set is not None:
+        return candidate.showdown_set.evs
     stats = candidate.base_stats
     if stats is None:
         return EvSpread(atk=252, spd=4, spe=252)
@@ -212,6 +212,8 @@ def _recommended_role(candidate: DraftCandidate) -> tuple[str, str]:
     drafted species, abilities, and EVs are untouched; both remain editable in
     Advanced team setup before the roster is locked.
     """
+    if candidate.showdown_set is not None:
+        return candidate.showdown_set.nature, candidate.showdown_set.item
     stats = candidate.base_stats
     if stats is None:
         return "Adamant", "Life Orb"
@@ -231,8 +233,16 @@ def _team_scaffold(run: ChallengeRun) -> str | None:
         return None
     blocks: list[str] = []
     for pick in run.picks:
-        nature, item = _recommended_role(pick.candidate)
-        heading = f"{pick.candidate.species} @ {pick.candidate.required_item or item}"
+        competitive_set = pick.candidate.showdown_set
+        if competitive_set is None:
+            raise ValueError(f"{pick.candidate.species} has no pinned Showdown competitive set")
+        nature, item = competitive_set.nature, competitive_set.item
+        selected_item = pick.candidate.required_item or item
+        heading = (
+            f"{pick.candidate.species} @ {selected_item}"
+            if selected_item
+            else pick.candidate.species
+        )
         lines = [heading]
         ev_line = _ev_line(run.ev_allocations.get(pick.candidate.entry_id, EvSpread()))
         if ev_line:
@@ -242,7 +252,21 @@ def _team_scaffold(run: ChallengeRun) -> str | None:
         ability = next((item for item in pick.candidate.abilities if item.id == selected), None)
         if ability is not None:
             lines.append(f"Ability: {ability.name}")
-        lines.extend(f"- {move}" for move in (pick.candidate.recommended_moves or ("Tackle",)))
+        ivs = competitive_set.ivs
+        non_default_ivs = (
+            ("HP", ivs.hp),
+            ("Atk", ivs.atk),
+            ("Def", ivs.defense),
+            ("SpA", ivs.spa),
+            ("SpD", ivs.spd),
+            ("Spe", ivs.spe),
+        )
+        changed_ivs = [f"{value} {name}" for name, value in non_default_ivs if value != 31]
+        if changed_ivs:
+            lines.append(f"IVs: {' / '.join(changed_ivs)}")
+        if competitive_set.tera_type:
+            lines.append(f"Tera Type: {competitive_set.tera_type}")
+        lines.extend(f"- {move}" for move in competitive_set.moves)
         blocks.append("\n".join(lines))
     return "\n\n".join(blocks)
 
@@ -344,6 +368,8 @@ def _with_level(team_export: str, level: int) -> str:
         if ev_index is None:
             lines.insert(2, "EVs: 1 HP")
         elif level < 100:
+            # Showdown requires an intentional-level marker below the format maximum.
+            # One otherwise unused EV is its canonical marker and cannot change a stat.
             parts = lines[ev_index].removeprefix("EVs:").strip().split(" / ")
             parsed = [re.fullmatch(r"(\d+) (HP|Atk|Def|SpA|SpD|Spe)", part) for part in parts]
             if all(match is not None for match in parsed) and all(
@@ -384,7 +410,7 @@ def _with_unique_duplicate_nicknames(team_export: str) -> str:
             continue
         seen[name] = seen.get(name, 0) + 1
         lines = block.splitlines()
-        lines[0] = f"{name} {seen[name]} ({name}){first_line[len(name):]}"
+        lines[0] = f"{name} {seen[name]} ({name}){first_line[len(name) :]}"
         normalized.append("\n".join(lines))
     return "\n\n".join(normalized)
 
@@ -416,6 +442,7 @@ class ChallengeService:
         self.species = species
         self.battles = battles
         self._auto_tasks: dict[UUID, asyncio.Task[None]] = {}
+        self._agent_tasks: dict[tuple[UUID, int], asyncio.Task[ChallengeRun]] = {}
 
     @staticmethod
     def auto_run_available(run: ChallengeRun) -> bool:
@@ -459,12 +486,13 @@ class ChallengeService:
             async with self.repository.lock(run_id):
                 current = await self.require(run_id)
                 if current.active_match_id is None and not current.auto_run_paused:
+                    message = f"Automatic progression paused: {error}"
                     await self.repository.save(
                         current.model_copy(
                             update={
                                 "auto_run_paused": True,
                                 "auto_advance_at": None,
-                                "error": f"Automatic progression paused: {error}",
+                                "error": message[:1000],
                             }
                         ),
                         expected_revision=current.revision,
@@ -501,6 +529,15 @@ class ChallengeService:
                     }
                 )
                 continue
+            if species.showdown_set is None:
+                excluded.append(
+                    {
+                        "species": species.name,
+                        "state": "unavailable",
+                        "reason": "pinned Showdown exposes no validator-legal set",
+                    }
+                )
+                continue
             candidates.append(
                 DraftCandidate(
                     entry_id=species.id,
@@ -512,9 +549,11 @@ class ChallengeService:
                     types=species.types,
                     base_stat_total=species.base_stat_total,
                     base_stats=species.base_stats,
+                    max_hp=species.max_hp,
                     abilities=species.abilities,
                     recommended_moves=species.recommended_moves,
                     required_item=species.required_item,
+                    showdown_set=species.showdown_set,
                 )
             )
         return tuple(sorted(candidates, key=lambda item: item.entry_id)), excluded
@@ -742,7 +781,16 @@ class ChallengeService:
             stages=stages,
             current_stage=current,
             latest_battle_summary=latest_battle_summary,
-            team_export_scaffold=_team_scaffold(run),
+            team_export_scaffold=(
+                _team_scaffold(run)
+                if run.status
+                in {
+                    ChallengeStatus.PREPARING,
+                    ChallengeStatus.TRAINING,
+                    ChallengeStatus.TEAM_REVIEW,
+                }
+                else None
+            ),
             can_reroll=(
                 run.status is ChallengeStatus.DRAFTING
                 and run.current_offer is not None
@@ -841,7 +889,20 @@ class ChallengeService:
             ev_allocations = dict(run.ev_allocations)
             if complete:
                 for pick in picks:
-                    ability_selections[pick.candidate.entry_id] = (
+                    set_ability = (
+                        showdown_id(pick.candidate.showdown_set.ability)
+                        if pick.candidate.showdown_set
+                        else None
+                    )
+                    legal_set_ability = next(
+                        (
+                            ability.id
+                            for ability in pick.candidate.abilities
+                            if ability.id == set_ability
+                        ),
+                        None,
+                    )
+                    ability_selections[pick.candidate.entry_id] = legal_set_ability or (
                         pick.candidate.abilities[0].id
                         if run.draft_pool.abilities_supported and pick.candidate.abilities
                         else None
@@ -976,9 +1037,7 @@ class ChallengeService:
                     "generation_rerolls_remaining": run.generation_rerolls_remaining - 1
                 },
             }[kind]
-            history_outcome: Literal[
-                "pokemon_rerolled", "type_rerolled", "generation_rerolled"
-            ]
+            history_outcome: Literal["pokemon_rerolled", "type_rerolled", "generation_rerolled"]
             if kind == "pokemon":
                 history_outcome = "pokemon_rerolled"
             elif kind == "type":
@@ -1024,6 +1083,26 @@ class ChallengeService:
             return await self.repository.save(updated, expected_revision=run.revision)
 
     async def agent_action(self, run_id: UUID, expected_revision: int) -> ChallengeRun:
+        key = (run_id, expected_revision)
+        task = self._agent_tasks.get(key)
+        if task is None:
+            task = asyncio.create_task(
+                self._agent_action_once(run_id, expected_revision),
+                name=f"challenge-agent-draft-{run_id}-{expected_revision}",
+            )
+            self._agent_tasks[key] = task
+
+            def forget(completed: asyncio.Task[ChallengeRun]) -> None:
+                if not completed.cancelled():
+                    completed.exception()
+                if self._agent_tasks.get(key) is completed:
+                    self._agent_tasks.pop(key, None)
+
+            task.add_done_callback(forget)
+        # A disconnected duplicate HTTP caller must not cancel the one shared provider charge.
+        return await asyncio.shield(task)
+
+    async def _agent_action_once(self, run_id: UUID, expected_revision: int) -> ChallengeRun:
         run = await self.require(run_id)
         if run.revision != expected_revision:
             raise ValueError(f"stale challenge revision: current {run.revision}")
@@ -1384,9 +1463,7 @@ class ChallengeService:
                     _with_level(available, player_level), run.definition.format
                 )
             opponent_validation = await self.battles.team_validator.validate(
-                _with_unique_duplicate_nicknames(
-                    _with_level(stage.opponent_team, stage.level)
-                ),
+                _with_unique_duplicate_nicknames(_with_level(stage.opponent_team, stage.level)),
                 run.definition.format,
             )
             if not player_validation.valid:

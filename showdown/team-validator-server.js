@@ -112,88 +112,217 @@ function dexNames() {
 let cachedCatalog = null;
 const cachedSpecies = new Map();
 
-function recommendedMoves(formatDex, validator, entry, abilityName, requiredItem) {
-  const unreliable = new Set([
-    'belch', 'bide', 'counter', 'dreameater', 'electroball', 'endeavor', 'eruption',
-    'flail', 'focuspunch', 'frustration', 'grassknot', 'gyroball', 'heavyslam',
-    'lastresort', 'lowkick', 'mirrorcoat', 'poltergeist', 'present', 'return',
-    'reversal', 'storedpower', 'trumpcard', 'waterspout'
-  ]);
-  const moveSources = new Map();
-  for (const { learnset } of formatDex.species.getFullLearnset(entry.id)) {
-    for (const [moveId, sources] of Object.entries(learnset || {})) {
-      const existing = moveSources.get(moveId) || [];
-      moveSources.set(moveId, existing.concat(sources || []));
+const FACTORY_SET_GENERATIONS = [9, 8, 7, 6];
+const RANDOM_SET_GENERATIONS = [9, 8, 7, 6, 5, 4, 3, 2];
+
+function first(value, fallback = '') {
+  return Array.isArray(value) ? (value[0] ?? fallback) : (value ?? fallback);
+}
+
+function factorySetSources() {
+  return FACTORY_SET_GENERATIONS.flatMap((generation) => {
+    try {
+      return [{
+        generation,
+        tiers: require(`./dist/data/random-battles/gen${generation}/factory-sets.json`)
+      }];
+    } catch {
+      return [];
+    }
+  });
+}
+
+const FACTORY_SET_SOURCES = factorySetSources();
+
+function randomSetSources() {
+  return RANDOM_SET_GENERATIONS.flatMap((generation) => {
+    try {
+      const teams = require(`./dist/data/random-battles/gen${generation}/teams`);
+      return [{
+        generation,
+        Generator: teams.default,
+        sets: require(`./dist/data/random-battles/gen${generation}/sets.json`)
+      }];
+    } catch {
+      return [];
+    }
+  });
+}
+
+const RANDOM_SET_SOURCES = randomSetSources();
+
+function stableSeed(value, attempt = 0) {
+  let hash = (2166136261 ^ attempt) >>> 0;
+  for (const character of value) {
+    hash ^= character.codePointAt(0);
+    hash = Math.imul(hash, 16777619) >>> 0;
+  }
+  return [hash, (hash ^ 0x9e3779b9) >>> 0, Math.imul(hash || 1, 2654435761) >>> 0, (hash + attempt + 1) >>> 0];
+}
+
+function normalizedSet(entry, raw, level = 100) {
+  const evs = { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0, ...(raw.evs || {}) };
+  // Showdown's validator requires the canonical one-EV marker for an intentional zero spread.
+  if (!Object.values(evs).some(Number)) evs.hp = 1;
+  return {
+    name: entry.baseSpecies || entry.name,
+    species: raw.species || entry.name,
+    item: first(raw.item),
+    ability: first(raw.ability),
+    nature: first(raw.nature, 'Serious'),
+    moves: (raw.moves || []).map((move) => first(move)).filter(Boolean),
+    evs,
+    ivs: { hp: 31, atk: 31, def: 31, spa: 31, spd: 31, spe: 31, ...(raw.ivs || {}) },
+    level,
+    teraType: first(raw.teraType) || undefined
+  };
+}
+
+function exportedSet(source, generation, tier, set) {
+  return {
+    source,
+    source_generation: generation,
+    source_tier: tier,
+    species: set.species,
+    item: set.item,
+    ability: set.ability,
+    nature: set.nature,
+    moves: set.moves,
+    evs: set.evs,
+    ivs: set.ivs,
+    tera_type: set.teraType || null
+  };
+}
+
+function alternatives(value, fallback = '') {
+  const values = Array.isArray(value) ? value : [value ?? fallback];
+  return values.length ? values : [fallback];
+}
+
+function factoryAlternatives(raw) {
+  const fields = [
+    alternatives(raw.item),
+    alternatives(raw.ability),
+    alternatives(raw.nature, 'Serious'),
+    ...(raw.moves || []).map((move) => alternatives(move)),
+    alternatives(raw.teraType, '')
+  ];
+  let combinations = [[]];
+  for (const values of fields) {
+    combinations = combinations.flatMap((combination) => values.map((value) => combination.concat(value)));
+    if (combinations.length > 512) combinations = combinations.slice(0, 512);
+  }
+  return combinations.map((combination) => ({
+    ...raw,
+    item: combination[0],
+    ability: combination[1],
+    nature: combination[2],
+    moves: combination.slice(3, 3 + (raw.moves || []).length),
+    teraType: combination[3 + (raw.moves || []).length]
+  }));
+}
+
+/**
+ * Resolve one complete competitive set from Showdown's own pinned Battle Factory data.
+ * Older generations are considered only when the current data has no set for that species;
+ * the final set is still checked by the requested format's current TeamValidator.
+ */
+function showdownFactorySet(format, entry, validator) {
+  for (const source of FACTORY_SET_SOURCES) {
+    for (const [tier, entries] of Object.entries(source.tiers)) {
+      const record = entries[entry.id];
+      if (!record || !Array.isArray(record.sets)) continue;
+      for (const raw of record.sets) {
+        for (const alternative of factoryAlternatives(raw)) {
+          const set = normalizedSet(entry, alternative);
+          if (set.moves.length !== 4) continue;
+          if ((validator.validateTeam([set]) || []).length) continue;
+          return exportedSet('showdown-battle-factory', source.generation, tier, set);
+        }
+      }
     }
   }
-  const stats = entry.baseStats || {};
-  const prefersPhysical = Number(stats.atk || 0) >= Number(stats.spa || 0);
-  const preferredCategory = prefersPhysical ? 'Physical' : 'Special';
-  const accuracyOf = (move) => Number(move.accuracy === true ? 100 : move.accuracy || 0) / 100;
-  // A usable set needs the right attacking category and distinct coverage types, not the
-  // four highest-power STAB moves the Pokemon happens to learn.
+  return null;
+}
+
+/** Generate a deterministic set with Showdown's own generation-specific RandomTeams code. */
+function showdownRandomSet(format, entry, validator) {
+  for (const source of RANDOM_SET_SOURCES) {
+    if (!source.sets[entry.id]) continue;
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      try {
+        const generator = new source.Generator(
+          `gen${source.generation}randombattle`,
+          stableSeed(`${source.generation}:${entry.id}`, attempt)
+        );
+        const raw = generator.randomSet(entry.id, {}, false, false);
+        const set = normalizedSet(entry, raw);
+        if (!set.moves.length || set.moves.length > 4) continue;
+        if ((validator.validateTeam([set]) || []).length) continue;
+        return exportedSet(
+          'showdown-random-battle',
+          source.generation,
+          raw.role || 'Random Battle',
+          set
+        );
+      } catch {
+        // Continue with the next deterministic attempt or pinned generation.
+      }
+    }
+  }
+  return null;
+}
+
+function learnableMoves(formatDex, entry) {
+  const moveIds = new Set();
+  for (const { learnset } of formatDex.species.getFullLearnset(entry.id)) {
+    for (const moveId of Object.keys(learnset || {})) moveIds.add(moveId);
+  }
+  const preferredCategory = Number(entry.baseStats.atk || 0) >= Number(entry.baseStats.spa || 0)
+    ? 'Physical'
+    : 'Special';
   const score = (move) => {
-    const stab = entry.types.includes(move.type) ? 1.5 : 1;
-    const fit = move.category === preferredCategory ? 1 : 0.4;
-    const recharge = move.self && move.self.volatileStatus === 'mustrecharge';
-    const charge = Boolean(move.flags && move.flags.charge);
-    const penalty = move.selfdestruct ? 0.25
-      : recharge || charge ? 0.5
-      : move.hasCrashDamage ? 0.75
-      : move.recoil ? 0.85
-      : 1;
-    return Number(move.basePower || 0) * accuracyOf(move) * stab * fit * penalty;
+    const stab = entry.types.includes(move.type) ? 1000 : 0;
+    const category = move.category === preferredCategory ? 400 : move.category === 'Status' ? 0 : 100;
+    const accuracy = move.accuracy === true ? 100 : Number(move.accuracy || 0);
+    return stab + category + Number(move.basePower || 0) * accuracy / 100;
   };
-  const usable = [...moveSources.entries()]
-    .filter(([, sources]) => sources.some((source) => {
-      if (source.charAt(1) === 'S') return false;
-      if (source.charAt(1) !== 'L') return true;
-      return Number.parseInt(source.slice(2), 10) <= 50;
-    }))
-    .map(([moveId]) => formatDex.moves.get(moveId))
-    .filter((move) => move && move.exists !== false &&
-      (!move.isNonstandard || move.isNonstandard === 'Past') && !unreliable.has(move.id));
-  const attacking = usable
-    .filter((move) => move.category !== 'Status' && Number(move.basePower) > 0)
+  return [...moveIds]
+    .map((moveId) => formatDex.moves.get(moveId))
+    .filter((move) => move && move.exists !== false && (!move.isNonstandard || move.isNonstandard === 'Past'))
     .sort((left, right) => score(right) - score(left) || left.name.localeCompare(right.name));
-  // Some Pokemon (Cosmoem, Ditto, unevolved oddities) simply have no legal attacking move.
-  // Returning nothing there strands the whole draft, because the team scaffold then falls
-  // back to a move the species cannot learn and automatic preparation fails.
-  const candidates = attacking.length
-    ? attacking
-    : usable.sort((left, right) => left.name.localeCompare(right.name));
+}
 
-  // Campaign stages normalize teams down to level 35 on the hardest difficulty, so a
-  // move is only "recommended" when it is still legal there. Otherwise event-exclusive
-  // moves silently break the derived low-level stage team.
-  const legal = (move) => {
-    const heading = entry.name + (requiredItem ? ` @ ${requiredItem}` : '');
-    const team = [
-      heading,
-      'Level: 35',
-      ...(abilityName ? [`Ability: ${abilityName}`] : []),
-      'EVs: 1 HP',
-      `- ${move.name}`
-    ].join('\n');
-    return !(validator.validateTeam(Teams.import(team)) || []).length;
-  };
-
-  const selected = [];
-  const usedTypes = new Set();
-  // Pass one: at most one move per attacking type, so the set always has real coverage.
-  for (const move of candidates) {
-    if (selected.length === 4) break;
-    if (usedTypes.has(move.type) || !legal(move)) continue;
-    usedTypes.add(move.type);
-    selected.push(move.name);
+/** Fill legal species absent from curated datasets using only pinned Dex and validator data. */
+function showdownDexSet(formatDex, entry, validator, requiredItem) {
+  const abilities = entry.requiredAbility
+    ? [entry.requiredAbility]
+    : [...new Set(['0', '1', 'H', 'S'].map((slot) => entry.abilities && entry.abilities[slot]).filter(Boolean))];
+  for (const ability of abilities) {
+    const set = normalizedSet(entry, {
+      species: entry.name,
+      item: requiredItem || '',
+      ability,
+      nature: 'Serious',
+      moves: [],
+      evs: { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 },
+      ivs: { hp: 31, atk: 31, def: 31, spa: 31, spd: 31, spe: 31 }
+    });
+    if (entry.requiredMove) {
+      const requiredMove = formatDex.moves.get(entry.requiredMove);
+      if (requiredMove && requiredMove.exists !== false) set.moves.push(requiredMove.name);
+    }
+    for (const move of learnableMoves(formatDex, entry)) {
+      if (set.moves.length === 4) break;
+      if (set.moves.some((name) => Dex.toID(name) === move.id)) continue;
+      const proposed = {...set, moves: set.moves.concat(move.name)};
+      if (!(validator.validateTeam([proposed]) || []).length) set.moves.push(move.name);
+    }
+    if (set.moves.length && !(validator.validateTeam([set]) || []).length) {
+      return exportedSet('showdown-dex-validated', formatDex.gen, 'Format legal', set);
+    }
   }
-  // Pass two: only if the Pokemon simply cannot learn four distinct attacking types.
-  for (const move of candidates.concat(usable)) {
-    if (selected.length === 4) break;
-    if (selected.includes(move.name) || !legal(move)) continue;
-    selected.push(move.name);
-  }
-  return selected;
+  return null;
 }
 
 /** Draft metadata comes directly from the same pinned Dex that validates the final team. */
@@ -220,6 +349,9 @@ function speciesCatalog(formatId) {
           })
         : [];
       const requiredItem = entry.requiredItem || (entry.requiredItems && entry.requiredItems[0]) || null;
+      const competitiveSet = showdownFactorySet(format, entry, validator) ||
+        showdownRandomSet(format, entry, validator) ||
+        showdownDexSet(formatDex, entry, validator, requiredItem);
       return {
         id: entry.id,
         name: entry.name,
@@ -236,12 +368,14 @@ function speciesCatalog(formatId) {
           spd: Number(entry.baseStats.spd),
           spe: Number(entry.baseStats.spe)
         } : null,
+        max_hp: entry.maxHP == null ? null : Number(entry.maxHP),
         abilities,
-        recommended_moves: recommendedMoves(formatDex, validator, entry, abilities[0] && abilities[0].name, requiredItem),
+        recommended_moves: competitiveSet ? competitiveSet.moves : [],
+        showdown_set: competitiveSet,
         required_item: requiredItem,
         battle_only: Boolean(entry.battleOnly),
         cosmetic: Boolean(base.cosmeticFormes && base.cosmeticFormes.includes(entry.name)),
-        unavailable: Boolean(entry.isNonstandard && entry.isNonstandard !== 'Past'),
+        unavailable: Boolean(entry.isNonstandard && entry.isNonstandard !== 'Past') || !competitiveSet,
         is_mega: String(entry.forme || '').toLowerCase().startsWith('mega'),
         is_gmax: String(entry.forme || '').toLowerCase() === 'gmax'
       };

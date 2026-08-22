@@ -322,7 +322,18 @@ export function reducePresentation(
       break;
   }
 
-  const entry = spectatorEntry(event, battle, effectValue);
+  if (finished) {
+    // A completed timeline has no action still executing. This also retires the
+    // last HP flash when an instant seek consumes the final turn in one frame.
+    players = finishPlayers(resolveCommentary(players));
+    currentMove = null;
+    currentMoveProfile = null;
+    currentMoveSide = null;
+    currentMovePhase = 'resolved';
+    impacts = { p1: null, p2: null };
+  }
+
+  const entry = spectatorEntry(event, battle, effectValue, winnerName);
   return {
     ...state,
     battle,
@@ -698,7 +709,8 @@ function actorName(value: unknown): string {
 function spectatorEntry(
   event: BattleEvent,
   battle: BattleState | null,
-  hpDeltaPercent: number | null
+  hpDeltaPercent: number | null,
+  winnerName: string | null
 ): SpectatorLogEntry | null {
   const payload = event.payload;
   let text = '';
@@ -768,7 +780,7 @@ function spectatorEntry(
       emphasis = 'negative';
       break;
     case 'battle_finished':
-      text = `${stringValue(payload.winner_name) || battle?.result?.winner_name || 'Battle'} wins.`;
+      text = `${winnerName || battle?.result?.winner_name || stringValue(payload.winner_name) || 'Battle'} wins.`;
       emphasis = 'critical';
       break;
     default:

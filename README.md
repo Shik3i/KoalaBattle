@@ -142,6 +142,14 @@ The run snapshots its exact Showdown-backed species/form and ability pool, so of
 remain deterministic across reloads and backend restarts. Rules, form exclusions, controller
 modes, mechanics assumptions, and recovery behavior: [Draft Challenge](docs/CHALLENGES.md).
 
+Automatic preparation does not use a handwritten species or moveset allowlist. For every
+draftable entry it prefers a legal set from the pinned Showdown Battle Factory data, then the
+generation-specific Random Battle generator, then a deterministic current-format set assembled
+from Showdown's real Dex learnset and species metadata and accepted by Showdown's validator. In the
+current pin, all 1,216 draftable entries out of 1,417 catalog forms have such a set. Mega,
+Gigantamax, battle-only, cosmetic, and unavailable forms remain intentionally outside the pool.
+Showdown's fixed-HP species metadata is preserved too: Shedinja has exactly one HP at every level.
+
 ## Battle formats
 
 Formats are discovered from the pinned Pokémon Showdown build at start-up and cached in a

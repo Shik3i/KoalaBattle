@@ -23,7 +23,7 @@ button,a { -webkit-tap-highlight-color:transparent; }
 a { color:inherit; text-decoration:none; }
 .app-header { position:sticky; z-index:10; top:0; display:grid; grid-template-columns:1fr auto 1fr; align-items:center; height:72px; padding:0 max(1.25rem,calc((100vw - var(--shell))/2)); border-bottom:1px solid color-mix(in srgb,var(--border) 75%,transparent); background:color-mix(in srgb,var(--bg) 90%,transparent); backdrop-filter:blur(16px); }
 .skip-link{position:fixed;z-index:100;top:.75rem;left:.75rem;padding:.7rem 1rem;border-radius:.65rem;background:var(--accent);color:var(--accent-ink);font-weight:800;transform:translateY(-160%);transition:transform .18s ease}.skip-link:focus{transform:translateY(0)}
-.brand { display:flex; align-items:center; gap:.65rem; font-weight:850; letter-spacing:-.04em; }
+.brand { display:flex; min-height:44px; align-items:center; gap:.65rem; font-weight:850; letter-spacing:-.04em; }
 .brand img { width:2.35rem; aspect-ratio:1; filter:drop-shadow(0 7px 16px color-mix(in srgb,var(--accent) 24%,transparent)); transition:transform .25s cubic-bezier(.2,.8,.2,1),filter .25s ease; }
 .brand:hover img{transform:translateY(-1px) rotate(-3deg) scale(1.04);filter:drop-shadow(0 9px 20px color-mix(in srgb,var(--accent) 34%,transparent))}
 .app-header nav { display:flex; gap:.35rem; padding:.25rem; border:1px solid var(--border); border-radius:999px; background:var(--panel); }
@@ -33,7 +33,7 @@ a { color:inherit; text-decoration:none; }
 .app-header nav a:hover { background:var(--surface); color:var(--text); }
 .app-header nav a.active { background:var(--surface); color:var(--text); box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--border) 65%,transparent); }
 .header-actions { justify-self:end; display:flex; align-items:center; gap:.55rem; }
-.icon-button { justify-self:end; display:grid; place-items:center; width:2.5rem; aspect-ratio:1; border:1px solid var(--border); border-radius:50%; background:var(--panel); color:var(--text); cursor:pointer;transition:color .18s ease,background .18s ease,border-color .18s ease,transform .18s ease; }
+.icon-button { justify-self:end; display:grid; place-items:center; width:2.75rem; aspect-ratio:1; border:1px solid var(--border); border-radius:50%; background:var(--panel); color:var(--text); cursor:pointer;transition:color .18s ease,background .18s ease,border-color .18s ease,transform .18s ease; }
 .icon-button:hover{border-color:color-mix(in srgb,var(--accent) 45%,var(--border));background:var(--surface);color:var(--accent);transform:rotate(5deg)}.icon-button .ph{font-size:1.1rem}
 main { width:min(var(--content),calc(100% - 2.5rem)); min-height:calc(100vh - 138px); margin:0 auto; padding:clamp(1.75rem,4vw,3.5rem) 0; font-size:var(--step-0); }
 main.focus-route { padding:1rem 0 2rem; }

@@ -44,6 +44,7 @@
   let clock = Date.now();
   let initializedRun = '';
   let scaffoldRun = '';
+  let activeRunId: string | null = null;
   type RerollKind = 'pokemon' | 'type' | 'generation';
   type ConfirmationAction = 'finalize' | 'cancel' | 'reset-all' | 'restore' | 'delete';
   type Confirmation = {
@@ -89,6 +90,15 @@
   let stageTransitionTimer: ReturnType<typeof setTimeout> | null = null;
   const STAGE_TRANSITION_MS = 1400;
 
+  $: if (data.id && activeRunId !== null && data.id !== activeRunId) {
+    activeRunId = data.id;
+    viewSequence += 1;
+    view = null; allocations = {}; teamText = ''; loading = ''; error = ''; technicalError = '';
+    initializedRun = ''; scaffoldRun = ''; advancedDeadline = ''; autoDraftedOffer = '';
+    agentFailed = false; initialLoading = true;
+    void refresh();
+  }
+
   $: run = view?.run;
   $: downed = new Set(run?.downed_entry_ids || []);
   // An AI draft has to actually draft. Requiring six manual "Ask AI to choose" clicks read
@@ -116,6 +126,7 @@
   }
 
   onMount(() => {
+    activeRunId = data.id;
     void refresh();
     timer = setInterval(() => {
       clock = Date.now();
@@ -244,6 +255,7 @@
 
   async function refresh(showLoading = true) {
     if (showLoading && !view) initialLoading = true;
+    if (loading && !showLoading) return;
     if (refreshing && !showLoading) return;
     refreshing = true;
     const sequence = ++viewSequence;
@@ -258,8 +270,10 @@
       technicalError = caught instanceof Error ? caught.message : String(caught);
       error = challengeErrorMessage(technicalError);
     } finally {
-      refreshing = false;
-      initialLoading = false;
+      if (sequence === viewSequence) {
+        refreshing = false;
+        initialLoading = false;
+      }
     }
   }
 
@@ -269,43 +283,50 @@
     const sequence = ++viewSequence;
     try {
       const next = await api<ChallengeRunView>(`/api/challenges/${run.id}${path}`, { method: 'POST', body: JSON.stringify(body) });
-      viewSequence = sequence;
+      if (sequence !== viewSequence) return false;
       setView(next);
       agentFailed = false;
       return true;
     } catch (caught) {
+      if (sequence !== viewSequence) return false;
       technicalError = caught instanceof Error ? caught.message : String(caught);
       error = challengeErrorMessage(technicalError);
       if (technicalError.toLowerCase().includes('stale') || technicalError.toLowerCase().includes('not waiting')) await refresh(false);
       if (label === 'agent') agentFailed = true;
       return false;
     } finally {
-      loading = '';
+      if (sequence === viewSequence) loading = '';
     }
   }
 
   async function requestAutoAdvance() {
     if (!run || loading || run.auto_run_paused) return;
     loading = 'auto-advance';
+    const sequence = ++viewSequence;
     try {
       const result = await api<{ run: ChallengeRunView; match: { id: string } | null }>(`/api/challenges/${run.id}/auto/advance`, { method: 'POST' });
+      if (sequence !== viewSequence) return;
       setView(result.run);
     } catch (caught) {
+      if (sequence !== viewSequence) return;
       technicalError = caught instanceof Error ? caught.message : String(caught);
       error = challengeErrorMessage(technicalError);
-    } finally { loading = ''; }
+    } finally { if (sequence === viewSequence) loading = ''; }
   }
   async function pauseAutoRun() { if (run) await mutate('/auto/pause', { expected_revision: run.revision }, 'pause-auto'); }
   async function continueAutoRun() {
     if (!run || loading) return;
     loading = 'continue-auto';
+    const sequence = ++viewSequence;
     try {
       const result = await api<{ run: ChallengeRunView; match: { id: string } | null }>(`/api/challenges/${run.id}/auto/continue`, { method: 'POST', body: JSON.stringify({ expected_revision: run.revision }) });
+      if (sequence !== viewSequence) return;
       setView(result.run);
     } catch (caught) {
+      if (sequence !== viewSequence) return;
       technicalError = caught instanceof Error ? caught.message : String(caught);
       error = challengeErrorMessage(technicalError);
-    } finally { loading = ''; }
+    } finally { if (sequence === viewSequence) loading = ''; }
   }
 
   async function pick(entryId: string) {
@@ -350,16 +371,19 @@
   async function launch() {
     if (!run || loading) return;
     loading = 'launch'; error = ''; technicalError = '';
+    const sequence = ++viewSequence;
     try {
       const result = await api<{ run: ChallengeRunView; match: { id: string } }>(`/api/challenges/${run.id}/launch`, { method: 'POST', body: JSON.stringify({ expected_revision: run.revision }) });
+      if (sequence !== viewSequence) return;
       setView(result.run);
       if (run.battle_experience === 'fast-watch') await goto(`/battle/${result.match.id}?speed=4`);
       else if (run.battle_experience === 'normal' || run.battle_controller.agent_type === 'human') await goto(`/battle/${result.match.id}`);
-      else loading = '';
+      else if (sequence === viewSequence) loading = '';
     } catch (caught) {
+      if (sequence !== viewSequence) return;
       technicalError = caught instanceof Error ? caught.message : String(caught);
       error = challengeErrorMessage(technicalError);
-      loading = '';
+      if (sequence === viewSequence) loading = '';
       if (technicalError.toLowerCase().includes('stale')) await refresh(false);
     }
   }
@@ -625,7 +649,7 @@
   <section id="draft" class="draft panel" aria-labelledby="draft-title">
     {#key run.current_offer.fingerprint}
     <header class="roll-result">
-      <h2 id="draft-title" class="draft-reels"><span class="visually-hidden" aria-live="polite">Generation {generationRomanNumeral(run.current_offer.generation)}, {run.current_offer.type} type</span><span class:spinning={rollReveal?.mode === 'both' || rollReveal?.mode === 'generation'} class:locked={rollReveal?.mode === 'type' || rollReveal?.mode === 'pokemon'} class="draft-reel generation-reel"><small>GEN</small><span class="reel-window" aria-hidden="true"><span class="reel-track" style={`--reel-offset:${-((rollReveal?.generations.length || 1) - 1) * DRAFT_REEL_FRAME_HEIGHT}px`}>{#each rollReveal?.generations || [run.current_offer.generation] as generation}<b>{generationRomanNumeral(generation)}</b>{/each}</span></span></span><b class="reel-separator" aria-hidden="true">·</b><span class:spinning={rollReveal?.mode === 'both' || rollReveal?.mode === 'type'} class:locked={rollReveal?.mode === 'generation' || rollReveal?.mode === 'pokemon'} class="draft-reel type-reel"><span class="reel-window" aria-hidden="true"><span class="reel-track" style={`--reel-offset:${-((rollReveal?.types.length || 1) - 1) * DRAFT_REEL_FRAME_HEIGHT}px`}>{#each rollReveal?.types || [run.current_offer.type] as type}<b style={`--type-color:${pokemonTypeColor(type)}`}>{type}</b>{/each}</span></span></span></h2>
+      <h2 id="draft-title" class="draft-reels"><span class="visually-hidden" aria-live="polite">Generation {generationRomanNumeral(run.current_offer.generation)}, {run.current_offer.type} type</span><span aria-hidden="true" class:spinning={rollReveal?.mode === 'both' || rollReveal?.mode === 'generation'} class:locked={rollReveal?.mode === 'type' || rollReveal?.mode === 'pokemon'} class="draft-reel generation-reel"><small>GEN</small><span class="reel-window" aria-hidden="true"><span class="reel-track" style={`--reel-offset:${-((rollReveal?.generations.length || 1) - 1) * DRAFT_REEL_FRAME_HEIGHT}px`}>{#each rollReveal?.generations || [run.current_offer.generation] as generation}<b>{generationRomanNumeral(generation)}</b>{/each}</span></span></span><b class="reel-separator" aria-hidden="true">·</b><span aria-hidden="true" class:spinning={rollReveal?.mode === 'both' || rollReveal?.mode === 'type'} class:locked={rollReveal?.mode === 'generation' || rollReveal?.mode === 'pokemon'} class="draft-reel type-reel"><span class="reel-window" aria-hidden="true"><span class="reel-track" style={`--reel-offset:${-((rollReveal?.types.length || 1) - 1) * DRAFT_REEL_FRAME_HEIGHT}px`}>{#each rollReveal?.types || [run.current_offer.type] as type}<b style={`--type-color:${pokemonTypeColor(type)}`}>{type}</b>{/each}</span></span></span></h2>
     </header>
     <div class="draft-workspace"><div class="draft-choice-area">
       {#if run.current_offer.options.length < run.definition.draft_rules.choice_count}<p class="pool-note" role="status"><i class="ph ph-info" aria-hidden="true"></i>The legal pool is nearly exhausted, so this offer contains fewer cards.</p>{/if}
@@ -704,7 +728,7 @@
   @media(max-width:750px){.roll-result{grid-template-columns:1fr}.draft{padding:1rem}.offer-grid{gap:.55rem}.offer-grid button{min-height:320px;padding:.9rem}.reroll-actions{display:grid;grid-template-columns:1fr 1fr}.reroll-actions .button:first-child{grid-column:1/-1}.offer-saved{align-self:center}}
   @media(max-width:600px){.reroll-actions{grid-template-columns:1fr;width:100%}.reroll-actions .button,.reroll-actions .button:first-child{grid-column:auto;width:100%}.roll-result::before{right:-55px}.offer-grid button{min-height:300px}.card-foot{padding-top:.5rem}.offer-saved{justify-content:center}.draft-reels{align-items:center!important;flex-direction:row!important;gap:.35rem}.roll-result .draft-reel{padding:0 .48rem}.type-reel .reel-track b{min-width:96px}}
   @media(prefers-reduced-motion:reduce){.roll-result,.roll-result::before,.roll-result h2 span,.offer-grid button,.offer-sprite,.card-foot i,.reroll-actions .button>i,.offer-saved.busy i,.draft-roster article:not(.empty),.roll-result h2 .draft-reel.spinning .reel-track,.roll-result h2 .draft-reel.spinning.generation-reel,.roll-result h2 .draft-reel.spinning.type-reel,.roll-result h2 .draft-reel.spinning{animation:none!important;transition:none!important}.offer-grid button:hover:not(:disabled),.offer-grid button:focus-visible{transform:none}.offer-grid button:hover:not(:disabled) .offer-sprite,.offer-grid button:focus-visible .offer-sprite{transform:none}}/* ── Compact game screen ────────────────────────────────────────────────── */
-  .page-head{position:relative;z-index:90;display:flex;align-items:center;justify-content:space-between;gap:1rem;margin-bottom:.6rem}.run-id{min-width:0}.run-id h1{margin:.1rem 0 0;overflow:hidden;font-size:clamp(1.05rem,1.8vw,1.45rem);text-overflow:ellipsis;white-space:nowrap}.head-actions{display:flex;flex-shrink:0;align-items:center;gap:.45rem}.difficulty-pill{padding:.24rem .55rem;border:1px solid color-mix(in srgb,var(--accent) 40%,var(--border));border-radius:999px;color:var(--accent);font:700 .6rem var(--mono);letter-spacing:.05em;text-transform:uppercase;white-space:nowrap}.run-menu{position:relative;z-index:50}.run-menu>summary{display:flex;align-items:center;gap:.35rem;padding:.3rem .65rem;border:1px solid var(--border);border-radius:999px;background:var(--panel);color:var(--muted);font:650 .72rem var(--display);cursor:pointer;list-style:none}.run-menu>summary::-webkit-details-marker{display:none}.run-menu[open]>summary,.run-menu>summary:hover{border-color:color-mix(in srgb,var(--accent) 45%,var(--border));color:var(--text)}.run-menu-panel{position:absolute;z-index:60;top:calc(100% + .4rem);right:0;display:grid;gap:.18rem;width:min(21rem,80vw);padding:.5rem;border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--panel);box-shadow:var(--shadow)}.run-menu-label{margin:.25rem .35rem 0;color:var(--accent);font:700 .58rem var(--mono);letter-spacing:.13em;text-transform:uppercase}.run-menu-note{margin:0 .35rem .3rem!important;font-size:.68rem;line-height:1.45}.run-menu-item{display:flex;align-items:center;gap:.5rem;width:100%;padding:.45rem .55rem;border:0;border-radius:.5rem;background:transparent;color:var(--text);font:600 .8rem var(--display);text-align:left;cursor:pointer}.run-menu-item:hover{background:var(--surface)}.run-menu-item.danger{color:var(--danger)}.stage-hero{display:flex;align-items:center;gap:1.1rem;margin-bottom:.7rem;padding:1rem 1.2rem;border-color:color-mix(in srgb,var(--stage-accent) 55%,var(--border));background:linear-gradient(105deg,color-mix(in srgb,var(--stage-accent) 16%,var(--panel)),var(--panel))}.stage-copy{min-width:0;flex:1}.stage-copy .eyebrow{color:var(--stage-accent)}.stage-copy h2{margin:.1rem 0;font-size:clamp(1.5rem,3.4vw,2.1rem);line-height:1.05}.stage-copy p{margin:.15rem 0 0!important;font-size:.76rem}.stage-copy p b{color:var(--text)}.retry-note{color:var(--danger)!important}.stage-action{display:grid;flex-shrink:0;justify-items:end;gap:.4rem;text-align:right}.stage-action>strong{font:700 .68rem var(--mono)}.stage-buttons{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:.45rem}.stage-action .link-button{font-size:.66rem}.campaign{margin-bottom:.7rem;padding:.85rem 1.1rem;box-shadow:none}.campaign header{display:flex;align-items:center;justify-content:space-between;gap:1rem}.campaign h2{margin:.1rem 0;font-size:.98rem}.route-count{color:var(--muted);font:.62rem var(--mono)}.route-rail{display:flex;flex-wrap:wrap;gap:.3rem;margin:.6rem 0 0;padding:0;list-style:none}.route-rail li{display:flex;align-items:center;gap:.32rem;padding:.24rem .5rem;border:1px solid var(--border);border-radius:999px;background:var(--surface);color:var(--muted);font:650 .64rem var(--display)}.route-rail li b{display:grid;place-items:center;width:15px;aspect-ratio:1;border-radius:50%;background:var(--surface);color:var(--muted);font:800 .55rem var(--mono);box-shadow:inset 0 0 0 1px var(--border)}.route-rail li.won{border-color:color-mix(in srgb,var(--accent) 45%,var(--border));color:var(--text)}.route-rail li.won b{background:var(--accent);color:var(--bg);box-shadow:none}.route-rail li.failed b{background:var(--danger);color:#fff;box-shadow:none}.route-rail li.current{border-color:var(--stage-accent);background:color-mix(in srgb,var(--stage-accent) 20%,var(--panel));color:var(--text)}.route-rail li.current b{background:var(--stage-accent);color:#0b100c;box-shadow:none}.route-rail li:not(.current):not(.won):not(.failed) span{display:none}.roster-strip{display:flex;flex-wrap:wrap;gap:.35rem;margin-bottom:.7rem}.roster-strip span{display:flex;align-items:center;gap:.35rem;padding:.22rem .5rem .22rem .25rem;border:1px solid var(--border);border-radius:999px;background:var(--panel);color:var(--muted);font:650 .66rem var(--display)}/* ── Slot reels ─────────────────────────────────────────────────────────── */
+  .page-head{position:relative;z-index:90;display:flex;align-items:center;justify-content:space-between;gap:1rem;margin-bottom:.6rem}.run-id{min-width:0}.run-id h1{margin:.1rem 0 0;overflow:hidden;font-size:clamp(1.05rem,1.8vw,1.45rem);text-overflow:ellipsis;white-space:nowrap}.head-actions{display:flex;flex-shrink:0;align-items:center;gap:.45rem}.difficulty-pill{padding:.24rem .55rem;border:1px solid color-mix(in srgb,var(--accent) 40%,var(--border));border-radius:999px;color:var(--accent);font:700 .6rem var(--mono);letter-spacing:.05em;text-transform:uppercase;white-space:nowrap}.run-menu{position:relative;z-index:50}.run-menu>summary{display:flex;min-height:44px;align-items:center;gap:.35rem;padding:.3rem .65rem;border:1px solid var(--border);border-radius:999px;background:var(--panel);color:var(--muted);font:650 .72rem var(--display);cursor:pointer;list-style:none}.run-menu>summary::-webkit-details-marker{display:none}.run-menu[open]>summary,.run-menu>summary:hover{border-color:color-mix(in srgb,var(--accent) 45%,var(--border));color:var(--text)}.run-menu-panel{position:absolute;z-index:60;top:calc(100% + .4rem);right:0;display:grid;gap:.18rem;width:min(21rem,80vw);padding:.5rem;border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--panel);box-shadow:var(--shadow)}.run-menu-label{margin:.25rem .35rem 0;color:var(--accent);font:700 .58rem var(--mono);letter-spacing:.13em;text-transform:uppercase}.run-menu-note{margin:0 .35rem .3rem!important;font-size:.68rem;line-height:1.45}.run-menu-item{display:flex;min-height:44px;align-items:center;gap:.5rem;width:100%;padding:.45rem .55rem;border:0;border-radius:.5rem;background:transparent;color:var(--text);font:600 .8rem var(--display);text-align:left;cursor:pointer}.run-menu-item:hover{background:var(--surface)}.run-menu-item.danger{color:var(--danger)}.stage-hero{display:flex;align-items:center;gap:1.1rem;margin-bottom:.7rem;padding:1rem 1.2rem;border-color:color-mix(in srgb,var(--stage-accent) 55%,var(--border));background:linear-gradient(105deg,color-mix(in srgb,var(--stage-accent) 16%,var(--panel)),var(--panel))}.stage-copy{min-width:0;flex:1}.stage-copy .eyebrow{color:var(--stage-accent)}.stage-copy h2{margin:.1rem 0;font-size:clamp(1.5rem,3.4vw,2.1rem);line-height:1.05}.stage-copy p{margin:.15rem 0 0!important;font-size:.76rem}.stage-copy p b{color:var(--text)}.retry-note{color:var(--danger)!important}.stage-action{display:grid;flex-shrink:0;justify-items:end;gap:.4rem;text-align:right}.stage-action>strong{font:700 .68rem var(--mono)}.stage-buttons{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:.45rem}.stage-action .link-button{font-size:.66rem}.campaign{margin-bottom:.7rem;padding:.85rem 1.1rem;box-shadow:none}.campaign header{display:flex;align-items:center;justify-content:space-between;gap:1rem}.campaign h2{margin:.1rem 0;font-size:.98rem}.route-count{color:var(--muted);font:.62rem var(--mono)}.route-rail{display:flex;flex-wrap:wrap;gap:.3rem;margin:.6rem 0 0;padding:0;list-style:none}.route-rail li{display:flex;align-items:center;gap:.32rem;padding:.24rem .5rem;border:1px solid var(--border);border-radius:999px;background:var(--surface);color:var(--muted);font:650 .64rem var(--display)}.route-rail li b{display:grid;place-items:center;width:15px;aspect-ratio:1;border-radius:50%;background:var(--surface);color:var(--muted);font:800 .55rem var(--mono);box-shadow:inset 0 0 0 1px var(--border)}.route-rail li.won{border-color:color-mix(in srgb,var(--accent) 45%,var(--border));color:var(--text)}.route-rail li.won b{background:var(--accent);color:var(--bg);box-shadow:none}.route-rail li.failed b{background:var(--danger);color:#fff;box-shadow:none}.route-rail li.current{border-color:var(--stage-accent);background:color-mix(in srgb,var(--stage-accent) 20%,var(--panel));color:var(--text)}.route-rail li.current b{background:var(--stage-accent);color:#0b100c;box-shadow:none}.route-rail li:not(.current):not(.won):not(.failed) span{display:none}.roster-strip{display:flex;flex-wrap:wrap;gap:.35rem;margin-bottom:.7rem}.roster-strip span{display:flex;align-items:center;gap:.35rem;padding:.22rem .5rem .22rem .25rem;border:1px solid var(--border);border-radius:999px;background:var(--panel);color:var(--muted);font:650 .66rem var(--display)}/* ── Slot reels ─────────────────────────────────────────────────────────── */
   .reel-separator{align-self:center;color:var(--muted);font:800 1.1rem var(--display)}.reel-window{-webkit-mask-image:linear-gradient(to bottom,transparent,#000 26%,#000 74%,transparent);mask-image:linear-gradient(to bottom,transparent,#000 26%,#000 74%,transparent)}/* The base .reel-track/.draft-reel rules use !important,so the spin has to as well. */
   .roll-result .draft-reel.spinning .reel-track{animation:slot-reel 620ms cubic-bezier(.16,.62,0,1) both!important}.roll-result .type-reel.spinning .reel-track{animation-duration:620ms!important;animation-delay:70ms!important}.roll-result .generation-reel.spinning .reel-track{animation-duration:480ms!important;animation-delay:0ms!important}.roll-result h2 .draft-reel.spinning{animation:reel-lock 620ms ease-out both!important}.roll-result h2 .generation-reel.spinning{animation-duration:480ms!important;animation-delay:0ms!important}.roll-result h2 .type-reel.spinning{animation-delay:70ms!important}
   @keyframes reel-lock{0%,74%{border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 8%,transparent)}88%{border-color:color-mix(in srgb,var(--accent) 90%,white);box-shadow:0 0 22px 2px color-mix(in srgb,var(--accent) 55%,transparent),0 0 0 3px color-mix(in srgb,var(--accent) 22%,transparent);transform:scale(1.06)}100%{border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 10%,transparent);transform:scale(1)}}.reroll-blocked{display:grid;gap:.2rem;margin:.5rem 0 0;padding:0;list-style:none}.reroll-blocked li{display:flex;flex-wrap:wrap;gap:.35rem;color:var(--muted);font-size:.66rem}.reroll-blocked b{color:var(--text)}.agent-busy{display:flex;align-items:center;gap:.4rem;color:var(--accent);font:700 .74rem var(--display)}.agent-busy i{animation:agent-pulse 1.6s ease-in-out infinite}
@@ -714,4 +738,6 @@
 
   /* Narrow viewports: stack the hero, keep one full-width primary action. */
   @media(max-width:720px){.page-head{align-items:flex-start;flex-direction:column;gap:.5rem}.head-actions{flex-direction:row;flex-wrap:wrap;align-items:center;width:100%}.stage-hero{align-items:flex-start;flex-direction:column;text-align:left}.stage-hero :global(.trainer){width:96px;max-height:96px;align-self:flex-start}.stage-action{justify-items:stretch;width:100%;text-align:left}.stage-buttons{justify-content:flex-start}.stage-buttons .button{flex:1}.result-actions{flex-direction:row;flex-wrap:wrap}.battle-summary{grid-template-columns:1fr}}
+  .breadcrumbs a{display:inline-flex;min-height:44px;align-items:center}
+  .draft-roster details>summary,.run-details>summary,.draft-history>summary,.battle-history>summary{display:flex;min-height:44px;align-items:center;cursor:pointer}
 </style>

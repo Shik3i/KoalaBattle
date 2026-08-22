@@ -12,9 +12,9 @@
     const player = presentation.players[side];
     return player.commentaryPhase === 'resolved' || player.commentaryPhase === 'waiting' ? null : player;
   }
-  function groupedFeed() {
+  function groupedFeed(log: SpectatorLogEntry[]) {
     const groups: Array<{ turn: number; lines: SpectatorLogEntry[] }> = [];
-    for (const entry of presentation.log.slice(-9)) {
+    for (const entry of log.slice(-9)) {
       if (entry.kind === 'turn_started') continue;
       const last = groups.at(-1);
       if (last?.turn === entry.turn) last.lines.push(entry);
@@ -22,7 +22,9 @@
     }
     return groups.slice(-3).map((group) => ({ ...group, lines: group.lines.slice(-3) }));
   }
-  $: feed = groupedFeed();
+  // Keep the dependency visible to Svelte's legacy reactive compiler. Calling a
+  // zero-argument helper left the feed frozen at its initial empty array.
+  $: feed = groupedFeed(presentation.log);
 </script>
 
 {#if variant === 'dialogue'}

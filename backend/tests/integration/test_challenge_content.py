@@ -116,8 +116,54 @@ async def test_every_draftable_species_gets_at_least_one_legal_recommended_move(
         and not entry.unavailable
     ]
     assert draftable, "the draft pool must not be empty"
+    assert len(draftable) > 1200
     missing = sorted(entry.name for entry in draftable if not entry.recommended_moves)
     assert missing == [], missing
+    assert all(entry.showdown_set is not None for entry in draftable)
+    assert all(
+        entry.showdown_set.source
+        in {"showdown-battle-factory", "showdown-random-battle", "showdown-dex-validated"}
+        for entry in draftable
+        if entry.showdown_set is not None
+    )
+    short_sets = {
+        entry.name: entry.showdown_set.moves
+        for entry in draftable
+        if entry.showdown_set is not None and len(entry.showdown_set.moves) < 4
+    }
+    assert set(short_sets) == {"Ditto", "Unown", "Cosmog", "Cosmoem"}
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_ninjask_and_shedinja_use_distinct_authoritative_showdown_data() -> None:
+    _skip_unless_showdown()
+    definition = _definition("kanto-gym-gauntlet")
+    catalog = ShowdownSpeciesCatalog(
+        os.getenv("KOALABATTLE_TEAM_VALIDATOR_URL", "http://127.0.0.1:8002")
+    )
+    by_name = {entry.name: entry for entry in await catalog.entries(definition.format)}
+
+    ninjask = by_name["Ninjask"]
+    shedinja = by_name["Shedinja"]
+    assert ninjask.base_stats is not None and ninjask.base_stats.hp == 61
+    assert shedinja.base_stats is not None and shedinja.base_stats.hp == 1
+    assert {ability.name for ability in ninjask.abilities} == {"Speed Boost", "Infiltrator"}
+    assert {ability.name for ability in shedinja.abilities} == {"Wonder Guard"}
+    assert ninjask.showdown_set is not None
+    assert shedinja.showdown_set is not None
+    assert ninjask.showdown_set.ability == "Speed Boost"
+    assert shedinja.showdown_set.ability == "Wonder Guard"
+    assert ninjask.max_hp is None
+    assert shedinja.max_hp == 1
+    for level in (1, 35, 50, 70, 100):
+        # Showdown's maxHP override takes precedence over the ordinary HP formula.
+        shedinja_hp = shedinja.max_hp or (
+            ((2 * shedinja.base_stats.hp + 31) * level) // 100 + level + 10
+        )
+        assert shedinja_hp == 1
+    # Level 70, 31 HP IV, 0 HP EV: Showdown's ordinary formula yields 187 for Ninjask.
+    assert ((2 * ninjask.base_stats.hp + 31) * 70) // 100 + 70 + 10 == 187
 
 
 @pytest.mark.integration

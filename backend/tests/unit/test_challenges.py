@@ -36,6 +36,8 @@ from koalabattle.challenges.models import (
     DraftRules,
     EvSpread,
     PokemonAbility,
+    PokemonIvSpread,
+    ShowdownCompetitiveSet,
     TrainingRules,
     player_stage_level,
 )
@@ -92,6 +94,7 @@ def _candidate(
     abilities: tuple[PokemonAbility, ...] | None = None,
     generation: int = 1,
 ) -> DraftCandidate:
+    primary_ability = _abilities(index) if abilities is None else abilities
     return DraftCandidate(
         entry_id=f"mon{index}",
         species=f"Mon {index}",
@@ -101,7 +104,20 @@ def _candidate(
         introduction_generation=generation,
         types=types,
         base_stat_total=300 + index,
-        abilities=_abilities(index) if abilities is None else abilities,
+        abilities=primary_ability,
+        recommended_moves=("Tackle", "Protect", "Rest", "Sleep Talk"),
+        showdown_set=ShowdownCompetitiveSet(
+            source="showdown-battle-factory",
+            source_generation=9,
+            source_tier="Unit",
+            species=f"Mon {index}",
+            item="Leftovers",
+            ability=primary_ability[0].name if primary_ability else "No Ability",
+            nature="Serious",
+            moves=("Tackle", "Protect", "Rest", "Sleep Talk"),
+            evs=EvSpread(hp=252, defense=252, spd=4),
+            ivs=PokemonIvSpread(),
+        ),
     )
 
 
@@ -414,6 +430,18 @@ async def test_complete_draft_has_no_repeated_offer_and_initializes_abilities(
     assert {item.entry_id for item in public.run.draft_pool.candidates} == {
         candidate.entry_id for history in run.draft_history for candidate in history.offer.options
     }
+    legacy_completed = run.model_copy(
+        update={
+            "status": ChallengeStatus.COMPLETED,
+            "picks": tuple(
+                pick.model_copy(
+                    update={"candidate": pick.candidate.model_copy(update={"showdown_set": None})}
+                )
+                for pick in run.picks
+            ),
+        }
+    )
+    assert service.view(legacy_completed).team_export_scaffold is None
     await database.close()
 
 
@@ -446,7 +474,18 @@ async def test_single_legal_ability_is_selected_automatically(tmp_path: Path) ->
 
 def test_team_scaffold_includes_pinned_legal_defaults() -> None:
     candidate = _candidate(1).model_copy(
-        update={"recommended_moves": ("Thunderbolt", "Volt Switch"), "required_item": "Magnet"}
+        update={
+            "required_item": "Magnet",
+            "showdown_set": _candidate(1).showdown_set.model_copy(
+                update={
+                    "moves": ("Thunderbolt", "Volt Switch", "Protect", "Rest"),
+                    "item": "Choice Specs",
+                    "nature": "Timid",
+                    "evs": EvSpread(spa=252, spd=4, spe=252),
+                    "ivs": PokemonIvSpread(atk=0),
+                }
+            ),
+        }
     )
     run = _run(
         candidates=(candidate,),
@@ -469,6 +508,8 @@ def test_team_scaffold_includes_pinned_legal_defaults() -> None:
     assert scaffold.startswith(f"{candidate.species} @ Magnet")
     assert "- Thunderbolt" in scaffold
     assert "- Volt Switch" in scaffold
+    assert "Timid Nature" in scaffold
+    assert "IVs: 0 Atk" in scaffold
 
 
 def _simulate(seed: int) -> tuple[tuple[str, ...], ...]:
@@ -772,9 +813,7 @@ async def test_no_progress_technical_failure_does_not_count_as_gym_defeat(
     await database.create_schema()
     repository = ChallengeRepository(database)
     match_id = uuid4()
-    run = _run(status=ChallengeStatus.BATTLING).model_copy(
-        update={"active_match_id": match_id}
-    )
+    run = _run(status=ChallengeStatus.BATTLING).model_copy(update={"active_match_id": match_id})
     await BattleRepository(database).create_match(
         match_id,
         _auto_match_config(),
@@ -966,10 +1005,50 @@ class _CapturingProvider(FakeProvider):
     def __init__(self) -> None:
         super().__init__()
         self.request: ProviderRequest | None = None
+        self.generate_calls = 0
+        self.delay = 0.0
 
     async def generate(self, request: ProviderRequest, **kwargs: Any):  # type: ignore[no-untyped-def]
         self.request = request
+        self.generate_calls += 1
+        if self.delay:
+            await asyncio.sleep(self.delay)
         return await super().generate(request, **kwargs)
+
+
+@pytest.mark.asyncio
+async def test_duplicate_agent_draft_requests_share_one_provider_call(tmp_path: Path) -> None:
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'agent-coalescing.db'}")
+    await database.create_schema()
+    repository = ChallengeRepository(database)
+    run = attach_offer(_run()).model_copy(
+        update={
+            "draft_controller": DraftControllerSnapshot(
+                kind=DraftControllerKind.AGENT,
+                provider=ProviderKind.FAKE,
+                model="fake-battle-v1",
+            )
+        }
+    )
+    await repository.create(run)
+    provider = _CapturingProvider()
+    provider.delay = 0.05
+    battles = type(
+        "DraftBattleStub", (), {"provider_for_draft": lambda self, controller: provider}
+    )()
+    service = ChallengeService(
+        repository, ShowdownSpeciesCatalog("http://127.0.0.1:9"), cast(Any, battles)
+    )
+
+    first, duplicate = await asyncio.gather(
+        service.agent_action(run.id, run.revision),
+        service.agent_action(run.id, run.revision),
+    )
+
+    assert provider.generate_calls == 1
+    assert first == duplicate
+    assert len(first.picks) == 1
+    await database.close()
 
 
 @pytest.mark.asyncio
@@ -1137,6 +1216,18 @@ def test_species_catalog_filters_temporary_forms_but_keeps_legal_hidden_abilitie
             introduction_generation=4,
             types=("Electric", "Water"),
             abilities=(PokemonAbility(slot="0", id="levitate", name="Levitate"),),
+            showdown_set=ShowdownCompetitiveSet(
+                source="showdown-battle-factory",
+                source_generation=9,
+                source_tier="OU",
+                species="Rotom-Wash",
+                item="Leftovers",
+                ability="Levitate",
+                nature="Bold",
+                moves=("Volt Switch", "Hydro Pump", "Will-O-Wisp", "Protect"),
+                evs=EvSpread(hp=252, defense=252, spa=4),
+                ivs=PokemonIvSpread(atk=0),
+            ),
         ),
         SpeciesMetadata(
             id="charizardmega",
@@ -1179,6 +1270,16 @@ def test_difficulty_defaults_to_normal_and_survives_a_saved_run() -> None:
     payload = json.loads(stored.model_dump_json())
     payload.pop("difficulty")
     assert ChallengeRun.model_validate(payload).difficulty is ChallengeDifficulty.NORMAL
+
+
+def test_oversized_saved_error_is_bounded_during_deserialization() -> None:
+    payload = json.loads(_run().model_dump_json())
+    payload["error"] = "Showdown validation failed. " * 100
+
+    restored = _deserialize_run(json.dumps(payload))
+
+    assert restored.error is not None
+    assert len(restored.error) == 1000
 
 
 @pytest.mark.asyncio
@@ -1362,8 +1463,6 @@ async def test_unreachable_validator_parks_preparation_in_team_review(tmp_path: 
     await database.close()
 
 
-
-
 def test_agent_draft_actions_survive_providers_without_schema_enforcement() -> None:
     """DeepSeek documents `json_object`, so the enum is not enforced on the wire.
 
@@ -1455,9 +1554,7 @@ async def _attach_match(
             PlayerConfig(side=Side.P2, display_name="Leader", agent_type=AgentType.TACTICAL_AUTO),
         )
     )
-    match = await battles.create_match(
-        config, challenge_run_id=run.id, challenge_stage_id=stage_id
-    )
+    match = await battles.create_match(config, challenge_run_id=run.id, challenge_stage_id=stage_id)
     stored = await repository.save(
         run.model_copy(update={"active_match_id": match.id}), expected_revision=run.revision
     )

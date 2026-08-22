@@ -62,13 +62,18 @@ test('presentation reducer restores switch, combat, status, commentary, and winn
   const state = reduceEvents(createPresentationState(match), events);
   assert.equal(state.format, 'gen9randombattle');
   assert.equal(state.battle?.turn, 2);
-  assert.equal(state.currentMove, 'Thunderbolt');
+  assert.equal(state.currentMove, null);
+  assert.equal(state.currentMoveProfile, null);
+  assert.equal(state.currentMoveSide, null);
+  assert.equal(state.currentMovePhase, 'resolved');
+  assert.deepEqual(state.impacts, { p1: null, p2: null });
   assert.equal(state.players.p1.commentary[0].commentary, 'Public plan.');
   assert.equal(state.players.p2.motion, 'idle');
   assert.equal(state.finished, true);
   assert.equal(state.winnerName, 'Alpha');
   assert.equal(state.effect, 'victory');
   assert.ok(state.log.some((entry) => entry.text === 'Eevee fainted.'));
+  assert.ok(state.log.some((entry) => entry.text === 'Alpha wins.'));
   assert.ok(state.log.every((entry) => !entry.text.includes('|')));
 });
 

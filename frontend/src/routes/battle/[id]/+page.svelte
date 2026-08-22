@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import BattleRenderer from '$lib/BattleRenderer.svelte';
-  import { api, broadcastRendererConfig, getMatch, rematch, resumeMatch, wsBase } from '$lib/api';
+  import { api, broadcastRendererConfig, copyText as copyToClipboard, getMatch, rematch, resumeMatch, wsBase } from '$lib/api';
   import { loadRendererConfig, saveRendererConfig } from '$lib/presentation/config';
   import { PresentationTimeline } from '$lib/presentation/timeline';
   import { connectLiveSocket } from '$lib/presentation/live-socket';
@@ -22,6 +22,9 @@
   let copyTimer: ReturnType<typeof setTimeout> | null = null;
   let configBroadcastTimer: ReturnType<typeof setTimeout> | null = null;
   let draftReturnTimer: ReturnType<typeof setTimeout> | null = null;
+  let liveRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+  let connectionGeneration = 0;
+  let refreshSequence = 0;
   let configSyncError = '';
   let error = ''; let stopSocket: (() => void) | null = null;
   let timeline: PresentationTimeline | null = null; let snapshot: TimelineSnapshot | null = null;
@@ -106,7 +109,12 @@
     activeMatchId = data.id;
     stopSocket?.();
     timeline?.destroy();
+    connectionGeneration += 1;
+    refreshSequence += 1;
+    if (liveRefreshTimer) clearTimeout(liveRefreshTimer);
     match = null;
+    pending = {}; responses = {}; validation = {}; submitting = {}; accepted = {};
+    lifecycle = { p1: 'idle', p2: 'idle' };
     error = '';
     void connect();
   }
@@ -128,24 +136,44 @@
       if (copyTimer) clearTimeout(copyTimer);
       if (configBroadcastTimer) clearTimeout(configBroadcastTimer);
       if (draftReturnTimer) clearTimeout(draftReturnTimer);
+      if (liveRefreshTimer) clearTimeout(liveRefreshTimer);
+      connectionGeneration += 1;
+      refreshSequence += 1;
     };
   });
   async function connect() {
+    const matchId = data.id;
+    const generation = ++connectionGeneration;
     try {
-      await refreshLiveState();
+      await refreshLiveState(matchId, generation);
+      if (generation !== connectionGeneration || matchId !== data.id) return;
       stopSocket = connectLiveSocket({
-        url: `${wsBase()}/api/matches/${data.id}/stream`,
-        onMessage: (raw) => handleMessage(JSON.parse(raw) as StreamMessage),
-        onConnected: refreshLiveState,
-        onStatus: (status) => (error = status === 'connected' ? '' : 'Live control reconnecting…')
+        url: `${wsBase()}/api/matches/${matchId}/stream`,
+        onMessage: (raw) => {
+          if (generation === connectionGeneration && matchId === data.id) {
+            handleMessage(JSON.parse(raw) as StreamMessage);
+          }
+        },
+        onConnected: () => refreshLiveState(matchId, generation),
+        onStatus: (status) => {
+          if (generation === connectionGeneration && matchId === data.id) {
+            error = status === 'connected' ? '' : 'Live control reconnecting…';
+          }
+        }
       });
-    } catch (caught) { error = caught instanceof Error ? caught.message : String(caught); }
+    } catch (caught) {
+      if (generation === connectionGeneration && matchId === data.id) {
+        error = caught instanceof Error ? caught.message : String(caught);
+      }
+    }
   }
-  async function refreshLiveState() {
+  async function refreshLiveState(matchId = data.id, generation = connectionGeneration) {
+    const sequence = ++refreshSequence;
     const [archive, result] = await Promise.all([
-      getMatch(data.id),
-      api<{ requests: AgentRequest[] }>(`/api/matches/${data.id}/pending`)
+      getMatch(matchId),
+      api<{ requests: AgentRequest[] }>(`/api/matches/${matchId}/pending`)
     ]);
+    if (generation !== connectionGeneration || sequence !== refreshSequence || matchId !== data.id) return;
     if (!match || archive.events.length > (snapshot?.eventCount || 0)) initialize(archive);
     else match = { ...match, ...archive, events: match.events };
     const liveSides = new Set(result.requests.map((request) => request.side));
@@ -183,7 +211,9 @@
       }
     }
     if (message.kind === 'agent_submitted' && message.decision && match) {
-      match.decisions = [...match.decisions, message.decision];
+      if (!match.decisions.some((item) => item.id === message.decision?.id)) {
+        match.decisions = [...match.decisions, message.decision];
+      }
       lifecycle = { ...lifecycle, [message.decision.decision.side]: 'decided' };
     }
     if (message.kind === 'agent_waiting' && message.request) {
@@ -206,17 +236,35 @@
     if (message.kind === 'match_resumed') { if (match) match.status = Object.keys(pending).length ? 'waiting' : 'running'; }
     if (message.kind === 'match_failed') { if (match) match.status = 'failed'; error = message.error || 'Battle failed.'; }
   }
-  async function refreshMetadata() {
-    const archive = await getMatch(data.id);
-    if (match) match = { ...archive, events: match.events };
+  async function refreshMetadata(matchId = data.id, generation = connectionGeneration) {
+    const archive = await getMatch(matchId);
+    if (generation !== connectionGeneration || matchId !== data.id || !match || archive.id !== match.id) return;
+    const knownSequences = new Set(match.events.map((event) => event.sequence));
+    for (const event of archive.events) {
+      if (!knownSequences.has(event.sequence)) timeline?.append(event);
+    }
+    match = {
+      ...archive,
+      events: [...archive.events],
+      decisions: archive.decisions.length >= match.decisions.length ? archive.decisions : match.decisions
+    };
   }
   async function finishMatch() {
-    await refreshMetadata();
+    const matchId = data.id;
+    const generation = connectionGeneration;
+    await refreshMetadata(matchId, generation);
+    if (generation !== connectionGeneration || matchId !== data.id) return;
     const fastDraftWatch = new URLSearchParams(window.location.search).get('speed') === '4';
     if (!fastDraftWatch || !match?.challenge_run_id) return;
-    draftReturnTimer = setTimeout(() => {
-      void goto(`/challenges/${match?.challenge_run_id}#latest-result`);
-    }, 650);
+    const challengeRunId = match.challenge_run_id;
+    const waitForPresentation = () => {
+      if (snapshot && snapshot.index >= snapshot.eventCount && snapshot.state.finished) {
+        void goto(`/challenges/${challengeRunId}#latest-result`);
+        return;
+      }
+      draftReturnTimer = setTimeout(waitForPresentation, 100);
+    };
+    waitForPresentation();
   }
   function updateConfig(patch: Partial<RendererConfig>) {
     config = { ...config, ...patch }; saveRendererConfig(config);
@@ -235,7 +283,11 @@
     }, 200);
   }
   async function copyText(key: string, value: string) {
-    await navigator.clipboard.writeText(value); copied = key;
+    if (!await copyToClipboard(value)) {
+      error = 'Clipboard access was blocked. Select and copy the value manually.';
+      return;
+    }
+    copied = key;
     if (copyTimer) clearTimeout(copyTimer);
     copyTimer = setTimeout(() => (copied = null), 1400);
   }
@@ -268,7 +320,11 @@
       validation = { ...validation, [side]: '' };
       pending = { ...pending }; delete pending[side];
       if (match && Object.keys(pending).length === 0) match.status = 'running';
-      setTimeout(() => { void refreshLiveState().catch(() => undefined); }, 500);
+      if (liveRefreshTimer) clearTimeout(liveRefreshTimer);
+      liveRefreshTimer = setTimeout(() => {
+        liveRefreshTimer = null;
+        void refreshLiveState().catch(() => undefined);
+      }, 500);
     } catch (caught) {
       const detail = caught instanceof Error ? caught.message : String(caught);
       validation = { ...validation, [side]: challengeErrorMessage(detail) };
@@ -673,16 +729,16 @@
   .campaign-rail i.current{width:22px;background:var(--stage-accent)}
   .campaign-levels{color:var(--muted);font:650 .66rem var(--mono);white-space:nowrap}
   .tool-menu{position:relative}
-  .tool-menu>summary{display:flex;align-items:center;gap:.4rem;padding:.34rem .7rem;border:1px solid var(--border);border-radius:999px;background:var(--panel);color:var(--muted);font:650 .74rem var(--display);cursor:pointer;list-style:none}
+  .tool-menu>summary{display:flex;min-height:44px;align-items:center;gap:.4rem;padding:.34rem .7rem;border:1px solid var(--border);border-radius:999px;background:var(--panel);color:var(--muted);font:650 .74rem var(--display);cursor:pointer;list-style:none}
   .tool-menu>summary::-webkit-details-marker{display:none}
   .tool-menu>summary:hover,.tool-menu[open]>summary{border-color:color-mix(in srgb,var(--accent) 45%,var(--border));color:var(--text)}
   .tool-menu-panel{position:absolute;z-index:30;top:calc(100% + .4rem);right:0;display:grid;gap:.18rem;width:min(19rem,80vw);padding:.5rem;border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--panel);box-shadow:var(--shadow)}
   .tool-menu-label{margin:.3rem .35rem .1rem;color:var(--accent);font:700 .58rem var(--mono);letter-spacing:.13em;text-transform:uppercase}
-  .tool-menu-item{display:flex;align-items:center;gap:.5rem;width:100%;padding:.45rem .55rem;border:0;border-radius:.5rem;background:transparent;color:var(--text);font:600 .8rem var(--display);text-align:left;cursor:pointer}
+  .tool-menu-item{display:flex;min-height:44px;align-items:center;gap:.5rem;width:100%;padding:.45rem .55rem;border:0;border-radius:.5rem;background:transparent;color:var(--text);font:600 .8rem var(--display);text-align:left;cursor:pointer}
   .tool-menu-item:hover{background:var(--surface)}
   .tool-menu-note{margin:.35rem .35rem 0;color:var(--muted);font-size:.68rem;line-height:1.45}
   .preview-settings{margin-top:.7rem;border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--panel)}
-  .preview-settings>summary{display:flex;align-items:center;gap:.45rem;padding:.6rem .9rem;color:var(--muted);font:650 .78rem var(--display);cursor:pointer}
+  .preview-settings>summary{display:flex;min-height:44px;align-items:center;gap:.45rem;padding:.6rem .9rem;color:var(--muted);font:650 .78rem var(--display);cursor:pointer}
   .preview-settings[open]>summary{color:var(--text)}
   .human-wait{display:flex;align-items:center;gap:1rem;margin:1rem 0;padding:1rem;border-color:color-mix(in srgb,var(--accent) 42%,var(--border));box-shadow:none}
   .human-wait>div{flex:1}.human-wait h2{margin:.2rem 0;font-size:1rem}.human-wait p{margin:.2rem 0;color:var(--muted);font-size:.72rem}
@@ -692,8 +748,8 @@
   .tool-group{display:grid;align-content:start;gap:.5rem;min-width:0}
   .tool-label{color:var(--accent);font:700 .62rem var(--mono);letter-spacing:.14em;text-transform:uppercase}
   .preview-tools label{min-width:0}
-  .preview-tools select{min-height:36px;padding:.4rem}
-  .preview-tools .check{display:flex;align-items:center;gap:.55rem;font-size:.8rem}
+  .preview-tools select{min-height:44px;padding:.4rem}
+  .preview-tools .check{display:flex;min-height:44px;align-items:center;gap:.55rem;font-size:.8rem}
   .preview-tools .check input{width:18px;min-height:18px;margin:0}
   .range{display:grid;gap:.3rem;font-size:.8rem}
   .range b{color:var(--accent);font:700 .78rem var(--mono)}
@@ -777,7 +833,7 @@
   .team-inspector{display:grid;grid-template-columns:1fr 1fr 1fr;gap:1rem;margin-top:2rem;padding:1rem;box-shadow:none}
   .team-inspector h2{margin:.3rem 0}
   .team-inspector p{color:var(--muted);font-size:.76rem}
-  .team-inspector details{margin:0;padding:0}
+  .team-inspector details{margin:0;padding:0}.team-inspector details>summary{display:flex;min-height:44px;align-items:center;cursor:pointer}
   .team-inspector textarea{width:100%;min-height:220px;margin-top:.7rem;font:400 .65rem/1.5 var(--mono)}
   .audit-head{display:flex;align-items:center;justify-content:space-between;gap:2rem;margin-top:2.5rem;padding-top:1.75rem;border-top:1px solid var(--border)}
   .audit-head h2{margin:.3rem 0}
@@ -795,7 +851,7 @@
   .inspector{grid-column:1/-1;display:grid;gap:.55rem;padding-top:1rem}
   .inspector-note{margin:0;color:var(--muted);font-size:.74rem}
   .inspector details{margin:0;padding:.7rem;border:1px solid var(--border);border-radius:.65rem}
-  .inspector details summary{color:var(--text)}
+  .inspector details summary{display:flex;min-height:44px;align-items:center;color:var(--text)}
   .inspector pre{max-height:360px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--muted);font:400 .68rem/1.5 var(--mono)}
   .context-diff{display:flex;flex-wrap:wrap;gap:.4rem}
   .context-diff span{padding:.28rem .45rem;border:1px solid var(--border);border-radius:999px;color:var(--accent);font:.62rem var(--mono)}
@@ -824,5 +880,6 @@
     .human-wait{align-items:stretch;flex-direction:column}
     .decision>summary{grid-template-columns:1fr}
   }
+  .battle-context .button.compact,.tool-foot .link-button{min-height:44px}
   @media(prefers-reduced-motion:reduce){.wait-pulse,.agent-tabs button.actionable:not(.active) em{animation:none}}
 </style>

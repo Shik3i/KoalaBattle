@@ -184,6 +184,33 @@ class PokemonAbility(FrozenModel):
     hidden: bool = False
 
 
+class PokemonIvSpread(FrozenModel):
+    hp: int = Field(default=31, ge=0, le=31)
+    atk: int = Field(default=31, ge=0, le=31)
+    defense: int = Field(default=31, ge=0, le=31, alias="def")
+    spa: int = Field(default=31, ge=0, le=31)
+    spd: int = Field(default=31, ge=0, le=31)
+    spe: int = Field(default=31, ge=0, le=31)
+
+    model_config = ConfigDict(extra="forbid", frozen=True, populate_by_name=True)
+
+
+class ShowdownCompetitiveSet(FrozenModel):
+    source: Literal[
+        "showdown-battle-factory", "showdown-random-battle", "showdown-dex-validated"
+    ]
+    source_generation: int = Field(ge=1, le=9)
+    source_tier: str = Field(min_length=1, max_length=40)
+    species: str = Field(min_length=1, max_length=120)
+    item: str = Field(max_length=120)
+    ability: str = Field(min_length=1, max_length=120)
+    nature: str = Field(min_length=1, max_length=40)
+    moves: tuple[str, ...] = Field(min_length=1, max_length=4)
+    evs: EvSpread
+    ivs: PokemonIvSpread
+    tera_type: str | None = Field(default=None, min_length=1, max_length=40)
+
+
 class DraftCandidate(FrozenModel):
     entry_id: str
     species: str
@@ -194,12 +221,12 @@ class DraftCandidate(FrozenModel):
     types: tuple[str, ...] = Field(min_length=1, max_length=2)
     base_stat_total: int | None = Field(default=None, ge=1, le=2000)
     base_stats: PokemonBaseStats | None = None
+    max_hp: int | None = Field(default=None, ge=1, le=999)
     abilities: tuple[PokemonAbility, ...] = ()
     recommended_moves: tuple[str, ...] = Field(default=(), max_length=4)
-    recommended_move: str | None = Field(
-        default=None, min_length=1, max_length=120, exclude=True
-    )
+    recommended_move: str | None = Field(default=None, min_length=1, max_length=120, exclude=True)
     required_item: str | None = Field(default=None, min_length=1, max_length=120)
+    showdown_set: ShowdownCompetitiveSet | None = None
 
     @model_validator(mode="after")
     def migrate_single_recommended_move(self) -> DraftCandidate:
@@ -418,4 +445,3 @@ class FinalizeTeamInput(FrozenModel):
 
 class RevisionInput(FrozenModel):
     expected_revision: int = Field(ge=1)
-

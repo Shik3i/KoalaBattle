@@ -40,6 +40,16 @@ control decision inspector intentionally loads one full selected match archive; 
 do not. Browser QA covers desktop and narrow layouts, but this baseline does not claim a
 synthetic browser FPS number.
 
+## Draft response baseline
+
+Measured locally on 2026-08-22 against the Docker production build, a persisted drafting run with
+an active three-choice offer returned `16,889` bytes in `78.722 ms`. The response contains the
+three visible candidates, picks, and saved history needed to render the run; it does not serialize
+the complete 1,216-entry draft pool on every poll. The authoritative immutable pool identity,
+Showdown version, and catalog hash remain in the run snapshot. Concurrent same-revision AI draft
+requests share one shielded provider task, so reconnects or duplicate HTTP submissions do not
+multiply provider cost.
+
 ## Audio limits
 
 Speech work is bounded independently of match concurrency by

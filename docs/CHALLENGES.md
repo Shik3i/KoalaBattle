@@ -137,9 +137,27 @@ pricing board, tier conversion, or pricing prerequisite exists.
 
 The pool is an immutable snapshot of the pinned Showdown Dex for the Draft format. Every
 candidate stores the exact Showdown form ID, authoritative base-species identity, introduction
-generation, current types, base stats, and legal format abilities. Temporary, cosmetic,
-unavailable, Mega, and Gigantamax forms are excluded. Species Clause consumes the authoritative
-base-species identity, preventing alternate forms of the same species from returning later.
+generation, current types, base stats, legal format abilities, fixed maximum HP when supplied by
+Showdown, and one legal recommended set. Temporary, cosmetic, unavailable, Mega, and Gigantamax
+forms are excluded. Species Clause consumes the authoritative base-species identity, preventing
+alternate forms of the same species from returning later.
+
+Recommended sets have explicit provenance and are resolved in this order:
+
+1. a four-move set from the pinned generation-specific Showdown Battle Factory data that validates
+   in the current Draft format;
+2. a set produced deterministically by the pinned generation-specific Showdown Random Battle
+   generator and validated in the current Draft format; or
+3. a deterministic set assembled from the current format Dex's real learnset, abilities, required
+   item, nature, IV, and EV data, with every growing moveset checked by the current-format validator.
+
+The third path is a legal deterministic fallback, not a claim that Showdown curates it as a
+competitive sample set. No stats, abilities, items, or moves are invented. With the current pin,
+the catalog contains 1,417 forms and 1,216 draftable entries; all 1,216 have a validated set. Ditto,
+Unown, Cosmog, and Cosmoem are the only draftable entries with fewer than four legal recommended
+moves. The three otherwise ordinary-looking unavailable forms are `Pikachu-Starter`,
+`Eevee-Starter`, and `Xerneas-Neutral`; the current format validator reports that they do not exist
+in the game. The remaining exclusions are explicit special-form flags and may overlap.
 
 Offer generation is deterministic from the definition/version, rules version, seed, round,
 nonce, exact pool hash, pinned Showdown version, and sorted consumed identities. A new offer is
@@ -165,6 +183,10 @@ The backend applies those exact selections to the submitted team before validati
 ability not legal for that exact form and format, and checks the structured validator response
 against the persisted selections. It also requires the exact drafted forms and recommended EV
 allocation. The pinned Showdown validator is authoritative.
+
+Species with Showdown's fixed `maxHP` bypass the ordinary level/stat HP formula. In particular,
+Shedinja (Ninjatom) persists `max_hp = 1` and enters every Draft stage with exactly one HP,
+independent of level, IVs, or EVs. Ninjask has no such override and uses the normal formula.
 
 The bundled definition inherits Gen 9 NatDex Draft through
 `gen9koalabattlecanonicalnatdexdraft`. It repeals only the clauses required for recorded
@@ -237,7 +259,9 @@ pins the exact species per stage, asserts every set has an ability, item, nature
 four moves, asserts roster size and level never decrease across the campaign, and hashes the whole
 set list. `backend/tests/integration/test_challenge_content.py` runs all thirteen teams through
 the real pinned Showdown validator at their stage level and asserts the structured result actually
-carries the intended item, ability, nature, level, EVs, and four moves.
+carries the intended item, ability, nature, level, EVs, and four moves. The same real-Showdown gate
+also asserts full draftable-set coverage, the only four legitimate short movesets, distinct
+Ninjask/Shedinja metadata, and Shedinja's fixed one HP across the campaign level range.
 
 The V10 stage metadata maps each opponent to its Red/Blue trainer sprite identifier.
 `scripts/setup_assets.py install --profile full` installs those 13 portraits below ignored

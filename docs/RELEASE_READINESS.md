@@ -8,6 +8,8 @@ compatible Chromium/WebCodecs path or the documented FFmpeg fallback.
 ## Supported workflows
 
 - Every two-player singles format in the pinned Showdown registry, Generations 1-9
+- Persistent six-Pokémon Draft and Kanto Gym Gauntlet runs with real Showdown-backed species,
+  legal recommended sets, fixed-HP overrides, deterministic offers, and normal stored battles
 - Random, Manual Web Chat, OpenAI, Gemini, Anthropic, DeepSeek, and OpenAI-compatible agents
 - Single Elimination and Round Robin tournaments with durable concurrent scheduling
 - spectator-safe watch/replay and match/tournament OBS browser sources
@@ -39,6 +41,14 @@ FFmpeg 8.1.2, Docker Engine 29.4.0, and Docker Compose 5.1.2. A 30-second 1920x1
 rendered on the native host path in 11.391 seconds (`2.634x` realtime wall speed; `3.256x`
 measured compositor/encode/mux speed) with no asset failures. The Docker renderer's compatible
 raw-RGBA fallback remains valid but may render below realtime on ARM64.
+
+The focused 2026-08-22 Draft mechanics and presentation gate passed Ruff, Mypy, 273 backend tests
+with 21 opt-in/environment tests skipped, 6 explicit real-Showdown integration tests, 105 frontend
+tests, Svelte diagnostics with zero errors or warnings, and the production frontend build. Browser
+QA covered active, completed legacy, and invalid Draft routes plus a completed battle at 390x844:
+no console errors or horizontal overflow, and visible interactive controls use at least a 44 px
+touch dimension. The current pinned catalog measured 1,216 validated draftable entries out of
+1,417 forms.
 
 ## Security expectations
 
