@@ -25,6 +25,14 @@
   trainer's own mainline teams — Brock fields his HGSS six, Bruno's second Onix becomes Steelix,
   Blue keeps Rhydon. Trainers are never weakened to smooth the curve: a weak canonical Pokémon
   gets Eviolite and a real spread instead of being swapped out;
+- fixed an open tab breaking after every frontend deploy. A rebuild renames every
+  content-hashed chunk, so a page still running the old bundle 404s on the ones it
+  remembers, dies with "Failed to fetch dynamically imported module", and keeps calling an
+  API whose shape it no longer matches. The client now detects a new version and routes the
+  next navigation through the server, and a stale-chunk error reloads once;
+- fixed the AI draft giving up when the run moved on between the poll and the request: a
+  stale revision is no longer treated as a provider failure, so the drafter asks again with
+  the current revision instead of stranding the draft;
 - made the Elite Four one gauntlet (content V12): arriving at the Plateau heals, but from Bruno
   onward a Pokémon knocked out in the previous battle stays out, applied to the derived stage
   export like the level so the drafted snapshot is never rewritten. Only a win carries casualties

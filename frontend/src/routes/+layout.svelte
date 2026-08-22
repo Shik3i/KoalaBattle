@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { page } from '$app/stores';
+  import { beforeNavigate } from '$app/navigation';
+  import { page, updated } from '$app/stores';
   import { onMount } from 'svelte';
   import '../app.css';
 
@@ -19,6 +20,16 @@
   $: if (typeof document !== 'undefined') {
     document.documentElement.dataset.overlay = String(cleanRoute);
   }
+  // A redeploy renames every content-hashed chunk, so a tab that outlived it 404s on the
+  // ones it still remembers and the whole app looks broken. Once a new version is detected,
+  // send the next navigation through the server to pick the current build up.
+  beforeNavigate((navigation) => {
+    if ($updated && navigation.willUnload === false && navigation.to?.url) {
+      navigation.cancel();
+      location.href = navigation.to.url.href;
+    }
+  });
+
   onMount(() => {
     theme = (localStorage.getItem('koalabattle-theme') as 'light' | 'dark') ||
       (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');

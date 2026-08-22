@@ -318,8 +318,16 @@
   }
   async function agentDraft() {
     if (!run) return;
-    autoDraftedOffer = run.current_offer?.fingerprint || '';
-    await mutate('/draft/agent', { expected_revision: run.revision }, 'agent');
+    const fingerprint = run.current_offer?.fingerprint || '';
+    autoDraftedOffer = fingerprint;
+    const ok = await mutate('/draft/agent', { expected_revision: run.revision }, 'agent');
+    // A stale revision is not an AI failure — the run simply moved on between the poll and
+    // the request. `mutate` has already refreshed, so let the loop ask again for this same
+    // offer with the current revision instead of stranding the draft on a dead screen.
+    if (!ok && technicalError.toLowerCase().includes('stale')) {
+      agentFailed = false;
+      if (autoDraftedOffer === fingerprint) autoDraftedOffer = '';
+    }
   }
   async function takeOverDraft() { if (run && await mutate('/draft/takeover', { expected_revision: run.revision }, 'takeover')) agentFailed = false; }
   async function saveTraining() { if (run) await mutate('/training', { allocations, expected_revision: run.revision }, 'training'); }
