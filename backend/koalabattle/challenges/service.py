@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
-import random
 import re
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -35,7 +34,6 @@ from .domain import (
 )
 from .models import (
     DRAFT_RULES_VERSION,
-    TRAINING_REWARD_ITEMS,
     BattleControllerSnapshot,
     ChallengeBattleSummary,
     ChallengeDefinition,
@@ -50,21 +48,20 @@ from .models import (
     DraftCandidate,
     DraftControllerKind,
     DraftHistoryEntry,
+    DraftOffer,
     DraftPick,
     DraftPoolSnapshot,
     EvSpread,
     PublicChallengeStage,
-    TrainingRewardChoice,
-    TrainingRewardKind,
-    TrainingRewardOffer,
-    TrainingRewardOption,
     player_stage_level,
 )
 from .repository import ChallengeRepository
 from .species import ShowdownSpeciesCatalog, SpeciesMetadata, showdown_id
 
 CONTENT_ROOT = Path(__file__).with_name("content")
-AUTO_ADVANCE_DELAYS = {"quick-sim": 3.0, "fast-watch": 4.5, "normal": 3.0}
+#: The next stage starts immediately after a win. The short "next opponent" transition is
+#: presentation in the browser, not a server-side wait, so nothing blocks progression.
+AUTO_ADVANCE_DELAYS = {"quick-sim": 0.0, "fast-watch": 0.0, "normal": 0.0}
 
 
 def _event_pokemon(value: object) -> tuple[str, str] | None:
@@ -115,6 +112,38 @@ def derive_battle_summary(archive: MatchArchive) -> ChallengeBattleSummary:
     )
 
 
+def _resolve_draft_action(
+    raw: str, legal: list[str], offer: DraftOffer
+) -> str | None:
+    """Map a model's answer onto one exact legal action.
+
+    Only `json_schema` providers get the enum enforced; DeepSeek documents `json_object`,
+    so the answer routinely arrives as a bare entry id, a species name, or different case.
+    Rejecting those made a correct decision look like a provider failure.
+    """
+    candidate = raw.strip()
+    if candidate in legal:
+        return candidate
+    lowered = candidate.casefold()
+    for action in legal:
+        if action.casefold() == lowered:
+            return action
+    # A bare entry id or species name, with or without the prefix.
+    bare = lowered.removeprefix("pick:").strip()
+    for option in offer.options:
+        names = {option.entry_id.casefold(), option.species.casefold(), option.showdown_id}
+        if bare in names and f"pick:{option.entry_id}" in legal:
+            return f"pick:{option.entry_id}"
+    # A reroll named without its exact key, e.g. "reroll pokemon" or "type reroll".
+    if "reroll" in lowered:
+        for suffix, action in (("type", "reroll:type"), ("generation", "reroll:generation")):
+            if suffix in lowered and action in legal:
+                return action
+        if "reroll" in legal:
+            return "reroll"
+    return None
+
+
 class _AgentDraftAction(BaseModel):
     model_config = ConfigDict(extra="forbid")
     action: str
@@ -136,6 +165,7 @@ def _public_stage(stage: ChallengeStage, difficulty: ChallengeDifficulty) -> Pub
             "theme": stage.theme,
             "level": stage.level,
             "player_level": player_stage_level(stage.level, difficulty),
+            "full_heal_before": stage.full_heal_before,
             "specialty": stage.specialty,
             "trainer_asset_id": stage.trainer_asset_id,
             "visual_accent": stage.visual_accent,
@@ -240,129 +270,41 @@ def _apply_selected_abilities(team_export: str, run: ChallengeRun) -> str:
     return "\n\n".join(normalized)
 
 
-def _reward_rng(run: ChallengeRun, stage_index: int) -> random.Random:
-    """Deterministic per run and stage, so the same run always offers the same rewards."""
-    material = json.dumps(
-        {
-            "seed": run.seed,
-            "definition": [run.definition.id, run.definition.version],
-            "stage_index": stage_index,
-            "roster": [pick.candidate.entry_id for pick in run.picks],
-        },
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode()
-    return random.Random(int.from_bytes(hashlib.sha256(material).digest()))
+def _without_downed(team_export: str, run: ChallengeRun) -> str:
+    """Leave out Pokemon knocked out earlier in the current gauntlet section.
 
-
-def build_training_reward_offer(run: ChallengeRun, stage_index: int) -> TrainingRewardOffer | None:
-    """Three upgrades for the roster after a stage win: two items and one EV respec.
-
-    Every option is legal by construction: the items are held by anything in this format
-    and the spreads come from the same generator Training Camp uses, so a reward can never
-    turn an already validated roster illegal.
+    Like the level and the difficulty modifier this only touches the *derived* stage
+    export; the drafted roster snapshot is never rewritten. The last Pokemon is never
+    removed, because a team of zero cannot be sent into a battle.
     """
-    if not run.picks or stage_index >= len(run.definition.stages):
-        return None
-    rng = _reward_rng(run, stage_index)
-    picks = list(run.picks)
-    held = {
-        choice.option.entry_id: choice.option.item
-        for choice in run.training_rewards
-        if choice.option.item
-    }
-    options: list[TrainingRewardOption] = []
-    for slot in range(2):
-        pick = picks[rng.randrange(len(picks))]
-        pool = [item for item in TRAINING_REWARD_ITEMS if item != held.get(pick.candidate.entry_id)]
-        item = pool[rng.randrange(len(pool))]
-        options.append(
-            TrainingRewardOption(
-                id=f"{stage_index}:item:{slot}:{pick.candidate.entry_id}",
-                kind=TrainingRewardKind.ITEM,
-                entry_id=pick.candidate.entry_id,
-                species=pick.candidate.species,
-                label=f"{pick.candidate.species} holds {item}",
-                detail=(
-                    f"Replaces whatever {pick.candidate.species} holds, for the rest of the run."
-                ),
-                item=item,
-            )
-        )
-    pick = picks[rng.randrange(len(picks))]
-    spread = _alternate_ev_spread(pick.candidate, run.ev_allocations.get(pick.candidate.entry_id))
-    options.append(
-        TrainingRewardOption(
-            id=f"{stage_index}:ev:{pick.candidate.entry_id}",
-            kind=TrainingRewardKind.EV_SPREAD,
-            entry_id=pick.candidate.entry_id,
-            species=pick.candidate.species,
-            label=f"Retrain {pick.candidate.species}",
-            detail=f"New legal spread: {_ev_line(spread) or 'EVs: 1 HP'}".replace("EVs: ", ""),
-            ev_spread=spread,
-        )
-    )
-    stage = run.definition.stages[stage_index]
-    return TrainingRewardOffer(
-        stage_index=stage_index, stage_id=stage.id, options=tuple(options)
-    )
-
-
-def _alternate_ev_spread(candidate: DraftCandidate, current: EvSpread | None) -> EvSpread:
-    """A different legal spread from the recommended one, so a respec is a real choice."""
-    stats = candidate.base_stats
-    recommended = _recommended_ev_spread(candidate)
-    if stats is None:
-        return EvSpread(hp=252, defense=252, spd=4)
-    physical = stats.atk >= stats.spa
-    alternatives = [
-        EvSpread(atk=252, spd=4, spe=252) if physical else EvSpread(spa=252, spd=4, spe=252),
-        EvSpread(hp=252, atk=252, spd=4) if physical else EvSpread(hp=252, spa=252, spd=4),
-        EvSpread.model_validate({"hp": 252, "def": 252, "spd": 4}),
-        EvSpread.model_validate({"hp": 252, "def": 4, "spd": 252}),
-    ]
-    for option in alternatives:
-        if option != (current or recommended):
-            return option
-    return recommended
-
-
-def _with_training_rewards(team_export: str, run: ChallengeRun) -> str:
-    """Replay every claimed reward onto the derived stage export.
-
-    Like the level, this never touches the stored roster snapshot: rewards are re-applied
-    to a copy every time a stage launches, so the run stays reconstructible from its own
-    immutable history.
-    """
-    if not run.training_rewards:
+    if not run.downed_entry_ids:
         return team_export
-    items: dict[str, str] = {}
-    spreads: dict[str, EvSpread] = {}
-    for choice in run.training_rewards:
-        if choice.option.kind is TrainingRewardKind.ITEM and choice.option.item:
-            items[showdown_id(choice.option.species)] = choice.option.item
-        elif choice.option.ev_spread is not None:
-            spreads[showdown_id(choice.option.species)] = choice.option.ev_spread
-    blocks: list[str] = []
-    for block in (item.strip() for item in team_export.strip().split("\n\n") if item.strip()):
-        lines = block.splitlines()
-        heading = lines[0]
-        name = heading.split("@", 1)[0].strip()
-        match = re.search(r"\(([^()]+)\)\s*$", name)
-        species_id = showdown_id(match.group(1) if match else name)
-        if species_id in items:
-            lines[0] = f"{name} @ {items[species_id]}"
-        if species_id in spreads:
-            ev_line = _ev_line(spreads[species_id]) or "EVs: 1 HP"
-            ev_index = next(
-                (index for index, line in enumerate(lines) if line.startswith("EVs:")), None
-            )
-            if ev_index is None:
-                lines.insert(1, ev_line)
-            else:
-                lines[ev_index] = ev_line
-        blocks.append("\n".join(lines))
-    return "\n\n".join(blocks)
+    downed = {
+        showdown_id(pick.candidate.species)
+        for pick in run.picks
+        if pick.candidate.entry_id in set(run.downed_entry_ids)
+    }
+    if not downed:
+        return team_export
+    blocks = [item.strip() for item in team_export.strip().split("\n\n") if item.strip()]
+    kept: list[str] = []
+    for block in blocks:
+        heading = block.splitlines()[0].split("@", 1)[0].strip()
+        match = re.search(r"\(([^()]+)\)\s*$", heading)
+        species = showdown_id(match.group(1) if match else heading)
+        if species not in downed:
+            kept.append(block)
+    return "\n\n".join(kept) if kept else team_export
+
+
+def _knocked_out_entry_ids(run: ChallengeRun, summary: ChallengeBattleSummary) -> tuple[str, ...]:
+    """Map the species that fainted on the player's side back onto drafted entries."""
+    fainted = {showdown_id(species) for species in summary.player_fainted}
+    return tuple(
+        pick.candidate.entry_id
+        for pick in run.picks
+        if showdown_id(pick.candidate.species) in fainted
+    )
 
 
 def _with_zero_ev_confirmation(team_export: str) -> str:
@@ -1153,7 +1095,10 @@ class ChallengeService:
             ),
             model=run.draft_controller.model or "",
             timeout_seconds=run.draft_controller.configuration.timeout_seconds,
-            max_output_tokens=min(run.draft_controller.configuration.max_output_tokens, 256),
+            # No 256-token cap here. Reasoning models (DeepSeek V4 has thinking enabled by
+            # default) spend their budget on hidden reasoning first, so a small cap returns
+            # an empty completion and every AI draft decision failed as "invalid response".
+            max_output_tokens=max(512, run.draft_controller.configuration.max_output_tokens),
             temperature=run.draft_controller.configuration.temperature,
             reasoning_effort=run.draft_controller.configuration.reasoning_effort,
             output_schema_name="koalabattle_draft_action",
@@ -1178,11 +1123,21 @@ class ChallengeService:
             try:
                 parsed = _AgentDraftAction.model_validate_json(response.text)
             except ValidationError as error:
-                last_error = f"agent draft response is invalid: {error}"
+                if not response.text.strip():
+                    last_error = (
+                        "agent draft provider returned no text; raise max output tokens for "
+                        "reasoning models"
+                    )
+                else:
+                    last_error = f"agent draft response is invalid: {error}"
                 continue
-            if parsed.action not in legal:
-                last_error = "agent selected an action that is no longer legal"
+            action = _resolve_draft_action(parsed.action, legal, run.current_offer)
+            if action is None:
+                last_error = (
+                    f"agent selected {parsed.action!r}, which is not one of the legal actions"
+                )
                 continue
+            parsed = parsed.model_copy(update={"action": action})
             if parsed.action.startswith("reroll"):
                 kind: Literal["pokemon", "type", "generation"] = (
                     "type"
@@ -1401,6 +1356,13 @@ class ChallengeService:
             if source is None:
                 raise ValueError("finalized source team snapshot is missing")
             stage = run.definition.stages[run.current_stage_index]
+            # Arriving at a stage that heals wipes the gauntlet's casualty list first, so
+            # the derived team below is built from the roster the player actually has.
+            if stage.full_heal_before and run.downed_entry_ids:
+                run = await self.repository.save(
+                    run.model_copy(update={"downed_entry_ids": ()}),
+                    expected_revision=run.revision,
+                )
             # Each attempt at a stage gets its own deterministic seed, so retrying a lost
             # stage is a genuine retry rather than a byte-identical rerun of the same loss.
             stage_attempts = sum(
@@ -1412,14 +1374,14 @@ class ChallengeService:
             # difficulty modifier would drop below. Give back the smallest amount of the
             # level disadvantage that makes the derived team legal instead of failing the
             # stage; the opponent's level never moves.
-            earned = _with_training_rewards(source.normalized_export, run)
+            available = _without_downed(source.normalized_export, run)
             player_validation = await self.battles.team_validator.validate(
-                _with_level(earned, player_level), run.definition.format
+                _with_level(available, player_level), run.definition.format
             )
             while not player_validation.valid and player_level < stage.level:
                 player_level = min(stage.level, player_level + 5)
                 player_validation = await self.battles.team_validator.validate(
-                    _with_level(earned, player_level), run.definition.format
+                    _with_level(available, player_level), run.definition.format
                 )
             opponent_validation = await self.battles.team_validator.validate(
                 _with_unique_duplicate_nicknames(
@@ -1552,20 +1514,30 @@ class ChallengeService:
             won = outcome == "won"
             next_index = stage_index + 1 if won else stage_index
             completed = won and next_index == len(run.definition.stages)
-            # A win is the only thing that hands out an upgrade, and the run holds at most
-            # one unclaimed offer so progression can never fork.
-            pending_reward = run.pending_reward
-            if won and not completed:
-                pending_reward = build_training_reward_offer(run, next_index)
-            elif completed:
-                pending_reward = None
-            # An unclaimed upgrade is a real decision point, so the countdown to the next
-            # stage does not start until it is resolved. Claiming or skipping resumes it.
+            # Casualties carry into the next stage only while the run stays inside a
+            # gauntlet section. Any result that is not a win resets them, so a retry is
+            # never fought a Pokemon short and the run cannot spiral into an unwinnable state.
+            next_stage = (
+                run.definition.stages[next_index]
+                if next_index < len(run.definition.stages)
+                else None
+            )
+            if not won or next_stage is None or next_stage.full_heal_before:
+                downed_entry_ids: tuple[str, ...] = ()
+            else:
+                carried = set(run.downed_entry_ids)
+                carried.update(_knocked_out_entry_ids(run, derive_battle_summary(archive)))
+                survivors = [
+                    pick.candidate.entry_id
+                    for pick in run.picks
+                    if pick.candidate.entry_id not in carried
+                ]
+                # Never carry a wipe forward: something has to be able to enter the arena.
+                downed_entry_ids = tuple(sorted(carried)) if survivors else ()
             auto_advance_at = (
                 datetime.now(UTC) + timedelta(seconds=AUTO_ADVANCE_DELAYS[run.battle_experience])
                 if won
                 and not completed
-                and pending_reward is None
                 and self.auto_run_available(run)
                 and not run.auto_run_paused
                 else None
@@ -1579,7 +1551,7 @@ class ChallengeService:
                     "active_match_id": None,
                     "stage_results": (*run.stage_results, result),
                     "auto_advance_at": auto_advance_at,
-                    "pending_reward": pending_reward,
+                    "downed_entry_ids": downed_entry_ids,
                     "completed_at": datetime.now(UTC) if completed else None,
                     "error": archive.error if outcome in {"failed", "interrupted"} else None,
                 }
@@ -1613,66 +1585,6 @@ class ChallengeService:
             if current.active_match_id is not None:
                 return current, await self.battles.repository.get_match(current.active_match_id)
             raise
-
-    def _resume_deadline(self, run: ChallengeRun) -> datetime | None:
-        """When the run may launch the next stage again after a decision point."""
-        if (
-            not self.auto_run_available(run)
-            or run.auto_run_paused
-            or run.status is not ChallengeStatus.STAGE_RESULT
-            or run.current_stage_index >= len(run.definition.stages)
-        ):
-            return None
-        return datetime.now(UTC) + timedelta(seconds=AUTO_ADVANCE_DELAYS[run.battle_experience])
-
-    async def claim_training_reward(
-        self, run_id: UUID, option_id: str, expected_revision: int
-    ) -> ChallengeRun:
-        """Claim one offered upgrade. The offer is consumed whether or not auto-run is on."""
-        async with self.repository.lock(run_id):
-            run = await self.require(run_id)
-            if run.revision != expected_revision:
-                raise ValueError(f"stale challenge revision: current {run.revision}")
-            offer = run.pending_reward
-            if offer is None:
-                raise ValueError("this run has no training reward to claim")
-            option = next((item for item in offer.options if item.id == option_id), None)
-            if option is None:
-                raise ValueError("that reward is not one of the offered options")
-            choice = TrainingRewardChoice(
-                stage_index=offer.stage_index, stage_id=offer.stage_id, option=option
-            )
-            stored = await self.repository.save(
-                run.model_copy(
-                    update={
-                        "pending_reward": None,
-                        "training_rewards": (*run.training_rewards, choice),
-                        "auto_advance_at": self._resume_deadline(run),
-                    }
-                ),
-                expected_revision=run.revision,
-            )
-        self._schedule_auto_run(stored)
-        return stored
-
-    async def skip_training_reward(self, run_id: UUID, expected_revision: int) -> ChallengeRun:
-        async with self.repository.lock(run_id):
-            run = await self.require(run_id)
-            if run.revision != expected_revision:
-                raise ValueError(f"stale challenge revision: current {run.revision}")
-            if run.pending_reward is None:
-                return run
-            stored = await self.repository.save(
-                run.model_copy(
-                    update={
-                        "pending_reward": None,
-                        "auto_advance_at": self._resume_deadline(run),
-                    }
-                ),
-                expected_revision=run.revision,
-            )
-        self._schedule_auto_run(stored)
-        return stored
 
     async def pause_auto_run(self, run_id: UUID, expected_revision: int) -> ChallengeRun:
         async with self.repository.lock(run_id):

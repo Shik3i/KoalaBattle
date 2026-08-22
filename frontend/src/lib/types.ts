@@ -398,30 +398,6 @@ export interface MatchArchive {
   }>;
 }
 
-export interface TrainingRewardOption {
-  id: string;
-  kind: 'item' | 'ev-spread';
-  entry_id: string;
-  species: string;
-  label: string;
-  detail: string;
-  item: string | null;
-  ev_spread: EvSpread | null;
-}
-
-export interface TrainingRewardOffer {
-  stage_index: number;
-  stage_id: string;
-  options: TrainingRewardOption[];
-}
-
-export interface TrainingRewardChoice {
-  stage_index: number;
-  stage_id: string;
-  option: TrainingRewardOption;
-  created_at: string;
-}
-
 export type ChallengeDifficulty = 'normal' | 'hard' | 'expert' | 'nightmare';
 
 export type ChallengeStatus = 'drafting' | 'preparing' | 'training' | 'team_review' | 'ready' | 'battle_queued' | 'battling' | 'stage_result' | 'completed' | 'failed' | 'cancelled' | 'abandoned';
@@ -496,8 +472,8 @@ export interface ChallengeRunView {
     opponent_controller: { agent_type: AgentType; provider?: ProviderKind | null; model?: string | null };
     battle_experience: 'quick-sim' | 'fast-watch' | 'normal';
     difficulty: ChallengeDifficulty;
-    pending_reward: TrainingRewardOffer | null;
-    training_rewards: TrainingRewardChoice[];
+    /** Drafted entries knocked out earlier in the current gauntlet section. */
+    downed_entry_ids: string[];
     rerolls_remaining: number;
     type_rerolls_remaining: number;
     generation_rerolls_remaining: number;
@@ -538,6 +514,8 @@ export interface ChallengeStageSummary {
   level: number;
   /** Level applied to the player's derived stage team after the difficulty modifier. */
   player_level: number;
+  /** False means this stage continues the previous one: knocked-out Pokemon stay out. */
+  full_heal_before: boolean;
   specialty: string | null;
   trainer_asset_id: string | null;
   visual_accent: string;

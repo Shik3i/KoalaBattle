@@ -4,6 +4,7 @@ import asyncio
 import json
 from collections import defaultdict
 from datetime import UTC, datetime
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import delete, select, update
@@ -26,8 +27,22 @@ def _without_legacy_points(candidate: dict[str, object]) -> dict[str, object]:
     return cleaned
 
 
+#: Fields written by retired features. `ChallengeRun` forbids extra keys, so a saved run
+#: carrying one of these would fail to load and take the whole backend down with it.
+RETIRED_RUN_FIELDS = ("pending_reward", "training_rewards")
+
+
+def _without_retired_fields(payload: Any) -> Any:
+    if not isinstance(payload, dict):
+        return payload
+    cleaned: dict[str, Any] = dict(payload)
+    for field in RETIRED_RUN_FIELDS:
+        cleaned.pop(field, None)
+    return cleaned
+
+
 def _deserialize_run(state_json: str) -> ChallengeRun:
-    payload = json.loads(state_json)
+    payload = _without_retired_fields(json.loads(state_json))
     if payload.get("schema_version") != "1.0":
         return ChallengeRun.model_validate(payload)
 

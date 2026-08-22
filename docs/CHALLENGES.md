@@ -5,13 +5,32 @@ definition is **Kanto Gym Gauntlet**: six drafted Pokémon with automatic recomm
 against all eight Kanto Gym Leaders, the Elite Four, and Champion Blue. Every stage creates a
 normal immutable KoalaBattle match and replay.
 
-The V9 content pack ships **KoalaBattle-authored competitive teams** built around each Red/Blue
+The V12 content pack ships **KoalaBattle-authored competitive teams** built around each Red/Blue
 trainer's specialty. Trainer identity, type theme, and signature species follow the source games;
 the sets do not. Every opponent Pokémon carries an explicit legal ability, nature, held item, EV
-spread, and IV spread, with real coverage and a coherent role. Roster size and set quality
-escalate across the campaign: Brock fields three, the middle gyms four to five, and Giovanni, the
-Elite Four, and Champion Blue field a full six. Earlier V8 runs keep their stored Red/Blue
-definition; the version bump only affects new runs.
+spread, and IV spread, with real coverage and a coherent role.
+
+**Every trainer fields six, and every Pokémon is one that trainer really uses.** The player always
+brings six, so an opening gym with three was a free numbers advantage rather than a difficulty
+curve — Brock was a 6v3.
+
+Species selection follows the games, never convenience. The rule is: the Red/Blue roster first,
+then the same trainer's other mainline teams (Yellow, GSC/HGSS, Let's Go), then that trainer's own
+evolutionary line where Species Clause forces it — Bruno's two Onix become Onix plus Steelix, and
+Blue keeps Rhydon rather than Rhyperior. Brock's six are exactly his HGSS team; Sabrina's are her
+Red/Blue and Yellow Pokémon. No trainer fields a species they never use, and no regional forms
+stand in for the Kanto originals.
+
+Trainers are never weakened to smooth the curve. Where a canonical Pokémon is simply weak
+(Abra, Gastly, Dratini, Koffing, Growlithe) it carries Eviolite and a real spread rather than
+being swapped out. Difficulty escalates through species strength and set quality alone, up to
+Champion Blue's six. Runs created on an earlier pack keep their stored definition; the version
+bump only affects new runs.
+
+`scripts/probe_stage_floor.py` guards the other direction. For each trainer it assembles the worst
+legal team it can — Pokémon whose own attacks that specialty resists, and which the specialty hits
+hard — and runs a real battle against the shipped stage team. A loss is the expected result; a win
+means that trainer can be beaten with no type advantage at all and needs a stronger core.
 
 The campaign level curve normalizes both sides to the stage level. The Draft-only format removes
 Showdown's `Obtainable Misc` event-origin minimum-level check so any otherwise legal drafted
@@ -41,22 +60,26 @@ smallest part of the level disadvantage needed to keep the derived team legal in
 the stage; the opponent level never moves. Automatically prepared sets avoid this by only
 recommending moves that are still legal at level 35, the lowest level the campaign can produce.
 
-## Training rewards
+## The Elite Four is one gauntlet
 
-Clearing a stage hands out one permanent upgrade, chosen from three deterministic options:
-two held items and one EV respec. Options come from a hash of the run seed, the definition,
-the stage index, and the drafted roster, so reloading never rerolls them.
+Every Gym Leader is fought with a full roster. The Elite Four is not: arriving at the Plateau
+heals you, and from Bruno onward a Pokémon knocked out in the previous battle **stays out**, the
+way the source games fight those five in one sitting. Each stage carries `full_heal_before`;
+only Bruno, Agatha, Lance and Champion Blue set it to `false`.
 
-Rewards are legal by construction rather than by validation: the item pool is limited to
-items anything in this format can hold, and the spreads come from the same generator Training
-Camp uses. Like the level and the difficulty modifier, a claimed reward is replayed onto the
-**derived** stage export at launch — the drafted roster snapshot is never rewritten, so the run
-stays reconstructible from its own immutable history.
+Casualties live on the run as `downed_entry_ids` and are applied exactly like the level and the
+difficulty modifier — by leaving those Pokémon out of the *derived* stage export at launch. The
+drafted roster snapshot is never rewritten, so the run stays reconstructible from its own history.
 
-An unclaimed reward holds the auto-run countdown. A run with a decision waiting does not
-launch the next stage until the reward is claimed or skipped; either resumes the countdown
-immediately. `POST /api/challenges/{id}/reward` claims one option,
-`POST /api/challenges/{id}/reward/skip` declines.
+Two rules keep it from becoming a death spiral:
+
+- **Only a win carries casualties forward.** Any loss, draw or technical failure clears the list,
+  so a retry is never fought a Pokémon short.
+- **A wipe is never carried.** If every drafted Pokémon would be excluded, the full team is sent
+  in instead; a team of zero cannot enter a battle.
+
+The run screen greys out the fallen in the roster strip and states the count before the next
+gauntlet battle.
 
 ## Batch playtesting
 
@@ -69,7 +92,11 @@ python3 scripts/playtest_draft.py --difficulty normal hard --runs 6 --retries 1
 ```
 
 It reports cleared/reached distributions, completions, and a per-stage win rate, then deletes
-its runs unless `--keep` is passed. Every battle is a real Showdown battle; nothing is
+its runs unless `--keep` is passed. Stages inside one campaign are inherently sequential — you
+cannot fight Misty before Brock — and a stage battle costs roughly twelve seconds of real
+Showdown time, so a single campaign takes a couple of minutes no matter what. `--parallel N`
+drives several campaigns at once, which is the only real speed-up; keep it at or below the
+backend's `KOALABATTLE_MAX_CONCURRENT_MATCHES`. Every battle is a real Showdown battle; nothing is
 simulated. Use it before and after any change to opponent teams, difficulty, or Tactical Auto —
 the agent's own history has an example of a plausible-looking heuristic that measurably made
 the campaign worse.
@@ -88,8 +115,10 @@ the campaign worse.
    and held item matching that same role, and up to four practical legal moves chosen for
    attacking-category fit and distinct coverage types, then validates the team and prepares the
    first stage. Advanced team setup remains optional before Brock.
-6. Fully automatic controllers launch the first stage immediately and continue after each short
-   result countdown. Pause Auto-Run stops before the next match; Continue Run resumes exactly once.
+6. Fully automatic controllers launch the first stage immediately and continue the moment a stage
+   is won — there is no countdown between battles. A short, self-dismissing card announces the
+   next opponent; it is browser presentation only, never gates progression, and is skipped under
+   `prefers-reduced-motion`. Pause Auto-Run stops before the next match; Continue Run resumes once.
    Human or Manual Web Chat controllers always retain their explicit launch and turn controls.
 7. A win advances; loss, draw, cancellation, interruption, or engine failure records a stage
    result and leaves that same stage retryable. Every result links to an interactive browser replay.
@@ -170,7 +199,8 @@ one full HP bar.
 Challenge state lives in `challenge_runs`; each stage match stores `challenge_run_id` and
 `challenge_stage_id`. Startup resumes interrupted automatic team preparation and reconciles
 terminal, interrupted, or missing linked matches. Auto-Run deadlines and paused state are persisted;
-the backend performs the idempotent next-stage launch, while browser countdowns are presentation only. Runs
+the backend performs the idempotent next-stage launch with no delay, and the browser only animates
+the handover. Runs
 use database-level optimistic revisions plus per-run locks, so stale or duplicate
 pick/reroll/training/ability/finalize/launch requests are rejected across application processes.
 Cancelling a run cancels its active normal match through the existing supervisor.
@@ -209,7 +239,7 @@ set list. `backend/tests/integration/test_challenge_content.py` runs all thirtee
 the real pinned Showdown validator at their stage level and asserts the structured result actually
 carries the intended item, ability, nature, level, EVs, and four moves.
 
-The V9 stage metadata maps each opponent to its Red/Blue trainer sprite identifier.
+The V10 stage metadata maps each opponent to its Red/Blue trainer sprite identifier.
 `scripts/setup_assets.py install --profile full` installs those 13 portraits below ignored
 `data/assets/trainers/`. The UI animates installed sprites and retains a deterministic fallback
 when optional local media is absent.

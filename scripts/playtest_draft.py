@@ -21,9 +21,13 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
 DIFFICULTIES = ("normal", "hard", "expert", "nightmare")
+#: A stage battle takes roughly twelve seconds of real Showdown time, so polling any
+#: slower than this just adds dead time to every single stage.
+POLL_SECONDS = 0.4
 
 
 class ApiError(RuntimeError):
@@ -88,28 +92,32 @@ def wait_for(base: str, run_id: str, statuses: set[str], timeout: float) -> dict
         view = call(base, f"/api/challenges/{run_id}")  # type: ignore[assignment]
         if view["run"]["status"] in statuses:
             return view
-        time.sleep(2)
+        time.sleep(POLL_SECONDS)
     raise ApiError(f"timed out waiting for {sorted(statuses)}; last was {view.get('run', {}).get('status')}")
 
 
-def resolve_reward(base: str, run_id: str, policy: str) -> None:
-    """Answer a pending training reward so an unattended sweep keeps moving."""
-    view = call(base, f"/api/challenges/{run_id}")
-    assert isinstance(view, dict)
-    offer = view["run"].get("pending_reward")
-    if not offer:
-        return
-    revision = view["run"]["revision"]
-    if policy == "skip":
-        call(base, f"/api/challenges/{run_id}/reward/skip", {"expected_revision": revision})
-        return
-    call(base, f"/api/challenges/{run_id}/reward", {
-        "option_id": offer["options"][0]["id"], "expected_revision": revision,
-    })
+def wait_for_new_result(base: str, run_id: str, seen: int, timeout: float) -> dict:
+    """Wait until the run records a stage result beyond the ones already collected.
+
+    Waiting on a *status* is not enough any more: a won stage advances instantly, so the
+    run is already back in `stage_result` (from the previous battle) while the next match
+    is only queued, and a status wait returns immediately with stale data.
+    """
+    deadline = time.time() + timeout
+    view: dict = {}
+    while time.time() < deadline:
+        view = call(base, f"/api/challenges/{run_id}")  # type: ignore[assignment]
+        run = view["run"]
+        if len(run["stage_results"]) > seen:
+            return view
+        if run["status"] in {"failed", "cancelled", "completed"}:
+            return view
+        time.sleep(POLL_SECONDS)
+    raise ApiError("timed out waiting for the next stage result")
 
 
 def play_one(
-    base: str, difficulty: str, seed: int, retries: int, stage_timeout: float, rewards: str
+    base: str, difficulty: str, seed: int, retries: int, stage_timeout: float
 ) -> RunOutcome:
     view = call(base, "/api/challenges", {
         "name": f"Playtest {difficulty} {seed}",
@@ -150,28 +158,36 @@ def play_one(
         run = view["run"]
         if run["status"] == "completed":
             break
-        index = run["current_stage_index"]
-        stage = view["stages"][index]
+        seen = len(run["stage_results"])
         try:
-            call(base, f"/api/challenges/{run_id}/launch", {"expected_revision": run["revision"]})
-            view = wait_for(base, run_id, {"stage_result", "completed", "failed"}, stage_timeout)
+            if not run["active_match_id"]:
+                # Re-read the revision immediately before launching: an instant auto-advance
+                # can bump it between the poll above and this call.
+                current = call(base, f"/api/challenges/{run_id}")
+                assert isinstance(current, dict)
+                if not current["run"]["active_match_id"]:
+                    call(
+                        base,
+                        f"/api/challenges/{run_id}/launch",
+                        {"expected_revision": current["run"]["revision"]},
+                    )
+            view = wait_for_new_result(base, run_id, seen, stage_timeout)
         except ApiError as error:
             outcome.error = str(error)
             break
-        try:
-            resolve_reward(base, run_id, rewards)
-        except ApiError:
-            pass
-        view = call(base, f"/api/challenges/{run_id}")  # type: ignore[assignment]
-        result = view["run"]["stage_results"][-1]
+        results = view["run"]["stage_results"]
+        if len(results) <= seen:
+            break
+        result = results[-1]
+        played = view["stages"][result["stage_index"]]
         outcome.stages.append(StageOutcome(
-            stage=stage["name"], index=index,
-            opponent_level=stage["level"], player_level=stage["player_level"],
+            stage=played["name"], index=result["stage_index"],
+            opponent_level=played["level"], player_level=played["player_level"],
             status=result["status"], turns=result["turns"],
         ))
         if result["status"] != "won":
-            losses[index] = losses.get(index, 0) + 1
-            if losses[index] > retries:
+            losses[result["stage_index"]] = losses.get(result["stage_index"], 0) + 1
+            if losses[result["stage_index"]] > retries:
                 break
     return outcome
 
@@ -184,7 +200,7 @@ def delete(base: str, run_id: str) -> None:
             call(base, f"/api/challenges/{run_id}/delete", {"expected_revision": view["run"]["revision"]})
             return
         except ApiError:
-            time.sleep(2)
+            time.sleep(POLL_SECONDS)
 
 
 def report(outcomes: list[RunOutcome], stage_names: list[str]) -> None:
@@ -240,8 +256,10 @@ def main() -> int:
     parser.add_argument("--retries", type=int, default=0, help="extra attempts allowed per stage")
     parser.add_argument("--stage-timeout", type=float, default=900.0)
     parser.add_argument(
-        "--rewards", choices=("claim", "skip"), default="claim",
-        help="how to answer the post-victory training reward (claim takes the first option)",
+        "--parallel", type=int, default=1,
+        help="campaigns to drive at once. Stages inside one campaign are inherently "
+             "sequential, so this is the only real speed-up; keep it at or below the "
+             "backend's KOALABATTLE_MAX_CONCURRENT_MATCHES.",
     )
     parser.add_argument("--keep", action="store_true", help="do not delete the runs afterwards")
     parser.add_argument("--json", action="store_true", help="emit machine-readable results too")
@@ -254,30 +272,36 @@ def main() -> int:
         print(f"backend not reachable at {args.base_url}: {error}", file=sys.stderr)
         return 2
 
+    jobs = [
+        (difficulty, args.seed + offset)
+        for difficulty in args.difficulty
+        for offset in range(args.runs)
+    ]
+
+    def drive(job: tuple[str, int]) -> RunOutcome:
+        difficulty, seed = job
+        outcome = play_one(args.base_url, difficulty, seed, args.retries, args.stage_timeout)
+        if not args.keep:
+            delete(args.base_url, outcome.run_id)
+        return outcome
+
+    started = time.time()
     outcomes: list[RunOutcome] = []
     stage_names: list[str] = []
-    total = len(args.difficulty) * args.runs
-    done = 0
-    for difficulty in args.difficulty:
-        for offset in range(args.runs):
-            done += 1
-            seed = args.seed + offset
-            print(f"[{done}/{total}] {difficulty} seed {seed} …", flush=True)
-            outcome = play_one(
-                args.base_url, difficulty, seed, args.retries, args.stage_timeout, args.rewards
-            )
+    workers = max(1, args.parallel)
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        for done, outcome in enumerate(pool.map(drive, jobs), start=1):
             outcomes.append(outcome)
-            if not stage_names and outcome.stages:
-                view = call(args.base_url, f"/api/challenges/{outcome.run_id}")
-                if isinstance(view, dict):
-                    stage_names = [stage["name"] for stage in view["stages"]]
             trail = " → ".join(
                 f"{stage.stage}{'' if stage.status == 'won' else '✗'}" for stage in outcome.stages
             )
+            print(f"[{done}/{len(jobs)}] {outcome.difficulty} seed {outcome.seed}")
             print(f"    {', '.join(outcome.roster) or 'no roster'}")
             print(f"    {trail or outcome.error or 'no battles'}", flush=True)
-            if not args.keep:
-                delete(args.base_url, outcome.run_id)
+    # Report stages in campaign order, taken from the indexes the runs actually reached.
+    by_index = {stage.index: stage.stage for outcome in outcomes for stage in outcome.stages}
+    stage_names = [by_index[index] for index in sorted(by_index)]
+    print(f"\nwall clock: {time.time() - started:.0f}s for {len(jobs)} campaign(s)")
 
     report(outcomes, stage_names)
     if args.json:

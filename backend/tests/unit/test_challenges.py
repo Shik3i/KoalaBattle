@@ -19,8 +19,8 @@ from koalabattle.challenges.domain import (
 )
 from koalabattle.challenges.models import (
     DIFFICULTY_LEVEL_MODIFIERS,
-    TRAINING_REWARD_ITEMS,
     BattleControllerSnapshot,
+    ChallengeBattleSummary,
     ChallengeDefinition,
     ChallengeDifficulty,
     ChallengeRun,
@@ -36,8 +36,6 @@ from koalabattle.challenges.models import (
     DraftRules,
     EvSpread,
     PokemonAbility,
-    TrainingRewardChoice,
-    TrainingRewardKind,
     TrainingRules,
     player_stage_level,
 )
@@ -49,12 +47,13 @@ from koalabattle.challenges.repository import (
 from koalabattle.challenges.service import (
     AUTO_ADVANCE_DELAYS,
     ChallengeService,
+    _knocked_out_entry_ids,
+    _resolve_draft_action,
     _team_scaffold,
     _with_level,
-    _with_training_rewards,
     _with_unique_duplicate_nicknames,
     _with_zero_ev_confirmation,
-    build_training_reward_offer,
+    _without_downed,
     derive_battle_summary,
     redact_challenge_match,
 )
@@ -952,18 +951,6 @@ async def test_auto_run_pause_continue_and_duplicate_advance_create_one_match(
     await service.on_match_terminal(
         first_match.id, _won_archive(duplicate, first_match.id, "stage-one")
     )
-    # A win now hands out a training reward, and that decision point holds the countdown.
-    won = await service.require(run.id)
-    assert won.current_stage_index == 1
-    assert won.pending_reward is not None
-    assert won.auto_advance_at is None
-    await asyncio.sleep(0.2)
-    assert (await service.require(run.id)).active_match_id is None
-
-    # Resolving it resumes the run without a further click.
-    resumed = await service.skip_training_reward(run.id, won.revision)
-    assert resumed.pending_reward is None
-    assert resumed.auto_advance_at is not None
     for _ in range(20):
         advanced = await service.require(run.id)
         if advanced.active_match_id not in {None, first_match.id}:
@@ -1375,105 +1362,219 @@ async def test_unreachable_validator_parks_preparation_in_team_review(tmp_path: 
     await database.close()
 
 
-def test_training_rewards_are_deterministic_and_always_legal() -> None:
-    run = _picked_run()
-    first = build_training_reward_offer(run, 0)
-    again = build_training_reward_offer(run, 0)
-    other_seed = build_training_reward_offer(run.model_copy(update={"seed": run.seed + 1}), 0)
-
-    assert first is not None and again is not None and other_seed is not None
-    # Same run, same stage, same offer — a reload must never reroll the upgrades.
-    assert first == again
-    assert [option.id for option in first.options] != [
-        f"{option.id}:{option.item}" for option in other_seed.options
-    ]
-    # A stage past the end of the campaign has nothing to offer.
-    assert build_training_reward_offer(run, len(run.definition.stages)) is None
-    assert len(first.options) == 3
-    drafted = {pick.candidate.entry_id for pick in run.picks}
-    for option in first.options:
-        assert option.entry_id in drafted
-        if option.kind is TrainingRewardKind.ITEM:
-            assert option.item in TRAINING_REWARD_ITEMS
-        else:
-            assert option.ev_spread is not None
-            assert option.ev_spread.total <= run.definition.training_rules.per_pokemon_max
-            for value in option.ev_spread.model_dump().values():
-                assert value <= run.definition.training_rules.per_stat_max
 
 
-def test_claimed_rewards_are_replayed_onto_the_derived_stage_export() -> None:
-    run = _picked_run()
-    offer = build_training_reward_offer(run, 0)
+def test_agent_draft_actions_survive_providers_without_schema_enforcement() -> None:
+    """DeepSeek documents `json_object`, so the enum is not enforced on the wire.
+
+    A correct decision arriving as a bare entry id, a species name or different case used
+    to be rejected as "not legal" and surfaced as a provider failure.
+    """
+    run = attach_offer(_run())
+    offer = run.current_offer
     assert offer is not None
-    item_option = next(
-        option for option in offer.options if option.kind is TrainingRewardKind.ITEM
-    )
-    claimed = run.model_copy(
-        update={
-            "training_rewards": (
-                TrainingRewardChoice(stage_index=0, stage_id="stage-one", option=item_option),
-            )
-        }
-    )
-    export = "\n\n".join(
-        f"{pick.candidate.species} @ Leftovers\nEVs: 4 HP\n- Tackle" for pick in run.picks
-    )
+    first = offer.options[0]
+    legal = [f"pick:{option.entry_id}" for option in offer.options] + [
+        "reroll",
+        "reroll:type",
+        "reroll:generation",
+    ]
 
-    earned = _with_training_rewards(export, claimed)
-
-    assert f"{item_option.species} @ {item_option.item}" in earned
-    # Untouched Pokemon keep exactly what they had.
-    assert earned.count("@ Leftovers") == len(run.picks) - (
-        1 if item_option.item != "Leftovers" else 0
+    assert _resolve_draft_action(f"pick:{first.entry_id}", legal, offer) == f"pick:{first.entry_id}"
+    assert _resolve_draft_action(f"  PICK:{first.entry_id.upper()} ", legal, offer) == (
+        f"pick:{first.entry_id}"
     )
-    # An export with no rewards is returned byte-identical.
-    assert _with_training_rewards(export, run) == export
+    assert _resolve_draft_action(first.entry_id, legal, offer) == f"pick:{first.entry_id}"
+    assert _resolve_draft_action(first.species.upper(), legal, offer) == f"pick:{first.entry_id}"
+    assert _resolve_draft_action("reroll pokemon", legal, offer) == "reroll"
+    assert _resolve_draft_action("type reroll", legal, offer) == "reroll:type"
+    assert _resolve_draft_action("Generation Reroll", legal, offer) == "reroll:generation"
+    # Anything that still cannot be mapped is rejected rather than guessed at.
+    assert _resolve_draft_action("pick:not-in-this-offer", legal, offer) is None
+    assert _resolve_draft_action("", legal, offer) is None
+    # A reroll the run can no longer afford is not offered and must not be invented.
+    assert _resolve_draft_action("type reroll", [f"pick:{first.entry_id}"], offer) is None
 
 
 @pytest.mark.asyncio
-async def test_claiming_a_reward_consumes_the_offer_and_rejects_a_second_claim(
-    tmp_path: Path,
-) -> None:
-    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'reward.db'}")
+async def test_agent_draft_gives_reasoning_models_room_to_answer(tmp_path: Path) -> None:
+    """A 256-token cap left reasoning models no budget for the answer itself."""
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'agent-tokens.db'}")
     await database.create_schema()
     repository = ChallengeRepository(database)
-    offer = build_training_reward_offer(_picked_run(), 0)
-    assert offer is not None
-    run = _picked_run().model_copy(
-        update={"status": ChallengeStatus.STAGE_RESULT, "pending_reward": offer}
+    run = attach_offer(_run()).model_copy(
+        update={
+            "draft_controller": DraftControllerSnapshot(
+                kind=DraftControllerKind.AGENT,
+                provider=ProviderKind.FAKE,
+                model="fake-battle-v1",
+            )
+        }
     )
     await repository.create(run)
+    provider = _CapturingProvider()
+    battles = type(
+        "DraftBattleStub", (), {"provider_for_draft": lambda self, controller: provider}
+    )()
     service = ChallengeService(
-        repository, ShowdownSpeciesCatalog("http://127.0.0.1:9"), cast(Any, _Battles(()))
+        repository, ShowdownSpeciesCatalog("http://127.0.0.1:9"), cast(Any, battles)
     )
 
-    claimed = await service.claim_training_reward(run.id, offer.options[0].id, run.revision)
-    assert claimed.pending_reward is None
-    assert len(claimed.training_rewards) == 1
-    assert claimed.training_rewards[0].option.id == offer.options[0].id
+    await service.agent_action(run.id, run.revision)
 
-    with pytest.raises(ValueError, match="no training reward"):
-        await service.claim_training_reward(run.id, offer.options[0].id, claimed.revision)
+    assert provider.request is not None
+    assert provider.request.max_output_tokens >= 512
+    await database.close()
+
+
+def test_runs_saved_by_retired_features_still_load() -> None:
+    """`ChallengeRun` forbids extra keys, so a stale field takes the whole backend down.
+
+    Runs written while post-battle training rewards existed carry `pending_reward` and
+    `training_rewards`; loading one raised on startup and the API refused to boot.
+    """
+    run = _picked_run()
+    payload = json.loads(run.model_dump_json())
+    payload["pending_reward"] = None
+    payload["training_rewards"] = [{"stage_index": 0, "stage_id": "stage-one", "option": {}}]
+
+    restored = _deserialize_run(json.dumps(payload))
+
+    assert restored.id == run.id
+    assert restored.status is run.status
+    assert not hasattr(restored, "pending_reward")
+
+
+async def _attach_match(
+    battles: Any, repository: ChallengeRepository, run: ChallengeRun, stage_id: str
+) -> tuple[ChallengeRun, UUID]:
+    """Give the run a real linked match row; `active_match_id` has a foreign key."""
+    config = MatchConfig(
+        players=(
+            PlayerConfig(side=Side.P1, display_name="Player", agent_type=AgentType.TACTICAL_AUTO),
+            PlayerConfig(side=Side.P2, display_name="Leader", agent_type=AgentType.TACTICAL_AUTO),
+        )
+    )
+    match = await battles.create_match(
+        config, challenge_run_id=run.id, challenge_stage_id=stage_id
+    )
+    stored = await repository.save(
+        run.model_copy(update={"active_match_id": match.id}), expected_revision=run.revision
+    )
+    return stored, match.id
+
+
+def test_downed_pokemon_are_left_out_of_the_derived_stage_team() -> None:
+    run = _picked_run()
+    export = "\n\n".join(
+        f"{pick.candidate.species} @ Leftovers\nEVs: 4 HP\n- Tackle" for pick in run.picks
+    )
+    first = run.picks[0].candidate
+
+    # Nothing down: the export is returned untouched.
+    assert _without_downed(export, run) == export
+
+    knocked = run.model_copy(update={"downed_entry_ids": (first.entry_id,)})
+    reduced = _without_downed(export, knocked)
+    assert first.species not in reduced
+    assert len(reduced.split("\n\n")) == len(run.picks) - 1
+
+    # A wipe must never produce an empty team; the export is kept whole instead.
+    everyone = run.model_copy(
+        update={"downed_entry_ids": tuple(pick.candidate.entry_id for pick in run.picks)}
+    )
+    assert _without_downed(export, everyone) == export
+
+
+def test_fainted_species_map_back_onto_drafted_entries() -> None:
+    run = _picked_run()
+    first, second = run.picks[0].candidate, run.picks[1].candidate
+    summary = ChallengeBattleSummary(
+        match_id=uuid4(),
+        player_fainted=(first.species, "Not On This Team"),
+        opponent_fainted=(second.species,),
+    )
+
+    assert _knocked_out_entry_ids(run, summary) == (first.entry_id,)
+
+
+@pytest.mark.asyncio
+async def test_a_won_gauntlet_stage_carries_casualties_and_a_gym_heals(tmp_path: Path) -> None:
+    """The Elite Four is one sitting; every Gym Leader starts from a full roster."""
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'gauntlet.db'}")
+    await database.create_schema()
+    repository = ChallengeRepository(database)
+    base = _picked_run()
+    gauntlet = base.definition.stages[0].model_copy(
+        update={"id": "stage-two", "name": "Second", "full_heal_before": False}
+    )
+    healed = base.definition.stages[0].model_copy(
+        update={"id": "stage-three", "name": "Third", "full_heal_before": True}
+    )
+    run = base.model_copy(
+        update={
+            "battle_controller": BattleControllerSnapshot(agent_type=AgentType.HUMAN),
+            "definition": base.definition.model_copy(
+                update={"stages": (*base.definition.stages, gauntlet, healed)}
+            ),
+        }
+    )
+    await repository.create(run)
+    battles = _Battles((), BattleRepository(database))
+    service = ChallengeService(
+        repository, ShowdownSpeciesCatalog("http://127.0.0.1:9"), cast(Any, battles)
+    )
+    stored, match_id = await _attach_match(battles, repository, run, "stage-one")
+    archive = _won_archive(stored, match_id, "stage-one")
+
+    await service.on_match_terminal(match_id, archive)
+    advanced = await service.require(run.id)
+
+    # Stage two does not heal, so whatever fainted stays out.
+    assert advanced.current_stage_index == 1
+    assert advanced.definition.stages[1].full_heal_before is False
+    carried = advanced.downed_entry_ids
+
+    # Winning into a stage that heals clears the list again.
+    stored, second_match = await _attach_match(battles, repository, advanced, "stage-two")
+    await service.on_match_terminal(second_match, _won_archive(stored, second_match, "stage-two"))
+    healed_run = await service.require(run.id)
+    assert healed_run.current_stage_index == 2
+    assert healed_run.downed_entry_ids == ()
+    assert isinstance(carried, tuple)
     await database.close()
 
 
 @pytest.mark.asyncio
-async def test_an_unknown_reward_option_is_rejected(tmp_path: Path) -> None:
-    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'reward-bad.db'}")
+async def test_a_lost_stage_never_carries_casualties_into_the_retry(tmp_path: Path) -> None:
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'gauntlet-loss.db'}")
     await database.create_schema()
     repository = ChallengeRepository(database)
-    offer = build_training_reward_offer(_picked_run(), 0)
-    assert offer is not None
-    run = _picked_run().model_copy(
-        update={"status": ChallengeStatus.STAGE_RESULT, "pending_reward": offer}
+    base = _picked_run()
+    gauntlet = base.definition.stages[0].model_copy(
+        update={"id": "stage-two", "name": "Second", "full_heal_before": False}
+    )
+    run = base.model_copy(
+        update={
+            "battle_controller": BattleControllerSnapshot(agent_type=AgentType.HUMAN),
+            "definition": base.definition.model_copy(
+                update={"stages": (*base.definition.stages, gauntlet)}
+            ),
+            "downed_entry_ids": (base.picks[0].candidate.entry_id,),
+        }
     )
     await repository.create(run)
+    battles = _Battles((), BattleRepository(database))
     service = ChallengeService(
-        repository, ShowdownSpeciesCatalog("http://127.0.0.1:9"), cast(Any, _Battles(()))
+        repository, ShowdownSpeciesCatalog("http://127.0.0.1:9"), cast(Any, battles)
     )
+    stored, match_id = await _attach_match(battles, repository, run, "stage-one")
+    lost = _won_archive(stored, match_id, "stage-one").model_copy(update={"winner": Side.P2})
 
-    with pytest.raises(ValueError, match="not one of the offered options"):
-        await service.claim_training_reward(run.id, "not-a-real-option", run.revision)
-    assert (await service.require(run.id)).pending_reward is not None
+    await service.on_match_terminal(match_id, lost)
+    retried = await service.require(run.id)
+
+    assert retried.stage_results[-1].status == "lost"
+    assert retried.current_stage_index == 0
+    assert retried.downed_entry_ids == ()
     await database.close()

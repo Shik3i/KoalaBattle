@@ -141,6 +141,9 @@ class ChallengeStage(FrozenModel):
         default=None, pattern=r"^[a-z0-9][a-z0-9-]*$", max_length=80
     )
     visual_accent: str = Field(default="#7bf0a2", pattern=r"^#[0-9a-fA-F]{6}$")
+    # False makes this stage part of the preceding gauntlet: Pokemon knocked out in the
+    # previous stage stay out. The Elite Four is fought in one sitting in the source games.
+    full_heal_before: bool = True
     opponent_team: str = Field(min_length=1, max_length=50_000)
 
 
@@ -251,53 +254,6 @@ class DraftHistoryEntry(FrozenModel):
         return self
 
 
-#: Items every Pokemon in the Draft format can legally hold, so a reward can never make
-#: an already validated roster illegal.
-TRAINING_REWARD_ITEMS: tuple[str, ...] = (
-    "Leftovers",
-    "Life Orb",
-    "Choice Band",
-    "Choice Specs",
-    "Choice Scarf",
-    "Assault Vest",
-    "Heavy-Duty Boots",
-    "Rocky Helmet",
-    "Focus Sash",
-    "Expert Belt",
-)
-
-
-class TrainingRewardKind(StrEnum):
-    ITEM = "item"
-    EV_SPREAD = "ev-spread"
-
-
-class TrainingRewardOption(FrozenModel):
-    """One offered post-victory upgrade. Deterministic from the run seed and stage."""
-
-    id: str = Field(min_length=1, max_length=120)
-    kind: TrainingRewardKind
-    entry_id: str = Field(min_length=1, max_length=120)
-    species: str = Field(min_length=1, max_length=120)
-    label: str = Field(min_length=1, max_length=120)
-    detail: str = Field(min_length=1, max_length=200)
-    item: str | None = Field(default=None, max_length=60)
-    ev_spread: EvSpread | None = None
-
-
-class TrainingRewardOffer(FrozenModel):
-    stage_index: int = Field(ge=0)
-    stage_id: str = Field(min_length=1, max_length=60)
-    options: tuple[TrainingRewardOption, ...] = Field(min_length=1, max_length=6)
-
-
-class TrainingRewardChoice(FrozenModel):
-    stage_index: int = Field(ge=0)
-    stage_id: str = Field(min_length=1, max_length=60)
-    option: TrainingRewardOption
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-
-
 class ChallengeStageResult(FrozenModel):
     stage_id: str
     stage_index: int = Field(ge=0)
@@ -355,10 +311,9 @@ class ChallengeRun(FrozenModel):
     stage_results: tuple[ChallengeStageResult, ...] = ()
     auto_run_paused: bool = False
     auto_advance_at: datetime | None = None
-    # Between-stage progression. The drafted roster snapshot stays immutable; rewards are
-    # replayed onto the derived stage export next to the level, exactly like difficulty.
-    pending_reward: TrainingRewardOffer | None = None
-    training_rewards: tuple[TrainingRewardChoice, ...] = ()
+    # Drafted entries knocked out earlier in the current gauntlet section. Cleared by any
+    # stage that heals before it, and by any result that is not a win.
+    downed_entry_ids: tuple[str, ...] = ()
     error: str | None = Field(default=None, max_length=1000)
     compatibility_notice: str | None = Field(default=None, max_length=1000)
     created_at: datetime
@@ -373,6 +328,7 @@ class PublicChallengeStage(FrozenModel):
     theme: str
     level: int
     player_level: int = Field(default=0, ge=0, le=100)
+    full_heal_before: bool = True
     specialty: str | None = None
     trainer_asset_id: str | None = None
     visual_accent: str = "#7bf0a2"
@@ -463,7 +419,3 @@ class FinalizeTeamInput(FrozenModel):
 class RevisionInput(FrozenModel):
     expected_revision: int = Field(ge=1)
 
-
-class TrainingRewardInput(FrozenModel):
-    option_id: str = Field(min_length=1, max_length=120)
-    expected_revision: int = Field(ge=1)

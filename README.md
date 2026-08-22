@@ -120,9 +120,9 @@ are stored in SQLite.
 ## Draft
 
 Open `/challenges/new` to draft a persistent six-Pokémon roster and carry it through thirteen
-KoalaBattle-authored boss teams themed on the eight Kanto Gym Leaders, the Elite Four, and
+six-Pokémon KoalaBattle-authored boss teams themed on the eight Kanto Gym Leaders, the Elite Four, and
 Champion Blue. Every opponent Pokémon has a real ability, nature, held item, EV/IV spread, and
-coverage; roster size and set quality escalate from Brock to Blue. The sixth pick automatically
+coverage, and set quality escalates from Brock to Blue. The sixth pick automatically
 applies Pokémon-specific recommended EVs, abilities, a matching nature and item, and legal moves
 picked for coverage, then validates the team. Four difficulty modes apply a level disadvantage to
 your team only — Normal 0, Hard −5, Expert −10, Nightmare −15 — and never change the opponents.
@@ -130,8 +130,9 @@ Tactical Auto needs no provider; Quick Sim continuously resolves the real campai
 Fast Watch opens each battle at accelerated presentation speed and returns to the compact result
 countdown. Pause Auto-Run stops before the next match.
 
-Clearing a stage offers one permanent upgrade — a held item or an EV respec — for the rest of the
-run, and holds the countdown until you choose. Each stage battle opens on a versus card with the
+Every trainer fields six Pokémon, so no stage is a free numbers advantage; difficulty comes from
+species strength and set quality. A won stage starts the next one immediately, with a short card
+announcing the opponent instead of a countdown. Each stage battle opens on a versus card with the
 opponent's trainer sprite and both levels, and ends on a recap: winner, surviving team, an MVP,
 and per-Pokémon damage and knockouts for both sides.
 

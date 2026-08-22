@@ -17,9 +17,36 @@
 - updated DeepSeek for the current `deepseek-v4-flash` and `deepseek-v4-pro` API models after
   retirement of the legacy aliases, with explicit web selectors, documented JSON mode, and V4
   thinking-effort mapping;
-- added between-stage progression: clearing a stage offers three deterministic upgrades (two
-  held items, one EV respec), the claimed one is replayed onto the derived stage export like the
-  level, and an unclaimed offer holds the auto-run countdown so the choice is actually made;
+- gave every Kanto trainer six Pokémon, all of them species that trainer actually uses
+  (content V11). The player always brings six, so an opening gym with three was a free numbers
+  advantage, not a difficulty curve. Filling to six had first pulled in Pokémon the trainers never
+  use (Nosepass and Boldore for Brock, Cloyster for Misty, Jolteon for Lt. Surge, Salamence and
+  Garchomp for Lance, Alolan forms for Koga and Agatha); every one is now replaced from that
+  trainer's own mainline teams — Brock fields his HGSS six, Bruno's second Onix becomes Steelix,
+  Blue keeps Rhydon. Trainers are never weakened to smooth the curve: a weak canonical Pokémon
+  gets Eviolite and a real spread instead of being swapped out;
+- made the Elite Four one gauntlet (content V12): arriving at the Plateau heals, but from Bruno
+  onward a Pokémon knocked out in the previous battle stays out, applied to the derived stage
+  export like the level so the drafted snapshot is never rewritten. Only a win carries casualties
+  forward and a wipe is never carried, so a retry is never fought a Pokémon short;
+- sped the playtest harness up with `--parallel` and a 0.4s poll instead of 2-3s; a stage battle
+  itself costs ~12s of real Showdown time and stages inside a campaign are sequential, so that is
+  the floor;
+- added `scripts/probe_stage_floor.py`, which builds the worst legal team it can against each
+  trainer — no super-effective attacks, weak to their specialty — and runs a real battle, so a
+  stage that a deliberately terrible team can still beat shows up as a finding;
+- fixed the AI draft, which failed on every decision with a reasoning model and needed a click
+  per pick even when it worked: the draft request
+  capped output at 256 tokens, which DeepSeek V4 (thinking enabled by default) spends before
+  emitting any answer. The cap is gone, an empty completion now says so, a legal action is
+  resolved from a bare entry id, species name or differently-cased answer for providers that
+  cannot enforce the enum, and the AI drafts every offer on its own instead of needing six
+  manual "Ask AI to choose" clicks;
+- removed the post-battle training rewards and the countdown between stages: a won stage starts
+  the next one immediately, announced by a short self-dismissing card that respects
+  `prefers-reduced-motion`;
+- reduced the draft header to the Generation and Type reels, dropping the duplicated pick
+  counter, reroll wallet, progress rail and helper copy;
 - rebuilt the battle intro and end screens: a campaign versus card with the opponent's trainer
   sprite and both levels, and an end card that is a real recap — winner, surviving team, an MVP,
   and per-Pokémon damage and knockouts for both sides, accumulated by the presentation reducer;

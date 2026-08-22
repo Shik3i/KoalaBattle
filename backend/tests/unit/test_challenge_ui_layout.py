@@ -213,13 +213,55 @@ def test_the_draft_shows_the_campaign_it_is_drafting_against() -> None:
     assert "Who you will fight" in markup
 
 
-def test_the_training_reward_is_a_real_decision_point() -> None:
+def test_the_draft_header_is_only_the_generation_and_type_reels() -> None:
+    """Everything else in that header duplicated the roster aside or the reroll buttons."""
+    markup = _markup(CHALLENGE_PAGE)
+    start = markup.index('<header class="roll-result">')
+    header = markup[start : markup.index("</header>", start)]
+
+    assert "draft-reels" in header
+    assert "generation-reel" in header and "type-reel" in header
+    for removed in ("Draft roll · Pick", "reroll-wallet", "pick-progress", "draft-guidance"):
+        assert removed not in header, removed
+    assert "draft-guidance" not in markup
+    assert "reroll-wallet" not in markup
+    assert "pick-progress" not in markup
+
+
+def test_no_countdown_gates_the_next_stage() -> None:
+    source = CHALLENGE_PAGE.read_text(encoding="utf-8")
+
+    assert "autoCountdown" not in source
+    assert "next-countdown" not in source
+    # A short presentation-only transition announces the next opponent instead.
+    assert "stage-transition" in source
+    assert "STAGE_TRANSITION_MS" in source
+    assert "prefers-reduced-motion: reduce" in source
+
+
+def test_the_ai_drafter_acts_without_a_click_per_pick() -> None:
+    source = CHALLENGE_PAGE.read_text(encoding="utf-8")
+
+    assert "autoDraftedOffer" in source
+    assert "void agentDraft();" in source
+    # Manual escape hatches stay for a failed decision.
+    assert "Retry AI decision" in source
+    assert "Take over manually" in source
+
+
+def test_training_rewards_are_gone_from_the_run_screen() -> None:
+    source = CHALLENGE_PAGE.read_text(encoding="utf-8")
+
+    for removed in ("pending_reward", "training_rewards", "claimReward", "reward-options"):
+        assert removed not in source, removed
+
+
+def test_the_gauntlet_shows_who_is_still_down() -> None:
+    """A Pokemon missing from the next Elite Four battle has to be visible, not silent."""
+    source = CHALLENGE_PAGE.read_text(encoding="utf-8")
     markup = _markup(CHALLENGE_PAGE)
 
-    assert "{#if run.pending_reward}" in markup
-    assert "claimReward(option.id)" in markup
-    assert "skipReward" in markup
-    # Claimed rewards stay visible while the run continues.
-    assert 'class="earned"' in markup
-    # The decision is above the stage it gates, not buried under it.
-    assert markup.index("{#if run.pending_reward}") < markup.index('id="current-stage"')
+    assert "downed_entry_ids" in source
+    assert "class:downed={out}" in markup
+    assert "full_heal_before === false" in markup
+    assert "gauntlet-note" in markup
