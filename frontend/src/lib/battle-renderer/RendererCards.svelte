@@ -107,7 +107,7 @@
   .winner-mvp b{color:var(--champion);font:900 calc(var(--hud-scale,1) * clamp(.6rem,.85cqw,.9rem)) var(--mono);letter-spacing:.2em}
   .winner-mvp em{color:#fff;font:800 calc(var(--hud-scale,1) * clamp(.86rem,1.1cqw,1.15rem)) var(--display);font-style:normal}
   .winner-mvp i{color:var(--r-dim);font:600 calc(var(--hud-scale,1) * clamp(.66rem,.85cqw,.9rem)) var(--mono);font-style:normal}
-  .winner-team{display:flex;flex-wrap:wrap;justify-content:center;gap:.45rem;margin-top:.7rem}.winner-team i{display:grid;place-items:center;width:calc(var(--hud-scale,1) * clamp(34px,3.6cqw,56px));aspect-ratio:1;overflow:hidden;border:1px solid color-mix(in srgb,var(--champion) 55%,transparent);border-radius:9px;background:rgba(255,255,255,.06)}.winner-team img{width:145%;height:145%;object-fit:contain}.winner-team i b{color:var(--r-dim);font:800 1rem var(--display)}.winner-team i.fainted{opacity:.32;filter:grayscale(1) brightness(.6)}
+  .winner-team{display:flex;flex-wrap:wrap;justify-content:center;gap:.45rem;margin-top:.7rem}.winner-team i{display:grid;place-items:center;width:calc(var(--hud-scale,1) * clamp(34px,3.6cqw,56px));aspect-ratio:1;overflow:hidden;border:1px solid color-mix(in srgb,var(--champion) 55%,transparent);border-radius:9px;background:rgba(255,255,255,.06)}.winner-team img{width:145%;height:145%;object-fit:contain;image-rendering:crisp-edges;image-rendering:pixelated}.winner-team i b{color:var(--r-dim);font:800 1rem var(--display)}.winner-team i.fainted{opacity:.32;filter:grayscale(1) brightness(.6)}
 
   /* Recap: who actually did the work, in one glance, per side. */
   .recap{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.6rem;width:min(96%,64cqw);margin-top:.9rem;text-align:left;animation:recap-in .55s .3s both}
@@ -120,7 +120,7 @@
   .recap li{display:grid;grid-template-columns:auto minmax(0,1fr) minmax(28px,3.4cqw) auto auto;align-items:center;gap:.35rem}
   .recap li.fainted{opacity:.45}
   .recap-mon{display:grid;place-items:center;width:calc(var(--hud-scale,1) * clamp(18px,2cqw,30px));aspect-ratio:1;overflow:hidden}
-  .recap-mon img{width:150%;height:150%;object-fit:contain}
+  .recap-mon img{width:150%;height:150%;object-fit:contain;image-rendering:crisp-edges;image-rendering:pixelated}
   .recap-mon b{color:var(--r-dim);font:800 .7rem var(--display)}
   .recap li>b{overflow:hidden;color:#eaf4ee;font:700 calc(var(--hud-scale,1) * clamp(.6rem,.78cqw,.82rem)) var(--display);text-overflow:ellipsis;white-space:nowrap}
   .recap-bar{overflow:hidden;height:4px;border-radius:999px;background:rgba(255,255,255,.12)}

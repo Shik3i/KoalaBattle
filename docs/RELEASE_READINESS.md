@@ -42,13 +42,16 @@ rendered on the native host path in 11.391 seconds (`2.634x` realtime wall speed
 measured compositor/encode/mux speed) with no asset failures. The Docker renderer's compatible
 raw-RGBA fallback remains valid but may render below realtime on ARM64.
 
-The focused 2026-08-22 Draft mechanics and presentation gate passed Ruff, Mypy, 273 backend tests
+The focused 2026-08-22 Draft mechanics and presentation gate passed Ruff, Mypy, 276 backend tests
 with 21 opt-in/environment tests skipped, 6 explicit real-Showdown integration tests, 105 frontend
 tests, Svelte diagnostics with zero errors or warnings, and the production frontend build. Browser
 QA covered active, completed legacy, and invalid Draft routes plus a completed battle at 390x844:
 no console errors or horizontal overflow, and visible interactive controls use at least a 44 px
-touch dimension. The current pinned catalog measured 1,216 validated draftable entries out of
-1,417 forms.
+touch dimension. The release-polish browser pass additionally covered 1440x900, 1024x768, and
+390x844. With histories closed, the completed battle shrank from 5,885 px to 1,004 px at desktop
+and rendered zero decision records until its audit drawer opened; the active Draft shrank from
+1,387 px to 1,034 px. Mobile uses an internal scroll-snap Draft row and retained a 390 px document
+width. The current pinned catalog measured 1,216 validated draftable entries out of 1,417 forms.
 
 ## Security expectations
 

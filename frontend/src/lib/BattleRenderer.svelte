@@ -34,7 +34,7 @@
    * footprint instead of stretching sprites to fill space.
    */
   const NATIVE_SPRITE_PX = 96;
-  const MAX_UPSCALE = 2.4;
+  const MAX_UPSCALE = 2;
   const TEAM_SIZE = 6;
   const RETRO_GENERATIONS = new Set([1, 2]);
 

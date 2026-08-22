@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- completed the release UI polish across Draft and battle control: long battle decisions now live
+  in one collapsed, lazy-rendered audit drawer; opponent, battle, Draft, and saved-run histories
+  default closed; desktop rerolls share one grouped icon language; mobile Draft choices use a
+  bounded scroll-snap row; low-resolution Showdown sprites keep pixel rendering and never exceed
+  a 2x upscale; and Light theme warning/error colors meet readable contrast targets;
 - added persistent Draft runs with deterministic consumed offers, three Pokémon rerolls plus one
   Type and one Generation reroll,
   automatic Pokémon-specific EV/team preparation, pinned-Showdown validation, and a strict Kanto

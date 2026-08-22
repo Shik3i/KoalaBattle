@@ -15,6 +15,8 @@ BATTLE_PAGE = ROOT / "frontend/src/routes/battle/[id]/+page.svelte"
 CHALLENGE_PAGE = ROOT / "frontend/src/routes/challenges/[id]/+page.svelte"
 NEW_RUN_PAGE = ROOT / "frontend/src/routes/challenges/new/+page.svelte"
 RENDERER_CARDS = ROOT / "frontend/src/lib/battle-renderer/RendererCards.svelte"
+RENDERER = ROOT / "frontend/src/lib/BattleRenderer.svelte"
+POKEMON_SPRITE = ROOT / "frontend/src/lib/PokemonSprite.svelte"
 LAYOUT = ROOT / "frontend/src/routes/+layout.svelte"
 APP_CSS = ROOT / "frontend/src/app.css"
 
@@ -91,8 +93,38 @@ def test_campaign_progress_is_a_compact_rail_and_history_is_collapsed() -> None:
 
     assert 'class="route-rail"' in markup
     assert re.search(r'<details[^>]*class="battle-history[^"]*"', markup)
+    history_tag = re.search(r'<details[^>]*class="battle-history[^"]*"[^>]*>', markup)
+    assert history_tag and " open" not in history_tag.group(0)
     assert '<details class="run-details' in markup
     assert 'class="roster-strip"' in markup
+
+
+def test_long_battle_audit_is_one_lazy_collapsed_drawer() -> None:
+    markup = _markup(BATTLE_PAGE)
+
+    assert '<details bind:open={auditOpen} class="battle-drawer audit-drawer panel">' in markup
+    lazy_guard = markup.index("{#if auditOpen}")
+    decision_list = markup.index('<div class="decision-list">')
+    assert lazy_guard < decision_list
+    assert '<section class="audit-head">' not in markup
+    assert "No decisions have been recorded yet." in markup
+
+
+def test_draft_opponent_preview_is_collapsed_by_default() -> None:
+    markup = _markup(CHALLENGE_PAGE)
+
+    preview = re.search(r'<details[^>]*class="opponent-preview"[^>]*>', markup)
+    assert preview and " open" not in preview.group(0)
+
+
+def test_low_resolution_sprites_are_never_upscaled_beyond_two_times() -> None:
+    sprite = POKEMON_SPRITE.read_text(encoding="utf-8")
+    renderer = RENDERER.read_text(encoding="utf-8")
+
+    assert "--natural-w" in sprite and "--natural-h" in sprite
+    assert "calc(var(--natural-w,96) * 2px)" in sprite
+    assert "calc(var(--natural-h,96) * 2px)" in sprite
+    assert "const MAX_UPSCALE = 2;" in renderer
 
 
 def test_new_run_page_offers_every_difficulty_with_its_exact_modifier() -> None:

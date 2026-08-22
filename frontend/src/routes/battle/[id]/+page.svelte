@@ -32,6 +32,7 @@
   let lifecycle: Partial<Record<Side, AgentLifecycleState>> = { p1: 'idle', p2: 'idle' };
   let activeTab: Side | null = null;
   let toolMenu: HTMLDetailsElement | null = null;
+  let auditOpen = false;
 
   function closeToolMenu(event: Event) {
     if (!toolMenu?.open) return;
@@ -115,6 +116,7 @@
     match = null;
     pending = {}; responses = {}; validation = {}; submitting = {}; accepted = {};
     lifecycle = { p1: 'idle', p2: 'idle' };
+    auditOpen = false;
     error = '';
     void connect();
   }
@@ -662,33 +664,40 @@
     {/each}
   </section>
 {/if}
-{#if match && match.status === 'completed'}
-  <section class="interview panel">
-    <header class="interview-head">
-      <div><span class="eyebrow">Post-match interview</span><h2>Players reflect on the battle</h2></div>
-      <p>Replay-based reflections from each player’s recorded perspective.</p>
-    </header>
-    <div class="interview-grid">
-      {#each (['p1', 'p2'] as Side[]) as side (side)}
-        {@const interview = interviewFor(side)}
-        <article class="interview-card" data-side={side}>
-          <header><h3>{agentLabel(side)}</h3><span>{interview.detail}</span></header>
-          <div><b>What worked?</b><p>{interview.good}</p></div>
-          <div><b>What was weak?</b><p>{interview.bad}</p></div>
-          <div><b>What would you change?</b><p>{interview.change}</p></div>
-        </article>
-      {/each}
-    </div>
-  </section>
-{/if}
 {#if error}<p class="error" role="alert">{error}</p>{/if}
 
 {#if match}
-  {#if match.config.players.some((player) => player.team_export)}
-    <section class="team-inspector panel"><div><span class="eyebrow">Private control data</span><h2>Fixed team snapshots</h2><p>Available only in the local control archive; spectator and OBS payloads exclude these exports.</p></div>{#each match.config.players as player}{#if player.team_export}<details><summary>{player.side.toUpperCase()} · {player.display_name}</summary><textarea readonly value={player.team_export}></textarea></details>{/if}{/each}</section>
-  {/if}
-  <section class="audit-head"><div><span class="eyebrow">Audit trail</span><h2>Decisions and events</h2></div><div class="audit-stats"><span><strong>{snapshot?.eventCount || match.events.length}</strong> events</span><span><strong>{match.decisions.length}</strong> decisions</span><span><strong>{match.turns}</strong> turns</span></div><div class="audit-actions"><a class="button secondary" href={`/replay/${match.id}`}>Replay</a>{#if ['running','waiting'].includes(match.status)}<button class="button secondary" on:click={() => lifecycleAction('pause')}>Pause</button>{:else if match.status === 'paused'}<button class="button secondary" on:click={() => lifecycleAction('resume')}>Resume</button>{/if}{#if ['failed','cancelled','interrupted'].includes(match.status)}<button class="button" disabled={resuming || rematching} on:click={handleResume}>{resuming ? 'Continuing…' : 'Continue'}</button><button class="button secondary" disabled={resuming || rematching} on:click={handleRematch}>{rematching ? 'Rematching…' : 'Rematch'}</button>{/if}{#if !['completed','failed','cancelled','interrupted'].includes(match.status)}<button class="button danger" on:click={cancel}>Cancel</button>{/if}</div></section>
-  <div class="decision-list">
+  <div class="battle-drawers">
+    {#if match.status === 'completed'}
+      <details class="battle-drawer interview panel">
+        <summary><span class="drawer-icon"><i class="ph ph-microphone-stage" aria-hidden="true"></i></span><span class="drawer-label"><b>Post-match interview</b><small>Replay-based reflections from both players</small></span><i class="ph ph-caret-down drawer-caret" aria-hidden="true"></i></summary>
+        <div class="drawer-body interview-body">
+          <div class="interview-grid">
+            {#each (['p1', 'p2'] as Side[]) as side (side)}
+              {@const interview = interviewFor(side)}
+              <article class="interview-card" data-side={side}>
+                <header><h3>{agentLabel(side)}</h3><span>{interview.detail}</span></header>
+                <div><b>What worked?</b><p>{interview.good}</p></div>
+                <div><b>What was weak?</b><p>{interview.bad}</p></div>
+                <div><b>What would you change?</b><p>{interview.change}</p></div>
+              </article>
+            {/each}
+          </div>
+        </div>
+      </details>
+    {/if}
+    {#if match.config.players.some((player) => player.team_export)}
+      <details class="battle-drawer team-drawer panel">
+        <summary><span class="drawer-icon"><i class="ph ph-lock-key" aria-hidden="true"></i></span><span class="drawer-label"><b>Fixed team snapshots</b><small>Private control data</small></span><i class="ph ph-caret-down drawer-caret" aria-hidden="true"></i></summary>
+        <div class="drawer-body team-inspector"><p>Available only in the local control archive; spectator and OBS payloads exclude these exports.</p>{#each match.config.players as player}{#if player.team_export}<details><summary>{player.side.toUpperCase()} · {player.display_name}</summary><textarea readonly value={player.team_export}></textarea></details>{/if}{/each}</div>
+      </details>
+    {/if}
+    <details bind:open={auditOpen} class="battle-drawer audit-drawer panel">
+      <summary><span class="drawer-icon"><i class="ph ph-list-magnifying-glass" aria-hidden="true"></i></span><span class="drawer-label"><b>Decisions and events</b><small>{snapshot?.eventCount || match.events.length} events · {match.decisions.length} decisions · {match.turns} turns</small></span><i class="ph ph-caret-down drawer-caret" aria-hidden="true"></i></summary>
+      {#if auditOpen}
+        <div class="drawer-body audit-body">
+          <div class="audit-toolbar"><div class="audit-stats"><span><strong>{snapshot?.eventCount || match.events.length}</strong> events</span><span><strong>{match.decisions.length}</strong> decisions</span><span><strong>{match.turns}</strong> turns</span></div><div class="audit-actions"><a class="button secondary" href={`/replay/${match.id}`}>Replay</a>{#if ['running','waiting'].includes(match.status)}<button class="button secondary" on:click={() => lifecycleAction('pause')}>Pause</button>{:else if match.status === 'paused'}<button class="button secondary" on:click={() => lifecycleAction('resume')}>Resume</button>{/if}{#if ['failed','cancelled','interrupted'].includes(match.status)}<button class="button" disabled={resuming || rematching} on:click={handleResume}>{resuming ? 'Continuing…' : 'Continue'}</button><button class="button secondary" disabled={resuming || rematching} on:click={handleRematch}>{rematching ? 'Rematching…' : 'Rematch'}</button>{/if}{#if !['completed','failed','cancelled','interrupted'].includes(match.status)}<button class="button danger" on:click={cancel}>Cancel</button>{/if}</div></div>
+          <div class="decision-list">
     {#each [...match.decisions].reverse() as record}
       <details class="decision panel">
         <summary><span>Turn {record.decision.turn} · {record.decision.side.toUpperCase()}</span><strong>{record.decision.action}</strong><span>{record.decision.provider || 'local'}{record.decision.model ? ` / ${record.decision.model}` : ''}</span><span>{record.decision.latency_ms ?? '—'} ms</span></summary>
@@ -712,7 +721,13 @@
           </section>
         </div>
       </details>
+    {:else}
+      <p class="audit-empty" role="status"><i class="ph ph-hourglass-simple" aria-hidden="true"></i>No decisions have been recorded yet. Events and decisions appear here as the battle advances.</p>
     {/each}
+          </div>
+        </div>
+      {/if}
+    </details>
   </div>
 {/if}
 
@@ -815,10 +830,18 @@
   .legal-actions b{font-size:.8rem}
   .legal-actions button span{color:var(--muted);font:.62rem var(--mono)}
 
-  .interview{display:grid;gap:1rem;margin-top:2rem;padding:1.25rem;box-shadow:none}
-  .interview-head{display:flex;align-items:flex-end;justify-content:space-between;gap:1rem;border-bottom:1px solid var(--border);padding-bottom:.8rem}
-  .interview-head h2{margin:.25rem 0 0;font-size:1.35rem}
-  .interview-head p{max-width:44ch;margin:0;color:var(--muted);font-size:.75rem;line-height:1.5;text-align:right}
+  .battle-drawers{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:.6rem;margin-top:1rem}
+  .battle-drawer{min-width:0;box-shadow:none}
+  .battle-drawer[open]{grid-column:1/-1}
+  .battle-drawer>summary{display:grid;grid-template-columns:40px minmax(0,1fr) auto;align-items:center;gap:.7rem;min-height:58px;padding:.55rem .75rem;cursor:pointer;list-style:none}
+  .battle-drawer>summary::-webkit-details-marker{display:none}
+  .drawer-icon{display:grid;place-items:center;width:40px;aspect-ratio:1;border-radius:.65rem;background:color-mix(in srgb,var(--accent) 10%,var(--surface));color:var(--accent);font-size:1.05rem}
+  .drawer-label{display:grid;gap:.1rem;min-width:0}
+  .drawer-label b{font-size:.82rem}
+  .drawer-label small{overflow:hidden;color:var(--muted);font:.6rem var(--mono);text-overflow:ellipsis;white-space:nowrap}
+  .drawer-caret{color:var(--muted);transition:transform .16s ease}
+  .battle-drawer[open]>summary .drawer-caret{transform:rotate(180deg)}
+  .drawer-body{padding:1rem;border-top:1px solid var(--border)}
   .interview-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.85rem}
   .interview-card{display:grid;gap:.75rem;padding:1rem;border:1px solid var(--border);border-top:3px solid var(--side-color);border-radius:.75rem;background:var(--panel-strong)}
   .interview-card[data-side='p1']{--side-color:var(--p1)}
@@ -830,18 +853,18 @@
   .interview-card b{color:var(--side-color);font:.64rem var(--mono);letter-spacing:.1em;text-transform:uppercase}
   .interview-card p{margin:0;color:var(--text);font-size:.78rem;line-height:1.48}
 
-  .team-inspector{display:grid;grid-template-columns:1fr 1fr 1fr;gap:1rem;margin-top:2rem;padding:1rem;box-shadow:none}
-  .team-inspector h2{margin:.3rem 0}
-  .team-inspector p{color:var(--muted);font-size:.76rem}
+  .team-inspector{display:grid;grid-template-columns:1fr 1fr 1fr;gap:1rem;box-shadow:none}
+  .team-inspector p{margin:0;color:var(--muted);font-size:.76rem}
   .team-inspector details{margin:0;padding:0}.team-inspector details>summary{display:flex;min-height:44px;align-items:center;cursor:pointer}
   .team-inspector textarea{width:100%;min-height:220px;margin-top:.7rem;font:400 .65rem/1.5 var(--mono)}
-  .audit-head{display:flex;align-items:center;justify-content:space-between;gap:2rem;margin-top:2.5rem;padding-top:1.75rem;border-top:1px solid var(--border)}
-  .audit-head h2{margin:.3rem 0}
+  .audit-toolbar{display:flex;align-items:center;justify-content:space-between;gap:2rem}
   .audit-stats,.audit-actions{display:flex;gap:1rem}
   .audit-stats span{display:grid;color:var(--muted);font:.7rem var(--mono)}
   .audit-stats strong{color:var(--text);font:700 1.4rem var(--display)}
   .button.danger{border-color:color-mix(in srgb,var(--danger) 45%,var(--border));background:transparent;color:var(--danger)}
   .decision-list{display:grid;gap:.6rem;margin-top:1rem}
+  .audit-empty{display:flex;align-items:center;gap:.55rem;margin:0;padding:1rem;border:1px dashed var(--border);border-radius:.65rem;color:var(--muted);font-size:.74rem}
+  .audit-empty i{color:var(--accent);font-size:1.1rem}
   .decision{box-shadow:none}
   .decision>summary{display:grid;grid-template-columns:1fr 1fr 1.4fr auto;gap:1rem;align-items:center;padding:1rem;cursor:pointer}
   .decision>summary span{color:var(--muted);font:.7rem var(--mono)}
@@ -861,7 +884,7 @@
     .manual-grid{grid-template-columns:1fr}
     .interview-grid{grid-template-columns:1fr}
     .team-inspector{grid-template-columns:1fr}
-    .audit-head{align-items:stretch;flex-direction:column}
+    .audit-toolbar{align-items:stretch;flex-direction:column}
     .decision>summary{grid-template-columns:1fr 1fr}
     .decision-grid{grid-template-columns:1fr}
   }
@@ -871,8 +894,7 @@
     .preview-tools{flex-wrap:wrap}
     .preview-note{width:100%;margin-left:0}
     .manual header{align-items:stretch;flex-direction:column}
-    .interview-head{align-items:stretch;flex-direction:column}
-    .interview-head p{text-align:left}
+    .battle-drawers{grid-template-columns:1fr}
     .column footer{align-items:stretch;flex-direction:column}
     .column footer div{display:grid;grid-template-columns:1fr 1fr}
     .audit-stats{justify-content:space-between}
@@ -881,5 +903,5 @@
     .decision>summary{grid-template-columns:1fr}
   }
   .battle-context .button.compact,.tool-foot .link-button{min-height:44px}
-  @media(prefers-reduced-motion:reduce){.wait-pulse,.agent-tabs button.actionable:not(.active) em{animation:none}}
+  @media(prefers-reduced-motion:reduce){.wait-pulse,.agent-tabs button.actionable:not(.active) em{animation:none}.drawer-caret{transition:none}}
 </style>
