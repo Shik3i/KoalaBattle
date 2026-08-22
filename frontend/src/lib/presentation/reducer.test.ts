@@ -309,3 +309,61 @@ test('repeated authoritative lines are not duplicated in the spectator feed', ()
   const lines = state.log.filter((entry) => entry.text === 'Pikachu used Thunderbolt.');
   assert.equal(lines.length, 1);
 });
+
+
+test('the recap credits move damage to the attacker and never to hazards or status', () => {
+  const arena = {
+    ...battle,
+    player: {
+      side: 'p1',
+      display_name: 'Alpha',
+      active: { id: 'p1a', name: 'Pikachu', species: 'Pikachu', hp_fraction: 1, status: null, types: ['Electric'], active: true, fainted: false },
+      team: []
+    },
+    opponent: {
+      side: 'p2',
+      display_name: 'Beta',
+      active: { id: 'p2a', name: 'Eevee', species: 'Eevee', hp_fraction: 1, status: null, types: ['Normal'], active: true, fainted: false },
+      team: []
+    }
+  } satisfies BattleState;
+
+  const state = reduceEvents(createPresentationState(match), [
+    event(1, 'state_snapshot', { state: arena }),
+    event(2, 'move_used', { actor: 'p1a: Pikachu', target: 'p2a: Eevee', move: 'Thunderbolt' }),
+    event(3, 'damage', { target: 'p2a: Eevee', hp: '40/100' }),
+    // Turn boundary clears the executing move, so the next chip has no attacker.
+    event(4, 'turn_started', { turn: 3 }),
+    event(5, 'damage', { target: 'p2a: Eevee', hp: '30/100' }),
+    event(6, 'move_used', { actor: 'p1a: Pikachu', target: 'p2a: Eevee', move: 'Thunderbolt' }),
+    event(7, 'damage', { target: 'p2a: Eevee', hp: '0 fnt' }),
+    event(8, 'pokemon_fainted', { target: 'p2a: Eevee' })
+  ]);
+
+  const pikachu = state.recap.find((entry) => entry.species === 'Pikachu');
+  const eevee = state.recap.find((entry) => entry.species === 'Eevee');
+  assert.ok(pikachu && eevee);
+  // 60 from the first Thunderbolt + 30 from the finishing hit. The 10 chip is uncredited.
+  assert.equal(pikachu.damageDealt, 90);
+  assert.equal(pikachu.knockouts, 1);
+  assert.equal(pikachu.fainted, false);
+  // The victim still records everything it took, including the uncredited chip.
+  assert.equal(eevee.damageTaken, 100);
+  assert.equal(eevee.knockouts, 0);
+  assert.equal(eevee.fainted, true);
+});
+
+test('a Pokemon that only switches in still appears in the recap', () => {
+  const state = reduceEvents(createPresentationState(match), [
+    event(1, 'state_snapshot', { state: battle }),
+    event(2, 'pokemon_switched', { actor: 'p1a: Snorlax' })
+  ]);
+
+  const entry = state.recap.find((item) => item.name === 'Snorlax');
+  assert.ok(entry, 'the entering Pokemon is registered even with no damage');
+  assert.equal(entry.side, 'p1');
+  assert.equal(entry.entered, true);
+  assert.equal(entry.damageDealt, 0);
+  assert.equal(entry.knockouts, 0);
+  assert.equal(entry.fainted, false);
+});

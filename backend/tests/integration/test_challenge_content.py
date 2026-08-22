@@ -10,6 +10,7 @@ from koalabattle.challenges.service import (
     _with_level,
     _with_unique_duplicate_nicknames,
 )
+from koalabattle.challenges.species import ShowdownSpeciesCatalog
 from koalabattle.teams import ShowdownTeamValidator
 
 
@@ -87,3 +88,52 @@ async def test_opponent_teams_stay_legal_while_the_player_takes_the_level_penalt
         )
         assert result.valid, (difficulty, result.errors)
         assert all(entry.get("level") == stage.level for entry in result.structured_team or ())
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_every_draftable_species_gets_at_least_one_legal_recommended_move() -> None:
+    """A species with no recommended move kills the run at automatic team preparation.
+
+    The scaffold has to emit *some* move, so an empty list makes it fall back to one the
+    species cannot learn. Pokemon with no legal attacking move at all (Cosmoem, Ditto,
+    Wobbuffet, Smeargle) are the ones that hit this.
+    """
+    _skip_unless_showdown()
+    definition = _definition("kanto-gym-gauntlet")
+    catalog = ShowdownSpeciesCatalog(
+        os.getenv("KOALABATTLE_TEAM_VALIDATOR_URL", "http://127.0.0.1:8002")
+    )
+    species = await catalog.entries(definition.format)
+
+    draftable = [
+        entry
+        for entry in species
+        if not entry.is_mega
+        and not entry.is_gmax
+        and not entry.battle_only
+        and not entry.cosmetic
+        and not entry.unavailable
+    ]
+    assert draftable, "the draft pool must not be empty"
+    missing = sorted(entry.name for entry in draftable if not entry.recommended_moves)
+    assert missing == [], missing
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_recommended_moves_prefer_the_right_category_and_real_coverage() -> None:
+    _skip_unless_showdown()
+    definition = _definition("kanto-gym-gauntlet")
+    catalog = ShowdownSpeciesCatalog(
+        os.getenv("KOALABATTLE_TEAM_VALIDATOR_URL", "http://127.0.0.1:8002")
+    )
+    by_name = {entry.name: entry for entry in await catalog.entries(definition.format)}
+
+    # A special attacker must not be handed four identical-type moves any more.
+    greninja = by_name["Greninja"]
+    assert len(greninja.recommended_moves) == 4
+    assert len(set(greninja.recommended_moves)) == 4
+    # Recharge moves used to win on raw power alone.
+    assert "Hyper Beam" not in greninja.recommended_moves
+    assert "Giga Impact" not in greninja.recommended_moves

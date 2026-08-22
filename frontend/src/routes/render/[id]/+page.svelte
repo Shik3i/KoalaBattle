@@ -135,6 +135,7 @@
       deterministic
       logicalElapsedMs={frame.visualElapsedMs}
       visualProgress={frame.visualProgress}
+      campaign={match?.config.campaign || null}
     />
     <CaptionOverlay
       cue={frame.caption}

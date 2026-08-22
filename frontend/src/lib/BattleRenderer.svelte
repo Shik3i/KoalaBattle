@@ -8,7 +8,7 @@
     type BattlePresentationState,
     type RendererConfig
   } from './presentation/types';
-  import type { BattleSide, PokemonState, Side } from './types';
+  import type { BattleSide, CampaignBadge, PokemonState, Side } from './types';
   import type { VoiceChannel } from './production/audio-engine';
   import RendererBroadcast from './battle-renderer/RendererBroadcast.svelte';
   import RendererCommentary from './battle-renderer/RendererCommentary.svelte';
@@ -22,6 +22,8 @@
   export let logicalElapsedMs = 0;
   export let visualProgress = 0;
   export let speaking: readonly VoiceChannel[] = [];
+  /** Public Draft stage identity, when this match is one. Presentation only. */
+  export let campaign: CampaignBadge | null = null;
 
   let failedAssets = new Set<string>();
   let failedEffectAssets = new Set<string>();
@@ -466,7 +468,7 @@
 
     <RendererCommentary {presentation} {config} variant="feed" />
 
-    <RendererCards {presentation} {config} {formatLabel} {deterministic} />
+    <RendererCards {presentation} {config} {formatLabel} {campaign} {deterministic} />
   </section>
 {:else}
   <section class="renderer-loading panel"><span class="eyebrow">Renderer ready</span><h2>Waiting for normalized battle state…</h2><p>No engine connection is required to draw this frame.</p></section>

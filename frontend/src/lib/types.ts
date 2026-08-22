@@ -322,6 +322,21 @@ export interface TeamBuildAudit {
   latency_ms: number;
 }
 
+export interface CampaignBadge {
+  definition_name: string;
+  stage_id: string;
+  stage_name: string;
+  stage_title: string;
+  specialty: string | null;
+  trainer_asset_id: string | null;
+  visual_accent: string;
+  stage_index: number;
+  stage_count: number;
+  difficulty: ChallengeDifficulty;
+  player_level: number;
+  opponent_level: number;
+}
+
 export interface MatchArchive {
   id: string;
   created_at: string;
@@ -344,6 +359,8 @@ export interface MatchArchive {
       team_export?: string | null;
       team_packed?: string | null;
     }>;
+    /** Public stage identity for Draft stage matches. Never carries team data. */
+    campaign?: CampaignBadge | null;
   };
   winner: Side | null;
   turns: number;
@@ -379,6 +396,30 @@ export interface MatchArchive {
     raw_response?: string | null;
     parsed_response?: Record<string, unknown> | null;
   }>;
+}
+
+export interface TrainingRewardOption {
+  id: string;
+  kind: 'item' | 'ev-spread';
+  entry_id: string;
+  species: string;
+  label: string;
+  detail: string;
+  item: string | null;
+  ev_spread: EvSpread | null;
+}
+
+export interface TrainingRewardOffer {
+  stage_index: number;
+  stage_id: string;
+  options: TrainingRewardOption[];
+}
+
+export interface TrainingRewardChoice {
+  stage_index: number;
+  stage_id: string;
+  option: TrainingRewardOption;
+  created_at: string;
 }
 
 export type ChallengeDifficulty = 'normal' | 'hard' | 'expert' | 'nightmare';
@@ -455,6 +496,8 @@ export interface ChallengeRunView {
     opponent_controller: { agent_type: AgentType; provider?: ProviderKind | null; model?: string | null };
     battle_experience: 'quick-sim' | 'fast-watch' | 'normal';
     difficulty: ChallengeDifficulty;
+    pending_reward: TrainingRewardOffer | null;
+    training_rewards: TrainingRewardChoice[];
     rerolls_remaining: number;
     type_rerolls_remaining: number;
     generation_rerolls_remaining: number;

@@ -45,6 +45,7 @@
       : state === 'finished' ? 'finished' : state === 'error' ? 'error' : 'idle'
   ])) as Partial<Record<Side, AgentPresentationStatus>>;
 
+  $: campaign = match?.config.campaign || null;
   $: pendingSides = (Object.keys(pending) as Side[]).filter((side) => pending[side]);
   $: humanSides = (['p1', 'p2'] as Side[]).filter((side) => isHuman(side));
   // The player who can actually act is preselected, so nobody has to hunt for the right tab.
@@ -413,10 +414,12 @@
 -->
 <div class="live-head">
   <div class="head-id">
-    <span class="eyebrow">{match?.challenge_run_id ? `Draft stage · ${match.challenge_stage_id || 'campaign'}` : 'Match control'} · {data.id.slice(0, 8)}</span>
+    <span class="eyebrow">{campaign ? `${campaign.definition_name} · Battle ${campaign.stage_index + 1}/${campaign.stage_count}` : 'Match control'} · {data.id.slice(0, 8)}</span>
     <h1 title={match ? (match.config.name || `${match.config.players[0].display_name} vs ${match.config.players[1].display_name}`) : undefined}>{match ? (match.config.name || `${match.config.players[0].display_name} vs ${match.config.players[1].display_name}`) : 'Loading battle…'}</h1>
   </div>
   <div class="battle-context">
+    {#if campaign}<span class="campaign-rail" aria-label={`Battle ${campaign.stage_index + 1} of ${campaign.stage_count}`} style={`--stage-accent:${campaign.visual_accent}`}>{#each Array(campaign.stage_count) as _, index}<i class:done={index < campaign.stage_index} class:current={index === campaign.stage_index}></i>{/each}</span>
+    <span class="campaign-levels" title="Your level vs the stage level">Lv {campaign.player_level}{#if campaign.player_level !== campaign.opponent_level} vs {campaign.opponent_level}{/if}</span>{/if}
     {#if match}{#if match.challenge_run_id}<a class="button secondary compact" href={`/challenges/${match.challenge_run_id}`}><i class="ph ph-map-trifold" aria-hidden="true"></i>Draft map</a>{/if}<span class={`status-pill ${match.status}`}>{match.status}</span>{/if}
     <details bind:this={toolMenu} class="tool-menu">
       <summary title="Battle view, OBS and streaming tools"><i class="ph ph-sliders-horizontal" aria-hidden="true"></i><span>Tools</span></summary>
@@ -435,7 +438,7 @@
 </div>
 
 <section class="preview">
-  <BattleRenderer presentation={snapshot?.state || null} {config} {agentStatus} />
+  <BattleRenderer presentation={snapshot?.state || null} {config} {agentStatus} campaign={match?.config.campaign || null} />
   <!-- Every control here edits the renderer above as you touch it, and the same settings
        drive the battle-view tab and the OBS source, so what you tune is what gets captured.
        Collapsed by default so the battle, not the mixing desk, owns the screen. -->
@@ -664,6 +667,11 @@
   .live-head .eyebrow{font-size:.58rem}
   .live-head h1{margin:.1rem 0 0;overflow:hidden;font-size:clamp(1.05rem,1.7vw,1.4rem);text-overflow:ellipsis;white-space:nowrap}
   .battle-context{display:flex;flex-shrink:0;align-items:center;gap:.5rem}
+  .campaign-rail{display:flex;gap:3px}
+  .campaign-rail i{width:14px;height:5px;border-radius:999px;background:var(--border)}
+  .campaign-rail i.done{background:color-mix(in srgb,var(--accent) 70%,var(--border))}
+  .campaign-rail i.current{width:22px;background:var(--stage-accent)}
+  .campaign-levels{color:var(--muted);font:650 .66rem var(--mono);white-space:nowrap}
   .tool-menu{position:relative}
   .tool-menu>summary{display:flex;align-items:center;gap:.4rem;padding:.34rem .7rem;border:1px solid var(--border);border-radius:999px;background:var(--panel);color:var(--muted);font:650 .74rem var(--display);cursor:pointer;list-style:none}
   .tool-menu>summary::-webkit-details-marker{display:none}

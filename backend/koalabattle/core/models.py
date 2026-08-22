@@ -521,6 +521,28 @@ class PlayerConfig(FrozenModel):
         return value
 
 
+class CampaignBadge(FrozenModel):
+    """Public campaign identity for one stage match.
+
+    Presentation-only: it names the trainer being fought and where the run stands, so
+    every renderer surface (control, watch, overlay, replay, export) can show the same
+    stage identity. It never carries team data, so it is safe in spectator payloads.
+    """
+
+    definition_name: str = Field(min_length=1, max_length=120)
+    stage_id: str = Field(min_length=1, max_length=60)
+    stage_name: str = Field(min_length=1, max_length=100)
+    stage_title: str = Field(min_length=1, max_length=100)
+    specialty: str | None = Field(default=None, max_length=40)
+    trainer_asset_id: str | None = Field(default=None, max_length=80)
+    visual_accent: str = Field(default="#7bf0a2", pattern=r"^#[0-9a-fA-F]{6}$")
+    stage_index: int = Field(ge=0)
+    stage_count: int = Field(ge=1)
+    difficulty: str = Field(default="normal", max_length=20)
+    player_level: int = Field(ge=1, le=100)
+    opponent_level: int = Field(ge=1, le=100)
+
+
 class MatchConfig(FrozenModel):
     name: str | None = Field(default=None, min_length=1, max_length=120)
     format: str = Field(default="gen9randombattle", min_length=1, max_length=80)
@@ -534,6 +556,7 @@ class MatchConfig(FrozenModel):
     banter_enabled: bool = False
     allow_terastallization: bool = True
     team_policy: TeamPolicy = TeamPolicy.SHOWDOWN_RANDOM
+    campaign: CampaignBadge | None = None
     limits: MatchLimits = Field(default_factory=MatchLimits)
 
     @model_validator(mode="before")

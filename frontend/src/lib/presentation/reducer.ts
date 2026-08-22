@@ -12,6 +12,7 @@ import {
   type PokemonType,
   type PlayerPresentationState,
   type PresentationMatch,
+  type RecapEntry,
   type SpectatorLogEntry
 } from './types.ts';
 
@@ -53,8 +54,57 @@ export function createPresentationState(match: PresentationMatch): BattlePresent
     log: [],
     winner: null,
     winnerName: null,
-    finished: false
+    finished: false,
+    recap: []
   };
+}
+
+const OTHER_SIDE: Record<Side, Side> = { p1: 'p2', p2: 'p1' };
+
+/** The Pokemon currently on the field for one side, as the recap knows it. */
+function activeIdentity(
+  battle: BattlePresentationState['battle'],
+  side: Side | null
+): { species: string; name: string } | null {
+  if (!battle || !side) return null;
+  const entry = battle.player.side === side ? battle.player : battle.opponent.side === side ? battle.opponent : null;
+  const active = entry?.active;
+  return active ? { species: active.species, name: active.name || active.species } : null;
+}
+
+function withRecap(
+  recap: RecapEntry[],
+  side: Side,
+  identity: { species: string; name: string },
+  patch: Partial<Pick<RecapEntry, 'damageDealt' | 'damageTaken' | 'knockouts' | 'fainted'>>
+): RecapEntry[] {
+  const index = recap.findIndex((item) => item.side === side && item.species === identity.species);
+  if (index === -1) {
+    return [
+      ...recap,
+      {
+        side,
+        species: identity.species,
+        name: identity.name,
+        damageDealt: patch.damageDealt || 0,
+        damageTaken: patch.damageTaken || 0,
+        knockouts: patch.knockouts || 0,
+        fainted: patch.fainted || false,
+        entered: true
+      }
+    ];
+  }
+  const current = recap[index];
+  const next: RecapEntry = {
+    ...current,
+    damageDealt: current.damageDealt + (patch.damageDealt || 0),
+    damageTaken: current.damageTaken + (patch.damageTaken || 0),
+    knockouts: current.knockouts + (patch.knockouts || 0),
+    fainted: patch.fainted ?? current.fainted
+  };
+  const copy = [...recap];
+  copy[index] = next;
+  return copy;
 }
 
 export function reducePresentation(
@@ -78,6 +128,7 @@ export function reducePresentation(
   let winnerName = state.winnerName;
   let finished = state.finished;
   let players = state.players;
+  let recap = state.recap;
 
   switch (event.event_type) {
     case 'state_snapshot': {
@@ -99,13 +150,26 @@ export function reducePresentation(
       players = setStatus(players, side, 'executing');
       players = setCommentaryPhase(players, side, 'executing');
       break;
-    case 'damage':
+    case 'damage': {
       effect = 'impact';
       effectValue = hpDelta(state, targetSide, payload.hp);
+      const dealt = effectValue === null ? 0 : Math.max(0, -effectValue);
+      const victim = activeIdentity(state.battle, targetSide);
+      if (targetSide && victim && dealt) {
+        recap = withRecap(recap, targetSide, victim, { damageTaken: dealt });
+      }
+      // Credit an attacker only for damage from a move the other side is executing.
+      // Hazards, weather, status and recoil have no attacker and stay uncredited.
+      const attackerSide = targetSide ? OTHER_SIDE[targetSide] : null;
+      if (dealt && attackerSide && currentMoveSide === attackerSide) {
+        const attacker = activeIdentity(state.battle, attackerSide);
+        if (attacker) recap = withRecap(recap, attackerSide, attacker, { damageDealt: dealt });
+      }
       battle = updateBattleActive(battle, targetSide, { hp: payload.hp });
       players = setMotion(players, targetSide, 'taking-damage');
       impacts = withImpact(impacts, targetSide, effectValue, event.sequence, 'damage');
       break;
+    }
     case 'healing':
       effect = 'healing';
       effectValue = hpDelta(state, targetSide, payload.hp);
@@ -157,6 +221,10 @@ export function reducePresentation(
     }
     case 'pokemon_switched':
       battle = switchBattleActive(battle, side, payload);
+      {
+        const entering = activeIdentity(battle, side);
+        if (side && entering) recap = withRecap(recap, side, entering, {});
+      }
       // A switch is its own beat. Do not let the previous move remain in the executing
       // phase while the replacement enters the arena; that rendered as an attack on switch.
       currentMove = null;
@@ -179,11 +247,17 @@ export function reducePresentation(
       currentMovePhase = 'resolved';
       impacts = { p1: null, p2: null };
       break;
-    case 'pokemon_fainted':
+    case 'pokemon_fainted': {
       effect = 'faint';
+      const victim = activeIdentity(state.battle, targetSide);
+      if (targetSide && victim) recap = withRecap(recap, targetSide, victim, { fainted: true });
+      const scorerSide = targetSide ? OTHER_SIDE[targetSide] : null;
+      const scorer = activeIdentity(state.battle, scorerSide);
+      if (scorerSide && scorer) recap = withRecap(recap, scorerSide, scorer, { knockouts: 1 });
       battle = updateBattleActive(battle, targetSide, { hp: '0 fnt', fainted: true });
       players = setMotion(players, targetSide, 'fainting');
       break;
+    }
     case 'agent_state':
     case 'agent_progress': {
       if (!side) break;
@@ -264,7 +338,8 @@ export function reducePresentation(
     log: appendLogEntry(state.log, entry),
     winner,
     winnerName,
-    finished
+    finished,
+    recap
   };
 }
 

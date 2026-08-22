@@ -503,3 +503,103 @@ async def test_strategy_memory_is_ignored_when_policy_is_disabled(
         pricing=PricingTable("{}", "test-v1"),
     ).decide(disabled)
     assert decision.strategy_memory is None
+
+
+def _status_action(request: AgentRequest, name: str) -> BattleAction:
+    return request.legal_actions[0].model_copy(
+        update={"name": name, "category": "status", "power": 0, "accuracy": 100}
+    )
+
+
+@pytest.mark.asyncio
+async def test_tactical_agent_lays_hazards_only_while_the_opponent_can_still_switch(
+    agent_request: AgentRequest,
+) -> None:
+    bench = tuple(
+        PokemonState(
+            id=f"p2: Bench {index}",
+            name=f"Bench {index}",
+            species=f"bench{index}",
+            hp_fraction=1.0,
+            types=("Normal",),
+        )
+        for index in range(1, 3)
+    )
+    with_bench = agent_request.state.model_copy(
+        update={"opponent": agent_request.state.opponent.model_copy(update={"team": bench})}
+    )
+    actions = (
+        _status_action(agent_request, "Stealth Rock"),
+        agent_request.legal_actions[0].model_copy(
+            update={"name": "Tackle", "category": "physical", "power": 40, "accuracy": 100}
+        ),
+    )
+    decision = await TacticalAgent().decide(
+        agent_request.model_copy(update={"state": with_bench, "legal_actions": actions})
+    )
+    assert decision.action == actions[0].id
+
+    # With the hazard already down there is nothing to gain from setting it again.
+    already = with_bench.model_copy(
+        update={
+            "opponent": with_bench.opponent.model_copy(
+                update={"side_conditions": ("Stealth Rock",)}
+            )
+        }
+    )
+    decision = await TacticalAgent().decide(
+        agent_request.model_copy(update={"state": already, "legal_actions": actions})
+    )
+    assert decision.action == actions[1].id
+
+
+@pytest.mark.asyncio
+async def test_tactical_agent_does_not_stack_a_second_major_status(
+    agent_request: AgentRequest,
+) -> None:
+    opponent = agent_request.state.opponent.active
+    assert opponent is not None
+    poisoned = agent_request.state.model_copy(
+        update={
+            "opponent": agent_request.state.opponent.model_copy(
+                update={"active": opponent.model_copy(update={"status": "tox"})}
+            )
+        }
+    )
+    actions = (
+        _status_action(agent_request, "Thunder Wave"),
+        agent_request.legal_actions[0].model_copy(
+            update={"name": "Tackle", "category": "physical", "power": 40, "accuracy": 100}
+        ),
+    )
+    decision = await TacticalAgent().decide(
+        agent_request.model_copy(update={"state": poisoned, "legal_actions": actions})
+    )
+    assert decision.action == actions[1].id
+
+
+@pytest.mark.asyncio
+async def test_tactical_agent_clears_its_own_hazards_when_they_are_down(
+    agent_request: AgentRequest,
+) -> None:
+    hazarded = agent_request.state.model_copy(
+        update={
+            "player": agent_request.state.player.model_copy(
+                update={"side_conditions": ("Stealth Rock", "Spikes")}
+            )
+        }
+    )
+    actions = (
+        _status_action(agent_request, "Rapid Spin"),
+        _status_action(agent_request, "Light Screen"),
+    )
+    decision = await TacticalAgent().decide(
+        agent_request.model_copy(update={"state": hazarded, "legal_actions": actions})
+    )
+    assert decision.action == actions[0].id
+
+    clean = agent_request.state
+    decision = await TacticalAgent().decide(
+        agent_request.model_copy(update={"state": clean, "legal_actions": actions})
+    )
+    assert decision.action == actions[1].id

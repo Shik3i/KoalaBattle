@@ -39,6 +39,7 @@ from koalabattle.challenges.models import (
     RevisionInput,
     TeamAbilityInput,
     TrainingInput,
+    TrainingRewardInput,
 )
 from koalabattle.challenges.service import redact_challenge_match
 from koalabattle.challenges.species import ShowdownSpeciesCatalog
@@ -951,6 +952,34 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     redact_challenge_match(match).model_dump(mode="json") if match else None
                 ),
             }
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="challenge not found") from error
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+
+    @app.post("/api/challenges/{run_id}/reward", response_model=ChallengeRunView)
+    async def challenge_claim_reward(
+        run_id: UUID, payload: TrainingRewardInput, request: Request
+    ) -> ChallengeRunView:
+        try:
+            run = await _challenges(request).claim_training_reward(
+                run_id, payload.option_id, payload.expected_revision
+            )
+            return _challenges(request).view(run)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="challenge not found") from error
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+
+    @app.post("/api/challenges/{run_id}/reward/skip", response_model=ChallengeRunView)
+    async def challenge_skip_reward(
+        run_id: UUID, payload: RevisionInput, request: Request
+    ) -> ChallengeRunView:
+        try:
+            run = await _challenges(request).skip_training_reward(
+                run_id, payload.expected_revision
+            )
+            return _challenges(request).view(run)
         except KeyError as error:
             raise HTTPException(status_code=404, detail="challenge not found") from error
         except ValueError as error:

@@ -111,7 +111,7 @@
 <svelte:head><title>KoalaBattle · Battle view</title></svelte:head>
 
 <div class="battle-view">
-  <BattleRenderer presentation={snapshot?.state || null} {config} overlay {agentStatus} {speaking} />
+  <BattleRenderer presentation={snapshot?.state || null} {config} overlay {agentStatus} {speaking} campaign={match?.config.campaign || null} />
   <!-- Keeps narration audio available on the viewer tab; no battle controls are exposed. -->
   <ProductionConsole
     matchId={data.id}

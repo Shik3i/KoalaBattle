@@ -237,6 +237,14 @@
       error = challengeErrorMessage(technicalError);
     } finally { loading = ''; }
   }
+  async function claimReward(optionId: string) {
+    if (!run) return;
+    await mutate('/reward', { option_id: optionId, expected_revision: run.revision }, `reward:${optionId}`);
+  }
+  async function skipReward() {
+    if (!run) return;
+    await mutate('/reward/skip', { expected_revision: run.revision }, 'reward-skip');
+  }
   async function pauseAutoRun() { if (run) await mutate('/auto/pause', { expected_revision: run.revision }, 'pause-auto'); }
   async function continueAutoRun() {
     if (!run || loading) return;
@@ -467,6 +475,35 @@
 <nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/challenges">Draft</a><i class="ph ph-caret-right" aria-hidden="true"></i><span>{run.name}</span></nav>
 <div class="page-head"><div class="run-id"><span class="eyebrow">{run.definition.name} · v{run.definition.version}</span><h1 title={run.name}>{run.name}</h1></div><div class="head-actions"><span class={`status-pill ${run.status}`}>{challengeStatusLabel(run.status)}</span><span class="difficulty-pill" title="Level disadvantage applied to your team only">{difficultyLabel(run.difficulty)}</span>{#if !['completed','cancelled'].includes(run.status)}<details bind:this={runMenu} class="run-menu"><summary title="Run tools"><i class="ph ph-sliders-horizontal" aria-hidden="true"></i><span>Run</span></summary><div class="run-menu-panel" role="none" on:click={() => runMenu && (runMenu.open = false)}><span class="run-menu-label">This run</span><p class="run-menu-note">{run.definition.description}</p><a class="run-menu-item" href="#run-archive"><i class="ph ph-cards-three" aria-hidden="true"></i>Battle history and saved details</a><button type="button" class="run-menu-item danger" disabled={Boolean(loading)} on:click={requestCancelRun}><i class="ph ph-x-circle" aria-hidden="true"></i>Cancel run</button><button type="button" class="run-menu-item danger" disabled={Boolean(loading)} on:click={requestDeleteRun}><i class="ph ph-trash" aria-hidden="true"></i>Delete run</button></div></details>{/if}</div></div>
 
+<!--
+  Between-stage progression: one permanent upgrade per cleared stage. It holds the
+  auto-run countdown, because a decision the run makes for you is not a decision.
+-->
+{#if run.pending_reward}
+  <section class="reward panel" aria-labelledby="reward-title">
+    <header>
+      <div><span class="eyebrow"><i class="ph ph-barbell" aria-hidden="true"></i> Training reward</span><h2 id="reward-title">Pick one upgrade for the rest of the run</h2></div>
+      <button class="link-button" disabled={Boolean(loading)} on:click={skipReward}>{loading === 'reward-skip' ? 'Skipping…' : 'Skip this reward'}</button>
+    </header>
+    <div class="reward-options">
+      {#each run.pending_reward.options as option (option.id)}
+        {@const claimed = run.training_rewards.find((entry) => entry.option.entry_id === option.entry_id)}
+        <button type="button" disabled={Boolean(loading)} on:click={() => claimReward(option.id)}>
+          <PokemonSprite species={option.species} size="medium" decorative />
+          <strong>{option.label}</strong>
+          <small>{option.detail}</small>
+          <span class="reward-kind">{option.kind === 'item' ? 'Held item' : 'EV respec'}{#if claimed} · replaces an earlier reward{/if}</span>
+        </button>
+      {/each}
+    </div>
+    <footer><span>Upgrades are permanent and apply from the next stage on. The drafted species, abilities, and levels are untouched.</span></footer>
+  </section>
+{/if}
+
+{#if run.training_rewards.length && !run.pending_reward && ['ready','battle_queued','battling','stage_result'].includes(run.status)}
+  <section class="earned" aria-label="Claimed training rewards">{#each run.training_rewards as entry (entry.option.id)}<span title={entry.option.detail}><PokemonSprite species={entry.option.species} size="small" decorative /><b>{entry.option.item || 'Retrained'}</b></span>{/each}</section>
+{/if}
+
 {#if ['training','team_review'].includes(run.status)}
   <section class="continue-card panel" aria-labelledby="continue-title"><div><span class="eyebrow">Continue where you left off</span><h2 id="continue-title">{primaryLabel(run)}</h2></div><a class="button" href={primaryHref(run)}>{primaryLabel(run)}<i class="ph ph-arrow-right" aria-hidden="true"></i></a></section>
 {:else if ['ready','battle_queued','battling','stage_result','preparing'].includes(run.status) && view.current_stage}
@@ -554,7 +591,7 @@
       {#if run.current_offer.options.length < run.definition.draft_rules.choice_count}<p class="pool-note" role="status"><i class="ph ph-info" aria-hidden="true"></i>The legal pool is nearly exhausted, so this offer contains fewer cards.</p>{/if}
       <div class:pending-reveal={Boolean(rollReveal)} class="offer-grid">{#each run.current_offer.options as option, index}<button style={`--reveal-index:${index}`} disabled={Boolean(loading) || Boolean(rollReveal)} aria-label={`Draft ${option.species}`} aria-keyshortcuts={index < 9 ? String(index + 1) : undefined} on:click={() => pick(option.entry_id)}><span class="shortcut" aria-hidden="true">{index + 1}</span><span class="dex">#{String(option.national_dex_number).padStart(4, '0')} · Gen {option.introduction_generation}</span><div class="offer-sprite"><PokemonSprite species={option.species} size="large" decorative /></div><h3>{option.species}</h3><p class="type-badges"><TypeBadges types={option.types} /></p><div class="card-foot">{#if option.base_stat_total}<small>BST <b>{option.base_stat_total}</b></small>{/if}<span>Choose <i class="ph ph-arrow-right" aria-hidden="true"></i></span></div>{#if loading === `pick:${option.entry_id}`}<em role="status"><i class="ph ph-spinner-gap" aria-hidden="true"></i> Locking pick…</em>{/if}</button>{/each}</div>
       <footer>{#if run.draft_controller.kind === 'human'}<div class="reroll-actions"><button class="button secondary" title="Keep Generation and Type; replace only these Pokémon" disabled={!run.rerolls_remaining || !view.can_reroll || Boolean(loading) || Boolean(rollReveal)} on:click={() => requestReroll('pokemon')}><i class="ph ph-arrows-clockwise" aria-hidden="true"></i><span><strong>{loading === 'reroll:pokemon' ? 'Rolling…' : 'Reroll Pokémon'}</strong><small>Keep Gen + Type</small></span><b>{run.rerolls_remaining}</b></button><button class="button ghost" title="Keep Generation; change Type and Pokémon" disabled={!run.type_rerolls_remaining || !view.can_reroll_type || Boolean(loading) || Boolean(rollReveal)} on:click={() => requestReroll('type')}><i class="ph ph-palette" aria-hidden="true"></i><span><strong>{loading === 'reroll:type' ? 'Rolling…' : 'Reroll Type'}</strong><small>Keep Generation</small></span><b>{run.type_rerolls_remaining}</b></button><button class="button ghost" title="Keep Type; change Generation and Pokémon" disabled={!run.generation_rerolls_remaining || !view.can_reroll_generation || Boolean(loading) || Boolean(rollReveal)} on:click={() => requestReroll('generation')}><i class="ph ph-clock-counter-clockwise" aria-hidden="true"></i><span><strong>{loading === 'reroll:generation' ? 'Rolling…' : 'Reroll Generation'}</strong><small>Keep Type</small></span><b>{run.generation_rerolls_remaining}</b></button></div>{@const blocked = (['pokemon','type','generation'] as RerollKind[]).map((kind) => [kind, rerollBlockedReason(kind)] as const).filter(([, reason]) => reason)}{#if blocked.length}<ul class="reroll-blocked" role="status">{#each blocked as [kind, reason]}<li><b>{kind === 'pokemon' ? 'Pokémon' : kind === 'type' ? 'Type' : 'Generation'} reroll</b>{reason}</li>{/each}</ul>{/if}{:else if run.draft_controller.kind === 'agent'}<div class="agent-actions"><button class="button" disabled={Boolean(loading) || Boolean(rollReveal)} on:click={agentDraft}><i class="ph ph-robot" aria-hidden="true"></i>{loading === 'agent' ? 'AI is choosing…' : agentFailed ? 'Retry AI decision' : 'Ask AI to choose'}</button><button class="button secondary" disabled={Boolean(loading) || Boolean(rollReveal)} on:click={takeOverDraft}>{loading === 'takeover' ? 'Taking over…' : 'Take over manually'}</button></div>{/if}<span class:busy={Boolean(loading)} class="offer-saved" role="status"><i class={`ph ${loading ? 'ph-circle-notch' : 'ph-cloud-check'}`} aria-hidden="true"></i>{loading ? 'Saving change…' : 'All progress saved'}</span></footer>
-    </div><aside class="draft-roster" aria-label="Current drafted roster"><span class="eyebrow">Your team</span><h3>{run.picks.length} / {run.definition.draft_rules.roster_size}</h3><div>{#each Array(run.definition.draft_rules.roster_size) as _, index}{#if run.picks[index]}{@const pick = run.picks[index]}<article><PokemonSprite species={pick.candidate.species} size="small" decorative /><span><strong>{pick.candidate.species}</strong><TypeBadges types={pick.candidate.types} compact /></span></article>{:else}<article class="empty"><b>{index + 1}</b><span>Open slot</span></article>{/if}{/each}</div><details><summary>How drafting works</summary><p>Every shown card leaves the run. Pokémon keeps Gen + Type; Type keeps Gen; Generation keeps Type. Each power is single-use.</p></details></aside></div>
+    </div><aside class="draft-roster" aria-label="Current drafted roster"><span class="eyebrow">Your team</span><h3>{run.picks.length} / {run.definition.draft_rules.roster_size}</h3><div>{#each Array(run.definition.draft_rules.roster_size) as _, index}{#if run.picks[index]}{@const pick = run.picks[index]}<article><PokemonSprite species={pick.candidate.species} size="small" decorative /><span><strong>{pick.candidate.species}</strong><TypeBadges types={pick.candidate.types} compact /></span></article>{:else}<article class="empty"><b>{index + 1}</b><span>Open slot</span></article>{/if}{/each}</div><details open><summary>Who you will fight</summary><ol class="campaign-preview">{#each view.stages as stage (stage.id)}<li style={`--stage-accent:${stage.visual_accent}`}><b>{stage.name}</b><span>{stage.specialty || stage.title}</span><i>Lv {stage.level}</i></li>{/each}</ol><p>Draft coverage for these types. Every shown card leaves the run: Pokémon keeps Gen + Type, Type keeps Gen, Generation keeps Type, and each power is single-use.</p></details></aside></div>
     {#if loading === 'agent'}<p class="async-note" role="status">Waiting for one strict legal action. This offer will not reroll while the AI responds.</p>{/if}
     {/key}
   </section>
@@ -620,6 +657,30 @@
   .reroll-blocked li{display:flex;flex-wrap:wrap;gap:.35rem;color:var(--muted);font-size:.66rem}
   .reroll-blocked b{color:var(--text)}
   .visually-hidden{position:absolute;overflow:hidden;clip-path:inset(50%);width:1px;height:1px;white-space:nowrap}
+  /* A blind draft is a lottery. Showing the campaign makes coverage a real decision. */
+  .campaign-preview{display:grid;gap:.15rem;margin:.5rem 0 .6rem;padding:0;list-style:none}
+  .campaign-preview li{display:grid;grid-template-columns:auto 1fr auto;align-items:baseline;gap:.4rem;padding:.16rem .4rem;border-left:3px solid var(--stage-accent);border-radius:.3rem;background:var(--surface)}
+  .campaign-preview b{color:var(--text);font:700 .66rem var(--display)}
+  .campaign-preview span{overflow:hidden;color:var(--stage-accent);font:650 .58rem var(--mono);text-overflow:ellipsis;text-transform:uppercase;white-space:nowrap}
+  .campaign-preview i{color:var(--muted);font:600 .56rem var(--mono);font-style:normal}
+
+  .reward{margin-bottom:.7rem;padding:1rem 1.1rem;border-color:color-mix(in srgb,var(--accent) 50%,var(--border));background:linear-gradient(150deg,color-mix(in srgb,var(--accent) 10%,var(--panel)),var(--panel));animation:reward-in .4s cubic-bezier(.2,.8,.2,1)}
+  .reward header{display:flex;align-items:flex-start;justify-content:space-between;gap:1rem}
+  .reward h2{margin:.15rem 0;font-size:1.15rem}
+  .reward .eyebrow{display:flex;align-items:center;gap:.35rem}
+  .reward-options{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.6rem;margin-top:.8rem}
+  .reward-options button{display:grid;justify-items:center;gap:.25rem;padding:.85rem .7rem;border:1px solid var(--border);border-radius:.8rem;background:var(--panel-strong);color:var(--text);text-align:center;cursor:pointer;transition:transform .16s ease,border-color .16s ease,box-shadow .16s ease}
+  .reward-options button:hover:not(:disabled),.reward-options button:focus-visible{transform:translateY(-3px);border-color:var(--accent);box-shadow:0 10px 26px color-mix(in srgb,var(--accent) 18%,transparent)}
+  .reward-options button:disabled{opacity:.55;cursor:default}
+  .reward-options strong{font-size:.9rem}
+  .reward-options small{color:var(--muted);font-size:.68rem;line-height:1.4}
+  .reward-kind{margin-top:.15rem;color:var(--accent);font:700 .58rem var(--mono);letter-spacing:.1em;text-transform:uppercase}
+  .reward footer{margin-top:.7rem;color:var(--muted);font-size:.68rem}
+  .earned{display:flex;flex-wrap:wrap;gap:.35rem;margin-bottom:.7rem}
+  .earned span{display:flex;align-items:center;gap:.3rem;padding:.18rem .5rem .18rem .2rem;border:1px solid color-mix(in srgb,var(--accent) 32%,var(--border));border-radius:999px;background:var(--panel);color:var(--muted);font:650 .64rem var(--display)}
+  @keyframes reward-in{from{opacity:0;transform:translateY(-8px)}}
+  @media(prefers-reduced-motion:reduce){.reward{animation:none}.reward-options button{transition:none}.reward-options button:hover:not(:disabled){transform:none}}
+
   .run-error{display:flex;align-items:flex-start;gap:.75rem;margin-bottom:.7rem;padding:.8rem 1rem;border-color:color-mix(in srgb,var(--danger) 45%,var(--border));background:color-mix(in srgb,var(--danger) 7%,var(--panel))}
   .run-error>i{color:var(--danger);font-size:1.15rem}
   .run-error>div{min-width:0;flex:1}
@@ -628,5 +689,5 @@
   .run-error small{color:var(--muted);font:.64rem var(--mono)}
 
   /* Narrow viewports: stack the hero, keep one full-width primary action. */
-  @media(max-width:720px){.page-head{align-items:flex-start;flex-direction:column;gap:.5rem}.head-actions{flex-direction:row;flex-wrap:wrap;align-items:center;width:100%}.stage-hero{align-items:flex-start;flex-direction:column;text-align:left}.stage-hero :global(.trainer){width:96px;max-height:96px;align-self:flex-start}.stage-action{justify-items:stretch;width:100%;text-align:left}.stage-buttons{justify-content:flex-start}.stage-buttons .button{flex:1}.result-actions{flex-direction:row;flex-wrap:wrap}.battle-summary{grid-template-columns:1fr}}
+  @media(max-width:720px){.page-head{align-items:flex-start;flex-direction:column;gap:.5rem}.head-actions{flex-direction:row;flex-wrap:wrap;align-items:center;width:100%}.stage-hero{align-items:flex-start;flex-direction:column;text-align:left}.stage-hero :global(.trainer){width:96px;max-height:96px;align-self:flex-start}.stage-action{justify-items:stretch;width:100%;text-align:left}.stage-buttons{justify-content:flex-start}.stage-buttons .button{flex:1}.reward-options{grid-template-columns:1fr}.reward header{align-items:stretch;flex-direction:column;gap:.4rem}.result-actions{flex-direction:row;flex-wrap:wrap}.battle-summary{grid-template-columns:1fr}}
 </style>

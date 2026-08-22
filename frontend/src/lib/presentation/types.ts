@@ -139,6 +139,22 @@ export interface SpectatorLogEntry {
   emphasis: 'normal' | 'positive' | 'negative' | 'critical';
 }
 
+/**
+ * Per-Pokemon contribution accumulated while the battle plays, so the end card can show a
+ * real recap instead of only a winner name. Damage is in percentage points of the target's
+ * maximum HP, which is the only cross-Pokemon comparable unit the protocol gives us.
+ */
+export interface RecapEntry {
+  side: Side;
+  species: string;
+  name: string;
+  damageDealt: number;
+  damageTaken: number;
+  knockouts: number;
+  fainted: boolean;
+  entered: boolean;
+}
+
 export interface BattlePresentationState {
   version: typeof RENDERER_VERSION;
   matchId: string;
@@ -160,6 +176,8 @@ export interface BattlePresentationState {
   winner: Side | null;
   winnerName: string | null;
   finished: boolean;
+  /** Ordered by team slot within each side; only Pokemon that entered the battle count. */
+  recap: RecapEntry[];
 }
 
 export interface TimelineSnapshot {

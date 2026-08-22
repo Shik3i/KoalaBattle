@@ -41,6 +41,39 @@ smallest part of the level disadvantage needed to keep the derived team legal in
 the stage; the opponent level never moves. Automatically prepared sets avoid this by only
 recommending moves that are still legal at level 35, the lowest level the campaign can produce.
 
+## Training rewards
+
+Clearing a stage hands out one permanent upgrade, chosen from three deterministic options:
+two held items and one EV respec. Options come from a hash of the run seed, the definition,
+the stage index, and the drafted roster, so reloading never rerolls them.
+
+Rewards are legal by construction rather than by validation: the item pool is limited to
+items anything in this format can hold, and the spreads come from the same generator Training
+Camp uses. Like the level and the difficulty modifier, a claimed reward is replayed onto the
+**derived** stage export at launch — the drafted roster snapshot is never rewritten, so the run
+stays reconstructible from its own immutable history.
+
+An unclaimed reward holds the auto-run countdown. A run with a decision waiting does not
+launch the next stage until the reward is claimed or skipped; either resumes the countdown
+immediately. `POST /api/challenges/{id}/reward` claims one option,
+`POST /api/challenges/{id}/reward/skip` declines.
+
+## Batch playtesting
+
+Balancing a thirteen-stage campaign from single runs does not work: one campaign takes
+minutes and one sample says nothing about a distribution. `scripts/playtest_draft.py` drives
+real runs through the real API and reports how far they actually get.
+
+```bash
+python3 scripts/playtest_draft.py --difficulty normal hard --runs 6 --retries 1
+```
+
+It reports cleared/reached distributions, completions, and a per-stage win rate, then deletes
+its runs unless `--keep` is passed. Every battle is a real Showdown battle; nothing is
+simulated. Use it before and after any change to opponent teams, difficulty, or Tactical Auto —
+the agent's own history has an example of a plausible-looking heuristic that measurably made
+the campaign worse.
+
 ## Run the campaign
 
 1. Start `showdown`, `team-validator`, `backend`, and `frontend`.
@@ -113,6 +146,24 @@ For an intentional zero spread, final validation adds Showdown's harmless one-HP
 marker only to the derived validated export. At levels below 100, a derived stage snapshot may add
 the same remainder when every allocated EV is divisible by four. Neither changes a battle stat or
 the run's source recommended EV allocation.
+
+## Stage presentation
+
+Every Draft stage match carries a public `campaign` badge on its `MatchConfig`: the definition
+name, stage identity, trainer sprite id, accent, position in the campaign, difficulty, and both
+levels. It contains no team data, so it is safe in spectator and OBS payloads, and it reaches
+the control view, battle view, overlay, replay, and deterministic video render through the same
+archive every other renderer surface already reads.
+
+The renderer uses it for the two screens that bracket a battle. The intro is a versus card with
+the opponent's installed trainer sprite, both levels and the stage position instead of a generic
+name plate. The end card is a recap: winner, surviving team, an MVP, and a per-Pokemon table of
+damage dealt and knockouts for both sides, accumulated by the presentation reducer as the battle
+plays. Damage is counted in percentage points of the target's maximum HP — the only unit
+comparable across Pokemon — and is credited to an attacker only for damage from a move that side
+is executing, so hazards, weather, status and recoil stay uncredited. Bars scale against the
+hardest hitter in that battle, because cumulative damage across several targets routinely passes
+one full HP bar.
 
 ## Recovery, versioning, and ownership
 

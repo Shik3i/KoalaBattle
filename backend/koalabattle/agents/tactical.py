@@ -67,9 +67,35 @@ _DISRUPTION = {
     "thunderwave",
     "spore",
     "sleeppowder",
-    "stealthrock",
-    "spikes",
+    "lovelykiss",
+    "hypnosis",
+    "glare",
     "taunt",
+    "encore",
+}
+#: Entry hazards are only worth a turn when the opponent still has switches left.
+_HAZARDS = {"stealthrock", "spikes", "toxicspikes", "stickyweb"}
+#: Removing our own hazards is worth a turn once they are actually down.
+_HAZARD_REMOVAL = {"rapidspin", "defog", "courtchange", "tidyup", "mortalspin"}
+#: Statuses a second status move cannot stack onto.
+_MAJOR_STATUS = {"brn", "par", "psn", "tox", "slp", "frz"}
+#: Rough per-switch HP cost of the hazards on our own half of the field.
+_HAZARD_SWITCH_COST = {
+    "stealthrock": 0.13,
+    "spikes": 0.12,
+    "toxicspikes": 0.06,
+    "stickyweb": 0.05,
+}
+#: The move ids each status move actually applies, so it is never used redundantly.
+_STATUS_MOVE_EFFECT = {
+    "toxic": "tox",
+    "willowisp": "brn",
+    "thunderwave": "par",
+    "glare": "par",
+    "spore": "slp",
+    "sleeppowder": "slp",
+    "lovelykiss": "slp",
+    "hypnosis": "slp",
 }
 
 
@@ -90,6 +116,15 @@ def _effectiveness(move_type: str | None, opponent_types: tuple[str, ...]) -> fl
         elif opponent_type in resisted:
             multiplier *= 0.5
     return multiplier
+
+
+def _side_condition_ids(conditions: tuple[str, ...]) -> set[str]:
+    return {_id(item) for item in conditions}
+
+
+def _hazard_switch_cost(conditions: set[str]) -> float:
+    """Fraction of maximum HP a switch-in loses to the hazards already on our side."""
+    return sum(cost for name, cost in _HAZARD_SWITCH_COST.items() if name in conditions)
 
 
 def _accuracy(value: float | int | None) -> float:
@@ -118,6 +153,12 @@ def _damage_score(
         return -100
     stab = 1.5 if move_type and move_type.lower() in {item.lower() for item in own_types} else 1
     score = float(power) * _accuracy(accuracy) * stab * effectiveness
+    # A finishing bonus was measured against the campaign and made the agent *worse*: the
+    # power-based KO estimate is far too optimistic, so it fired on nearly every move and
+    # quietly re-ranked hits by accuracy instead of by damage. Only the narrow, safe part
+    # survives: when the target is genuinely nearly dead, prefer the reliable hit.
+    if opponent_hp > 0 and opponent_hp <= 0.2:
+        score += 25 * _accuracy(accuracy)
     if priority and priority > 0 and (own_hp < 0.3 or opponent_hp < 0.3):
         score += 30 * priority
     return score
@@ -168,6 +209,23 @@ class TacticalAgent:
         opponent_types = opponent.types if opponent else ()
         hp = active.hp_fraction if active else 0.0
         opponent_hp = opponent.hp_fraction if opponent else 1.0
+        own_conditions = _side_condition_ids(request.state.player.side_conditions)
+        opponent_conditions = _side_condition_ids(request.state.opponent.side_conditions)
+        switch_cost = _hazard_switch_cost(own_conditions)
+        opponent_bench = sum(
+            1
+            for pokemon in request.state.opponent.team
+            if not pokemon.fainted and not pokemon.active
+        )
+        # How hard the opponent can hit back right now, from what it has revealed.
+        revealed = tuple(move.type for move in (opponent.moves if opponent else ()) if move.type)
+        incoming = max(
+            (_effectiveness(move_type, own_types) for move_type in (revealed or opponent_types)),
+            default=1.0,
+        )
+        offensive_boost = max(
+            (active.boosts.get(stat, 0) for stat in ("atk", "spa", "spe")), default=0
+        ) if active else 0
         forced_switch = (
             active is None
             or active.fainted
@@ -211,8 +269,22 @@ class TacticalAgent:
                 )
                 if forced_switch:
                     switch_score += 1000
-                elif hp < 0.22:
-                    switch_score += 28
+                else:
+                    # Switching into our own hazards is not free, and a switch-in that
+                    # would arrive nearly dead is worse than staying in.
+                    arriving = (candidate.hp_fraction if candidate else (action.hp_fraction or 1))
+                    switch_score -= 90 * switch_cost
+                    if arriving - switch_cost <= 0.12:
+                        switch_score -= 60
+                    if hp < 0.22:
+                        switch_score += 28
+                    # A bad matchup is the reason to switch; a good one is a reason to stay.
+                    if incoming >= 2:
+                        switch_score += 22
+                    elif incoming <= 0.5:
+                        switch_score -= 26
+                    # Never throw away an active setup by switching out of it.
+                    switch_score -= 26 * max(0, offensive_boost)
                 if (
                     not forced_switch
                     and candidate is not None
@@ -227,11 +299,29 @@ class TacticalAgent:
             if action.category == "status" or not action.power:
                 utility = 10.0
                 if move_id in _RECOVERY:
-                    utility = 72 if hp < 0.35 else 4
+                    # Healing is only tempo if we survive to use it. Against a matchup that
+                    # is already hitting us super effectively, healing just delays the loss.
+                    utility = 76 if hp < 0.42 and incoming < 2 else 6 if hp < 0.42 else 3
                 elif move_id in _SETUP:
-                    utility = 40 if request.turn <= 4 and hp > 0.55 else 12
+                    # Set up when it is actually safe and there is something left to sweep,
+                    # not only in the opening turns, and never past a useful boost.
+                    safe = hp > 0.6 and incoming <= 1 and opponent_hp > 0.35
+                    utility = 46 if safe and offensive_boost < 2 else 8
+                elif move_id in _HAZARDS:
+                    already = move_id in opponent_conditions
+                    # Toxic Spikes stacks once, the rest do not; either way, hazards are
+                    # only worth a turn while the opponent still has Pokemon to bring in.
+                    utility = 44 if not already and opponent_bench >= 2 else 4
+                elif move_id in _HAZARD_REMOVAL:
+                    utility = 40 if own_conditions & set(_HAZARD_SWITCH_COST) else 5
                 elif move_id in _DISRUPTION:
-                    utility = 35 if opponent and not opponent.status else 8
+                    applied = _STATUS_MOVE_EFFECT.get(move_id)
+                    blocked = bool(
+                        opponent
+                        and opponent.status
+                        and (applied is None or opponent.status in _MAJOR_STATUS)
+                    )
+                    utility = 8 if blocked else 38 if opponent_hp > 0.45 else 14
                 return utility * _accuracy(action.accuracy), action.id
             damage = _damage_score(
                 move_type=action.move_type,

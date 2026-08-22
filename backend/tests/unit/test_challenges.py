@@ -19,6 +19,7 @@ from koalabattle.challenges.domain import (
 )
 from koalabattle.challenges.models import (
     DIFFICULTY_LEVEL_MODIFIERS,
+    TRAINING_REWARD_ITEMS,
     BattleControllerSnapshot,
     ChallengeDefinition,
     ChallengeDifficulty,
@@ -35,6 +36,8 @@ from koalabattle.challenges.models import (
     DraftRules,
     EvSpread,
     PokemonAbility,
+    TrainingRewardChoice,
+    TrainingRewardKind,
     TrainingRules,
     player_stage_level,
 )
@@ -48,8 +51,10 @@ from koalabattle.challenges.service import (
     ChallengeService,
     _team_scaffold,
     _with_level,
+    _with_training_rewards,
     _with_unique_duplicate_nicknames,
     _with_zero_ev_confirmation,
+    build_training_reward_offer,
     derive_battle_summary,
     redact_challenge_match,
 )
@@ -947,6 +952,18 @@ async def test_auto_run_pause_continue_and_duplicate_advance_create_one_match(
     await service.on_match_terminal(
         first_match.id, _won_archive(duplicate, first_match.id, "stage-one")
     )
+    # A win now hands out a training reward, and that decision point holds the countdown.
+    won = await service.require(run.id)
+    assert won.current_stage_index == 1
+    assert won.pending_reward is not None
+    assert won.auto_advance_at is None
+    await asyncio.sleep(0.2)
+    assert (await service.require(run.id)).active_match_id is None
+
+    # Resolving it resumes the run without a further click.
+    resumed = await service.skip_training_reward(run.id, won.revision)
+    assert resumed.pending_reward is None
+    assert resumed.auto_advance_at is not None
     for _ in range(20):
         advanced = await service.require(run.id)
         if advanced.active_match_id not in {None, first_match.id}:
@@ -1355,4 +1372,108 @@ async def test_unreachable_validator_parks_preparation_in_team_review(tmp_path: 
     assert prepared.error is not None
     assert "validator" in prepared.error
     assert prepared.team_snapshot_id is None
+    await database.close()
+
+
+def test_training_rewards_are_deterministic_and_always_legal() -> None:
+    run = _picked_run()
+    first = build_training_reward_offer(run, 0)
+    again = build_training_reward_offer(run, 0)
+    other_seed = build_training_reward_offer(run.model_copy(update={"seed": run.seed + 1}), 0)
+
+    assert first is not None and again is not None and other_seed is not None
+    # Same run, same stage, same offer — a reload must never reroll the upgrades.
+    assert first == again
+    assert [option.id for option in first.options] != [
+        f"{option.id}:{option.item}" for option in other_seed.options
+    ]
+    # A stage past the end of the campaign has nothing to offer.
+    assert build_training_reward_offer(run, len(run.definition.stages)) is None
+    assert len(first.options) == 3
+    drafted = {pick.candidate.entry_id for pick in run.picks}
+    for option in first.options:
+        assert option.entry_id in drafted
+        if option.kind is TrainingRewardKind.ITEM:
+            assert option.item in TRAINING_REWARD_ITEMS
+        else:
+            assert option.ev_spread is not None
+            assert option.ev_spread.total <= run.definition.training_rules.per_pokemon_max
+            for value in option.ev_spread.model_dump().values():
+                assert value <= run.definition.training_rules.per_stat_max
+
+
+def test_claimed_rewards_are_replayed_onto_the_derived_stage_export() -> None:
+    run = _picked_run()
+    offer = build_training_reward_offer(run, 0)
+    assert offer is not None
+    item_option = next(
+        option for option in offer.options if option.kind is TrainingRewardKind.ITEM
+    )
+    claimed = run.model_copy(
+        update={
+            "training_rewards": (
+                TrainingRewardChoice(stage_index=0, stage_id="stage-one", option=item_option),
+            )
+        }
+    )
+    export = "\n\n".join(
+        f"{pick.candidate.species} @ Leftovers\nEVs: 4 HP\n- Tackle" for pick in run.picks
+    )
+
+    earned = _with_training_rewards(export, claimed)
+
+    assert f"{item_option.species} @ {item_option.item}" in earned
+    # Untouched Pokemon keep exactly what they had.
+    assert earned.count("@ Leftovers") == len(run.picks) - (
+        1 if item_option.item != "Leftovers" else 0
+    )
+    # An export with no rewards is returned byte-identical.
+    assert _with_training_rewards(export, run) == export
+
+
+@pytest.mark.asyncio
+async def test_claiming_a_reward_consumes_the_offer_and_rejects_a_second_claim(
+    tmp_path: Path,
+) -> None:
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'reward.db'}")
+    await database.create_schema()
+    repository = ChallengeRepository(database)
+    offer = build_training_reward_offer(_picked_run(), 0)
+    assert offer is not None
+    run = _picked_run().model_copy(
+        update={"status": ChallengeStatus.STAGE_RESULT, "pending_reward": offer}
+    )
+    await repository.create(run)
+    service = ChallengeService(
+        repository, ShowdownSpeciesCatalog("http://127.0.0.1:9"), cast(Any, _Battles(()))
+    )
+
+    claimed = await service.claim_training_reward(run.id, offer.options[0].id, run.revision)
+    assert claimed.pending_reward is None
+    assert len(claimed.training_rewards) == 1
+    assert claimed.training_rewards[0].option.id == offer.options[0].id
+
+    with pytest.raises(ValueError, match="no training reward"):
+        await service.claim_training_reward(run.id, offer.options[0].id, claimed.revision)
+    await database.close()
+
+
+@pytest.mark.asyncio
+async def test_an_unknown_reward_option_is_rejected(tmp_path: Path) -> None:
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'reward-bad.db'}")
+    await database.create_schema()
+    repository = ChallengeRepository(database)
+    offer = build_training_reward_offer(_picked_run(), 0)
+    assert offer is not None
+    run = _picked_run().model_copy(
+        update={"status": ChallengeStatus.STAGE_RESULT, "pending_reward": offer}
+    )
+    await repository.create(run)
+    service = ChallengeService(
+        repository, ShowdownSpeciesCatalog("http://127.0.0.1:9"), cast(Any, _Battles(()))
+    )
+
+    with pytest.raises(ValueError, match="not one of the offered options"):
+        await service.claim_training_reward(run.id, "not-a-real-option", run.revision)
+    assert (await service.require(run.id)).pending_reward is not None
     await database.close()

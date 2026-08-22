@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import random
 import re
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -15,6 +16,7 @@ from koalabattle.agents.providers import ProviderRequest
 from koalabattle.agents.providers.base import safe_error_detail
 from koalabattle.core.models import (
     AgentType,
+    CampaignBadge,
     MatchArchive,
     MatchConfig,
     MatchStatus,
@@ -33,6 +35,7 @@ from .domain import (
 )
 from .models import (
     DRAFT_RULES_VERSION,
+    TRAINING_REWARD_ITEMS,
     BattleControllerSnapshot,
     ChallengeBattleSummary,
     ChallengeDefinition,
@@ -51,6 +54,10 @@ from .models import (
     DraftPoolSnapshot,
     EvSpread,
     PublicChallengeStage,
+    TrainingRewardChoice,
+    TrainingRewardKind,
+    TrainingRewardOffer,
+    TrainingRewardOption,
     player_stage_level,
 )
 from .repository import ChallengeRepository
@@ -231,6 +238,131 @@ def _apply_selected_abilities(team_export: str, run: ChallengeRun) -> str:
             lines.insert(1, f"Ability: {ability.name}")
         normalized.append("\n".join(lines))
     return "\n\n".join(normalized)
+
+
+def _reward_rng(run: ChallengeRun, stage_index: int) -> random.Random:
+    """Deterministic per run and stage, so the same run always offers the same rewards."""
+    material = json.dumps(
+        {
+            "seed": run.seed,
+            "definition": [run.definition.id, run.definition.version],
+            "stage_index": stage_index,
+            "roster": [pick.candidate.entry_id for pick in run.picks],
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode()
+    return random.Random(int.from_bytes(hashlib.sha256(material).digest()))
+
+
+def build_training_reward_offer(run: ChallengeRun, stage_index: int) -> TrainingRewardOffer | None:
+    """Three upgrades for the roster after a stage win: two items and one EV respec.
+
+    Every option is legal by construction: the items are held by anything in this format
+    and the spreads come from the same generator Training Camp uses, so a reward can never
+    turn an already validated roster illegal.
+    """
+    if not run.picks or stage_index >= len(run.definition.stages):
+        return None
+    rng = _reward_rng(run, stage_index)
+    picks = list(run.picks)
+    held = {
+        choice.option.entry_id: choice.option.item
+        for choice in run.training_rewards
+        if choice.option.item
+    }
+    options: list[TrainingRewardOption] = []
+    for slot in range(2):
+        pick = picks[rng.randrange(len(picks))]
+        pool = [item for item in TRAINING_REWARD_ITEMS if item != held.get(pick.candidate.entry_id)]
+        item = pool[rng.randrange(len(pool))]
+        options.append(
+            TrainingRewardOption(
+                id=f"{stage_index}:item:{slot}:{pick.candidate.entry_id}",
+                kind=TrainingRewardKind.ITEM,
+                entry_id=pick.candidate.entry_id,
+                species=pick.candidate.species,
+                label=f"{pick.candidate.species} holds {item}",
+                detail=(
+                    f"Replaces whatever {pick.candidate.species} holds, for the rest of the run."
+                ),
+                item=item,
+            )
+        )
+    pick = picks[rng.randrange(len(picks))]
+    spread = _alternate_ev_spread(pick.candidate, run.ev_allocations.get(pick.candidate.entry_id))
+    options.append(
+        TrainingRewardOption(
+            id=f"{stage_index}:ev:{pick.candidate.entry_id}",
+            kind=TrainingRewardKind.EV_SPREAD,
+            entry_id=pick.candidate.entry_id,
+            species=pick.candidate.species,
+            label=f"Retrain {pick.candidate.species}",
+            detail=f"New legal spread: {_ev_line(spread) or 'EVs: 1 HP'}".replace("EVs: ", ""),
+            ev_spread=spread,
+        )
+    )
+    stage = run.definition.stages[stage_index]
+    return TrainingRewardOffer(
+        stage_index=stage_index, stage_id=stage.id, options=tuple(options)
+    )
+
+
+def _alternate_ev_spread(candidate: DraftCandidate, current: EvSpread | None) -> EvSpread:
+    """A different legal spread from the recommended one, so a respec is a real choice."""
+    stats = candidate.base_stats
+    recommended = _recommended_ev_spread(candidate)
+    if stats is None:
+        return EvSpread(hp=252, defense=252, spd=4)
+    physical = stats.atk >= stats.spa
+    alternatives = [
+        EvSpread(atk=252, spd=4, spe=252) if physical else EvSpread(spa=252, spd=4, spe=252),
+        EvSpread(hp=252, atk=252, spd=4) if physical else EvSpread(hp=252, spa=252, spd=4),
+        EvSpread.model_validate({"hp": 252, "def": 252, "spd": 4}),
+        EvSpread.model_validate({"hp": 252, "def": 4, "spd": 252}),
+    ]
+    for option in alternatives:
+        if option != (current or recommended):
+            return option
+    return recommended
+
+
+def _with_training_rewards(team_export: str, run: ChallengeRun) -> str:
+    """Replay every claimed reward onto the derived stage export.
+
+    Like the level, this never touches the stored roster snapshot: rewards are re-applied
+    to a copy every time a stage launches, so the run stays reconstructible from its own
+    immutable history.
+    """
+    if not run.training_rewards:
+        return team_export
+    items: dict[str, str] = {}
+    spreads: dict[str, EvSpread] = {}
+    for choice in run.training_rewards:
+        if choice.option.kind is TrainingRewardKind.ITEM and choice.option.item:
+            items[showdown_id(choice.option.species)] = choice.option.item
+        elif choice.option.ev_spread is not None:
+            spreads[showdown_id(choice.option.species)] = choice.option.ev_spread
+    blocks: list[str] = []
+    for block in (item.strip() for item in team_export.strip().split("\n\n") if item.strip()):
+        lines = block.splitlines()
+        heading = lines[0]
+        name = heading.split("@", 1)[0].strip()
+        match = re.search(r"\(([^()]+)\)\s*$", name)
+        species_id = showdown_id(match.group(1) if match else name)
+        if species_id in items:
+            lines[0] = f"{name} @ {items[species_id]}"
+        if species_id in spreads:
+            ev_line = _ev_line(spreads[species_id]) or "EVs: 1 HP"
+            ev_index = next(
+                (index for index, line in enumerate(lines) if line.startswith("EVs:")), None
+            )
+            if ev_index is None:
+                lines.insert(1, ev_line)
+            else:
+                lines[ev_index] = ev_line
+        blocks.append("\n".join(lines))
+    return "\n\n".join(blocks)
 
 
 def _with_zero_ev_confirmation(team_export: str) -> str:
@@ -1280,13 +1412,14 @@ class ChallengeService:
             # difficulty modifier would drop below. Give back the smallest amount of the
             # level disadvantage that makes the derived team legal instead of failing the
             # stage; the opponent's level never moves.
+            earned = _with_training_rewards(source.normalized_export, run)
             player_validation = await self.battles.team_validator.validate(
-                _with_level(source.normalized_export, player_level), run.definition.format
+                _with_level(earned, player_level), run.definition.format
             )
             while not player_validation.valid and player_level < stage.level:
                 player_level = min(stage.level, player_level + 5)
                 player_validation = await self.battles.team_validator.validate(
-                    _with_level(source.normalized_export, player_level), run.definition.format
+                    _with_level(earned, player_level), run.definition.format
                 )
             opponent_validation = await self.battles.team_validator.validate(
                 _with_unique_duplicate_nicknames(
@@ -1316,6 +1449,20 @@ class ChallengeService:
             )
             config = MatchConfig(
                 name=f"{run.name} · {stage.title} {stage.name}",
+                campaign=CampaignBadge(
+                    definition_name=run.definition.name,
+                    stage_id=stage.id,
+                    stage_name=stage.name,
+                    stage_title=stage.title,
+                    specialty=stage.specialty,
+                    trainer_asset_id=stage.trainer_asset_id,
+                    visual_accent=stage.visual_accent,
+                    stage_index=run.current_stage_index,
+                    stage_count=len(run.definition.stages),
+                    difficulty=run.difficulty.value,
+                    player_level=player_level,
+                    opponent_level=stage.level,
+                ),
                 format=run.definition.format,
                 players=(
                     self._player(run.battle_controller, Side.P1, run.name, player_snapshot.id),
@@ -1405,10 +1552,20 @@ class ChallengeService:
             won = outcome == "won"
             next_index = stage_index + 1 if won else stage_index
             completed = won and next_index == len(run.definition.stages)
+            # A win is the only thing that hands out an upgrade, and the run holds at most
+            # one unclaimed offer so progression can never fork.
+            pending_reward = run.pending_reward
+            if won and not completed:
+                pending_reward = build_training_reward_offer(run, next_index)
+            elif completed:
+                pending_reward = None
+            # An unclaimed upgrade is a real decision point, so the countdown to the next
+            # stage does not start until it is resolved. Claiming or skipping resumes it.
             auto_advance_at = (
                 datetime.now(UTC) + timedelta(seconds=AUTO_ADVANCE_DELAYS[run.battle_experience])
                 if won
                 and not completed
+                and pending_reward is None
                 and self.auto_run_available(run)
                 and not run.auto_run_paused
                 else None
@@ -1422,6 +1579,7 @@ class ChallengeService:
                     "active_match_id": None,
                     "stage_results": (*run.stage_results, result),
                     "auto_advance_at": auto_advance_at,
+                    "pending_reward": pending_reward,
                     "completed_at": datetime.now(UTC) if completed else None,
                     "error": archive.error if outcome in {"failed", "interrupted"} else None,
                 }
@@ -1455,6 +1613,66 @@ class ChallengeService:
             if current.active_match_id is not None:
                 return current, await self.battles.repository.get_match(current.active_match_id)
             raise
+
+    def _resume_deadline(self, run: ChallengeRun) -> datetime | None:
+        """When the run may launch the next stage again after a decision point."""
+        if (
+            not self.auto_run_available(run)
+            or run.auto_run_paused
+            or run.status is not ChallengeStatus.STAGE_RESULT
+            or run.current_stage_index >= len(run.definition.stages)
+        ):
+            return None
+        return datetime.now(UTC) + timedelta(seconds=AUTO_ADVANCE_DELAYS[run.battle_experience])
+
+    async def claim_training_reward(
+        self, run_id: UUID, option_id: str, expected_revision: int
+    ) -> ChallengeRun:
+        """Claim one offered upgrade. The offer is consumed whether or not auto-run is on."""
+        async with self.repository.lock(run_id):
+            run = await self.require(run_id)
+            if run.revision != expected_revision:
+                raise ValueError(f"stale challenge revision: current {run.revision}")
+            offer = run.pending_reward
+            if offer is None:
+                raise ValueError("this run has no training reward to claim")
+            option = next((item for item in offer.options if item.id == option_id), None)
+            if option is None:
+                raise ValueError("that reward is not one of the offered options")
+            choice = TrainingRewardChoice(
+                stage_index=offer.stage_index, stage_id=offer.stage_id, option=option
+            )
+            stored = await self.repository.save(
+                run.model_copy(
+                    update={
+                        "pending_reward": None,
+                        "training_rewards": (*run.training_rewards, choice),
+                        "auto_advance_at": self._resume_deadline(run),
+                    }
+                ),
+                expected_revision=run.revision,
+            )
+        self._schedule_auto_run(stored)
+        return stored
+
+    async def skip_training_reward(self, run_id: UUID, expected_revision: int) -> ChallengeRun:
+        async with self.repository.lock(run_id):
+            run = await self.require(run_id)
+            if run.revision != expected_revision:
+                raise ValueError(f"stale challenge revision: current {run.revision}")
+            if run.pending_reward is None:
+                return run
+            stored = await self.repository.save(
+                run.model_copy(
+                    update={
+                        "pending_reward": None,
+                        "auto_advance_at": self._resume_deadline(run),
+                    }
+                ),
+                expected_revision=run.revision,
+            )
+        self._schedule_auto_run(stored)
+        return stored
 
     async def pause_auto_run(self, run_id: UUID, expected_revision: int) -> ChallengeRun:
         async with self.repository.lock(run_id):

@@ -140,7 +140,7 @@
 </script>
 
 <svelte:head><title>KoalaBattle OBS Overlay</title></svelte:head>
-<BattleRenderer presentation={snapshot?.state || null} {config} overlay {agentStatus} {speaking} />
+<BattleRenderer presentation={snapshot?.state || null} {config} overlay {agentStatus} {speaking} campaign={match?.config.campaign || null} />
 <ProductionConsole
   matchId={data.id}
   compact

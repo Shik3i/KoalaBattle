@@ -130,6 +130,11 @@ Tactical Auto needs no provider; Quick Sim continuously resolves the real campai
 Fast Watch opens each battle at accelerated presentation speed and returns to the compact result
 countdown. Pause Auto-Run stops before the next match.
 
+Clearing a stage offers one permanent upgrade — a held item or an EV respec — for the rest of the
+run, and holds the countdown until you choose. Each stage battle opens on a versus card with the
+opponent's trainer sprite and both levels, and ends on a recap: winner, surviving team, an MVP,
+and per-Pokémon damage and knockouts for both sides.
+
 Draft Rules V2 provide three Pokémon, one Type, and one Generation reroll. They consume every species
 shown in an offer, whether selected, rejected, or rerolled.
 The run snapshots its exact Showdown-backed species/form and ability pool, so offers and history

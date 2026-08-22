@@ -17,6 +17,25 @@
 - updated DeepSeek for the current `deepseek-v4-flash` and `deepseek-v4-pro` API models after
   retirement of the legacy aliases, with explicit web selectors, documented JSON mode, and V4
   thinking-effort mapping;
+- added between-stage progression: clearing a stage offers three deterministic upgrades (two
+  held items, one EV respec), the claimed one is replayed onto the derived stage export like the
+  level, and an unclaimed offer holds the auto-run countdown so the choice is actually made;
+- rebuilt the battle intro and end screens: a campaign versus card with the opponent's trainer
+  sprite and both levels, and an end card that is a real recap — winner, surviving team, an MVP,
+  and per-Pokémon damage and knockouts for both sides, accumulated by the presentation reducer;
+- added a public `campaign` badge to Draft stage matches so every renderer surface (control,
+  battle view, overlay, replay, deterministic render) shows the same stage identity, and put the
+  campaign position and levels in the battle control head;
+- added the campaign type preview to the draft, so picks are informed rather than blind;
+- added `scripts/playtest_draft.py`, a batch playtest harness that drives real campaigns through
+  the real API and reports cleared/reached distributions and per-stage win rates; the first
+  Tactical Auto iteration was measured with it, found to make the campaign *worse*, and the
+  regressing part was removed rather than shipped;
+- fixed automatic team preparation stranding runs that drafted a Pokémon with no legal
+  attacking move (Cosmoem, Ditto, Wobbuffet, Smeargle): recommended moves now fall back to the
+  full legal pool, and an integration test asserts no draftable species is left without one; and
+- deepened Tactical Auto with entry-hazard awareness on both halves of the field, hazard removal,
+  non-redundant status, safety-gated setup, and switch scoring that prices in its own hazards; and
 - replaced the Kanto Gym Gauntlet content pack (V9) with KoalaBattle-authored competitive teams
   per trainer theme — every opponent set now has a legal ability, nature, held item, EV and IV
   spread, real coverage, and an escalating roster size, all regression-locked and validated by the

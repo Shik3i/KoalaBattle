@@ -144,7 +144,7 @@ function recommendedMoves(formatDex, validator, entry, abilityName, requiredItem
       : 1;
     return Number(move.basePower || 0) * accuracyOf(move) * stab * fit * penalty;
   };
-  const candidates = [...moveSources.entries()]
+  const usable = [...moveSources.entries()]
     .filter(([, sources]) => sources.some((source) => {
       if (source.charAt(1) === 'S') return false;
       if (source.charAt(1) !== 'L') return true;
@@ -152,9 +152,16 @@ function recommendedMoves(formatDex, validator, entry, abilityName, requiredItem
     }))
     .map(([moveId]) => formatDex.moves.get(moveId))
     .filter((move) => move && move.exists !== false &&
-      (!move.isNonstandard || move.isNonstandard === 'Past') && !unreliable.has(move.id) &&
-      move.category !== 'Status' && Number(move.basePower) > 0)
+      (!move.isNonstandard || move.isNonstandard === 'Past') && !unreliable.has(move.id));
+  const attacking = usable
+    .filter((move) => move.category !== 'Status' && Number(move.basePower) > 0)
     .sort((left, right) => score(right) - score(left) || left.name.localeCompare(right.name));
+  // Some Pokemon (Cosmoem, Ditto, unevolved oddities) simply have no legal attacking move.
+  // Returning nothing there strands the whole draft, because the team scaffold then falls
+  // back to a move the species cannot learn and automatic preparation fails.
+  const candidates = attacking.length
+    ? attacking
+    : usable.sort((left, right) => left.name.localeCompare(right.name));
 
   // Campaign stages normalize teams down to level 35 on the hardest difficulty, so a
   // move is only "recommended" when it is still legal there. Otherwise event-exclusive
@@ -181,7 +188,7 @@ function recommendedMoves(formatDex, validator, entry, abilityName, requiredItem
     selected.push(move.name);
   }
   // Pass two: only if the Pokemon simply cannot learn four distinct attacking types.
-  for (const move of candidates) {
+  for (const move of candidates.concat(usable)) {
     if (selected.length === 4) break;
     if (selected.includes(move.name) || !legal(move)) continue;
     selected.push(move.name);

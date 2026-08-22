@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[3]
 BATTLE_PAGE = ROOT / "frontend/src/routes/battle/[id]/+page.svelte"
 CHALLENGE_PAGE = ROOT / "frontend/src/routes/challenges/[id]/+page.svelte"
 NEW_RUN_PAGE = ROOT / "frontend/src/routes/challenges/new/+page.svelte"
+RENDERER_CARDS = ROOT / "frontend/src/lib/battle-renderer/RendererCards.svelte"
 LAYOUT = ROOT / "frontend/src/routes/+layout.svelte"
 APP_CSS = ROOT / "frontend/src/app.css"
 
@@ -168,3 +169,57 @@ def test_every_in_page_anchor_points_at_a_real_element() -> None:
         script = page.read_text(encoding="utf-8")
         anchors |= set(re.findall(r"return '#([a-z][a-z0-9-]*)'", script))
         assert anchors <= targets, (page.name, sorted(anchors - targets))
+
+
+def test_the_end_card_is_the_recap_and_nothing_paints_over_it() -> None:
+    markup = _markup(RENDERER_CARDS)
+    styles = RENDERER_CARDS.read_text(encoding="utf-8")
+
+    # The separate opaque "FINAL" card used to cover the winner banner entirely.
+    assert "director-result" not in markup
+    assert 'class="recap"' in markup
+    assert "winner-mvp" in markup
+    # The banner must outrank the remaining full-screen director card.
+    def layer(selector: str) -> int:
+        match = re.search(rf"\{selector}\{{position:absolute;z-index:(\d+)", styles)
+        assert match, selector
+        return int(match.group(1))
+
+    assert layer(".winner-banner") > layer(".director-card")
+
+
+def test_the_campaign_intro_shows_the_trainer_and_both_levels() -> None:
+    markup = _markup(RENDERER_CARDS)
+
+    assert "trainerAssetUrl" in RENDERER_CARDS.read_text(encoding="utf-8")
+    assert "versus-avatar" in markup
+    assert "campaign.player_level" in markup
+    assert "campaign.opponent_level" in markup
+    assert "campaign.stage_index + 1" in markup
+
+
+def test_every_renderer_surface_receives_the_campaign_badge() -> None:
+    surfaces = ("battle", "watch", "replay", "overlay", "render")
+    for surface in surfaces:
+        page = ROOT / f"frontend/src/routes/{surface}/[id]/+page.svelte"
+        source = page.read_text(encoding="utf-8")
+        assert "campaign={match?.config.campaign || null}" in source, surface
+
+
+def test_the_draft_shows_the_campaign_it_is_drafting_against() -> None:
+    markup = _markup(CHALLENGE_PAGE)
+
+    assert "campaign-preview" in markup
+    assert "Who you will fight" in markup
+
+
+def test_the_training_reward_is_a_real_decision_point() -> None:
+    markup = _markup(CHALLENGE_PAGE)
+
+    assert "{#if run.pending_reward}" in markup
+    assert "claimReward(option.id)" in markup
+    assert "skipReward" in markup
+    # Claimed rewards stay visible while the run continues.
+    assert 'class="earned"' in markup
+    # The decision is above the stage it gates, not buried under it.
+    assert markup.index("{#if run.pending_reward}") < markup.index('id="current-stage"')

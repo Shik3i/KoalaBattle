@@ -140,7 +140,7 @@
   {#if snapshot}<span>TURN {snapshot.currentTurn} · EVENT {snapshot.index}/{snapshot.eventCount}</span>{/if}
 </div>
 
-<BattleRenderer presentation={snapshot?.state || null} {config} />
+<BattleRenderer presentation={snapshot?.state || null} {config} campaign={match?.config.campaign || null} />
 
 {#if snapshot}
   <section class="transport panel" aria-label="Replay controls">
