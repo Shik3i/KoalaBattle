@@ -2,6 +2,7 @@ import type { BattleEvent, BattleState, Side } from '../types.ts';
 import {
   RENDERER_VERSION,
   type ActionPhase,
+  type ActionFeedEntry,
   type BattleEffect,
   type BattlePresentationState,
   type CommentaryPhase,
@@ -51,6 +52,8 @@ export function createPresentationState(match: PresentationMatch): BattlePresent
     effectSide: null,
     effectValue: null,
     impacts: { p1: null, p2: null },
+    actionFeed: [],
+    switchTransitions: { p1: null, p2: null },
     log: [],
     winner: null,
     winnerName: null,
@@ -60,6 +63,15 @@ export function createPresentationState(match: PresentationMatch): BattlePresent
 }
 
 const OTHER_SIDE: Record<Side, Side> = { p1: 'p2', p2: 'p1' };
+
+function activePokemon(
+  battle: BattlePresentationState['battle'],
+  side: Side | null
+) {
+  if (!battle || !side) return null;
+  const entry = battle.player.side === side ? battle.player : battle.opponent.side === side ? battle.opponent : null;
+  return entry?.active || null;
+}
 
 /** The Pokemon currently on the field for one side, as the recap knows it. */
 function activeIdentity(
@@ -123,6 +135,7 @@ export function reducePresentation(
   let currentMoveSide = state.currentMoveSide;
   let currentMovePhase: ActionPhase = state.currentMovePhase;
   let impacts = state.impacts;
+  let switchTransitions = state.switchTransitions;
   let effectValue: number | null = null;
   let winner = state.winner;
   let winnerName = state.winnerName;
@@ -220,10 +233,24 @@ export function reducePresentation(
       break;
     }
     case 'pokemon_switched':
-      battle = switchBattleActive(battle, side, payload);
       {
+        const outgoing = activePokemon(state.battle, side);
+        battle = switchBattleActive(battle, side, payload);
         const entering = activeIdentity(battle, side);
         if (side && entering) recap = withRecap(recap, side, entering, {});
+        const incoming = activePokemon(battle, side);
+        if (side && incoming) {
+          switchTransitions = {
+            ...switchTransitions,
+            [side]: {
+              sequence: event.sequence,
+              side,
+              forced: payload.forced === true || stringValue(payload.command) === 'drag',
+              outgoing: outgoing?.fainted ? null : outgoing,
+              incoming
+            }
+          };
+        }
       }
       // A switch is its own beat. Do not let the previous move remain in the executing
       // phase while the replacement enters the arena; that rendered as an attack on switch.
@@ -331,6 +358,7 @@ export function reducePresentation(
     currentMoveSide = null;
     currentMovePhase = 'resolved';
     impacts = { p1: null, p2: null };
+    switchTransitions = { p1: null, p2: null };
   }
 
   const entry = spectatorEntry(event, battle, effectValue, winnerName);
@@ -346,6 +374,8 @@ export function reducePresentation(
     effectSide,
     effectValue,
     impacts,
+    actionFeed: reduceActionFeed(state.actionFeed, event, state, effectValue, winnerName),
+    switchTransitions,
     log: appendLogEntry(state.log, entry),
     winner,
     winnerName,
@@ -428,7 +458,8 @@ function resetTransient(
     players,
     effect: 'none',
     effectSide: null,
-    effectValue: null
+    effectValue: null,
+    switchTransitions: { p1: null, p2: null }
   };
 }
 
@@ -704,6 +735,298 @@ function switchBattleActive(
 
 function actorName(value: unknown): string {
   return stringValue(value).replace(/^p[12]a:\s*/, '') || 'Pokémon';
+}
+
+function actionPayload(event: BattleEvent): { type: string; payload: Record<string, unknown> } {
+  const payload = { ...event.payload };
+  const raw = stringValue(payload.raw);
+  const parts = raw ? raw.split('|') : [];
+  for (const token of parts) {
+    if (token.startsWith('[from] ') && !payload.source) payload.source = token.slice(7);
+    if (token.startsWith('[of] ') && !payload.source_actor) payload.source_actor = token.slice(5);
+  }
+  if (event.event_type !== 'showdown_message') return { type: event.event_type, payload };
+  const command = stringValue(payload.command) || parts[1] || '';
+  const target = parts[2] || '';
+  const value = parts[3] || '';
+  if (command === '-ability') return { type: 'ability_activated', payload: { ...payload, target, ability: value } };
+  if (command === '-item') return { type: 'item_activated', payload: { ...payload, target, item: value } };
+  if (command === '-enditem') return { type: 'item_consumed', payload: { ...payload, target, item: value } };
+  if (command === '-activate') {
+    if (value.toLowerCase().startsWith('ability:')) {
+      return { type: 'ability_activated', payload: { ...payload, target, ability: value.split(':', 2)[1]?.trim() } };
+    }
+    if (value.toLowerCase().startsWith('item:')) {
+      return { type: 'item_activated', payload: { ...payload, target, item: value.split(':', 2)[1]?.trim() } };
+    }
+    return { type: 'effect_activated', payload: { ...payload, target, effect: value } };
+  }
+  if (command === '-boost' || command === '-unboost' || command === '-setboost') {
+    const amount = Number(parts[4] || 0) * (command === '-unboost' ? -1 : 1);
+    return { type: 'stat_changed', payload: { ...payload, target, stat: value, amount, absolute: command === '-setboost' } };
+  }
+  if (command === '-clearboost' || command === '-clearallboost') {
+    return { type: 'stat_reset', payload: { ...payload, target: command === '-clearallboost' ? 'all' : target } };
+  }
+  return { type: event.event_type, payload };
+}
+
+function canonicalDetails(parts: string[]) {
+  const rank = (part: string) => part.startsWith('Critical') ? 0
+    : /^(Super effective|Not very effective|.* immune)/.test(part) ? 1
+      : /[+-]\d+% HP|took damage|recovered health/.test(part) ? 2
+        : part.startsWith('→ ') ? 4 : 3;
+  return [...new Set(parts.filter(Boolean))].sort((left, right) => rank(left) - rank(right));
+}
+
+function addDetail(entry: ActionFeedEntry, detail: string, emphasis = entry.emphasis): ActionFeedEntry {
+  return {
+    ...entry,
+    detailParts: canonicalDetails([...entry.detailParts, detail]),
+    emphasis
+  };
+}
+
+function appendActionFeed(feed: ActionFeedEntry[], entry: ActionFeedEntry): ActionFeedEntry[] {
+  const previous = feed.at(-1);
+  if (
+    previous
+    && previous.turn === entry.turn
+    && previous.kind === entry.kind
+    && previous.headline === entry.headline
+    && previous.detailParts.join('|') === entry.detailParts.join('|')
+  ) {
+    return [...feed.slice(0, -1), { ...previous, updatedSequence: entry.updatedSequence }];
+  }
+  return [...feed, entry];
+}
+
+function updateLatestMove(
+  feed: ActionFeedEntry[],
+  event: BattleEvent,
+  update: (entry: ActionFeedEntry) => ActionFeedEntry
+): ActionFeedEntry[] | null {
+  const latest = feed.at(-1);
+  if (!latest || latest.kind !== 'move' || latest.turn !== event.turn) return null;
+  return [...feed.slice(0, -1), { ...update(latest), updatedSequence: event.sequence }];
+}
+
+function feedEntry(
+  event: BattleEvent,
+  kind: ActionFeedEntry['kind'],
+  headline: string,
+  detailParts: string[] = [],
+  emphasis: ActionFeedEntry['emphasis'] = 'normal',
+  actorSide: Side | null = null,
+  targetSide: Side | null = null
+): ActionFeedEntry {
+  return {
+    sequence: event.sequence,
+    updatedSequence: event.sequence,
+    turn: event.turn,
+    kind,
+    headline,
+    detailParts,
+    emphasis,
+    actorSide,
+    targetSide
+  };
+}
+
+function statusLabel(value: unknown) {
+  const raw = stringValue(value).toLowerCase();
+  const labels: Record<string, string> = {
+    brn: 'burned', par: 'paralyzed', psn: 'poisoned', tox: 'badly poisoned',
+    slp: 'asleep', frz: 'frozen', confusion: 'confused'
+  };
+  return labels[raw] || raw.replace(/^move:\s*/i, '') || 'affected';
+}
+
+function statLabel(value: unknown) {
+  const labels: Record<string, string> = {
+    atk: 'Attack', def: 'Defense', spa: 'Sp. Atk', spd: 'Sp. Def', spe: 'Speed',
+    accuracy: 'Accuracy', evasion: 'Evasion'
+  };
+  const raw = stringValue(value).toLowerCase();
+  return labels[raw] || stringValue(value) || 'Stats';
+}
+
+function statChangeDetail(payload: Record<string, unknown>) {
+  const stat = statLabel(payload.stat);
+  const amount = numberValue(payload.amount) || 0;
+  if (payload.absolute === true) return `${stat} was set to ${amount > 0 ? `+${amount}` : amount}`;
+  if (amount >= 2) return `${stat} rose sharply`;
+  if (amount === 1) return `${stat} rose`;
+  if (amount <= -2) return `${stat} fell harshly`;
+  if (amount === -1) return `${stat} fell`;
+  return `${stat} changed`;
+}
+
+function sourceLabel(value: unknown) {
+  const raw = stringValue(value).replace(/^(?:ability|item|move):\s*/i, '');
+  const labels: Record<string, string> = { brn: 'Burn', psn: 'Poison', tox: 'Toxic poison', recoil: 'Recoil' };
+  return labels[raw.toLowerCase()] || raw || 'Residual effect';
+}
+
+function fieldLabel(value: unknown) {
+  return stringValue(value).replace(/^(?:move|ability):\s*/i, '') || 'Field effect';
+}
+
+function reduceActionFeed(
+  feed: ActionFeedEntry[],
+  event: BattleEvent,
+  state: BattlePresentationState,
+  hpDeltaPercent: number | null,
+  winnerName: string | null
+): ActionFeedEntry[] {
+  const semantic = actionPayload(event);
+  const payload = semantic.payload;
+  const actorSide = sideFromText(stringValue(payload.side) || stringValue(payload.actor));
+  const targetSide = sideFromText(stringValue(payload.target));
+  const actor = actorName(payload.actor);
+  const target = actorName(payload.target);
+  const source = stringValue(payload.source);
+  let updated: ActionFeedEntry[] | null;
+
+  switch (semantic.type) {
+    case 'move_used':
+      return appendActionFeed(feed, feedEntry(
+        event,
+        'move',
+        `${actor} used ${stringValue(payload.move) || 'a move'}`,
+        target !== 'Pokémon' && target !== actor ? [`→ ${target}`] : [],
+        'normal',
+        actorSide,
+        targetSide
+      ));
+    case 'damage': {
+      const loss = hpDeltaPercent === null ? 'took damage' : `-${Math.abs(hpDeltaPercent)}% HP`;
+      if (!source) {
+        updated = updateLatestMove(feed, event, (entry) => ({
+          ...entry,
+          targetSide: targetSide || entry.targetSide,
+          detailParts: canonicalDetails([
+            ...entry.detailParts.filter((part) => !part.startsWith('→ ')),
+            `${target} ${loss}`
+          ])
+        }));
+        if (updated) return updated;
+      }
+      return appendActionFeed(feed, feedEntry(
+        event, 'residual', `${target} took residual damage`,
+        [sourceLabel(source), loss], 'negative', null, targetSide
+      ));
+    }
+    case 'healing': {
+      const gain = hpDeltaPercent === null ? 'recovered health' : `+${Math.abs(hpDeltaPercent)}% HP`;
+      if (!source) {
+        updated = updateLatestMove(feed, event, (entry) => addDetail(entry, `${target} ${gain}`, 'positive'));
+        if (updated) return updated;
+      }
+      return appendActionFeed(feed, feedEntry(
+        event, 'residual', `${target} recovered health`,
+        [source ? sourceLabel(source) : gain, ...(source ? [gain] : [])], 'positive', null, targetSide
+      ));
+    }
+    case 'critical_hit':
+      updated = updateLatestMove(feed, event, (entry) => addDetail(entry, 'Critical hit!', 'critical'));
+      return updated || appendActionFeed(feed, feedEntry(event, 'move', 'Critical hit!', [], 'critical', null, targetSide));
+    case 'super_effective':
+      updated = updateLatestMove(feed, event, (entry) => addDetail(entry, 'Super effective!', 'critical'));
+      return updated || appendActionFeed(feed, feedEntry(event, 'move', 'Super effective!', [], 'critical', null, targetSide));
+    case 'resisted':
+      updated = updateLatestMove(feed, event, (entry) => addDetail(entry, 'Not very effective'));
+      return updated || appendActionFeed(feed, feedEntry(event, 'move', 'Not very effective', [], 'normal', null, targetSide));
+    case 'immune':
+      updated = updateLatestMove(feed, event, (entry) => ({ ...addDetail(entry, `${target} is immune`, 'negative'), targetSide }));
+      return updated || appendActionFeed(feed, feedEntry(event, 'move', `${target} is immune`, [], 'negative', null, targetSide));
+    case 'move_missed':
+      updated = updateLatestMove(feed, event, (entry) => ({
+        ...entry,
+        detailParts: [`Missed${target !== 'Pokémon' ? ` ${target}` : ''}`],
+        emphasis: 'negative'
+      }));
+      return updated || appendActionFeed(feed, feedEntry(event, 'move', `${actor} missed`, [], 'negative', actorSide, targetSide));
+    case 'status_applied': {
+      const detail = `${target} was ${statusLabel(payload.status)}`;
+      if (!source) {
+        updated = updateLatestMove(feed, event, (entry) => addDetail(entry, detail, 'critical'));
+        if (updated) return updated;
+      }
+      return appendActionFeed(feed, feedEntry(event, 'status', detail, source ? [sourceLabel(source)] : [], 'negative', null, targetSide));
+    }
+    case 'status_removed':
+      return appendActionFeed(feed, feedEntry(
+        event, 'status', `${target} was cured`, [statusLabel(payload.status)], 'positive', null, targetSide
+      ));
+    case 'ability_activated':
+      return appendActionFeed(feed, feedEntry(
+        event, 'ability', `${target}'s ability activated`, [stringValue(payload.ability) || fieldLabel(payload.effect)], 'field', null, targetSide
+      ));
+    case 'item_activated':
+    case 'item_consumed':
+      return appendActionFeed(feed, feedEntry(
+        event,
+        'item',
+        semantic.type === 'item_consumed' ? `${target} used its item` : `${target}'s item activated`,
+        [stringValue(payload.item) || fieldLabel(payload.effect)],
+        'positive',
+        null,
+        targetSide
+      ));
+    case 'effect_activated':
+      return appendActionFeed(feed, feedEntry(event, 'ability', `${target}: ${fieldLabel(payload.effect)}`, [], 'field', null, targetSide));
+    case 'stat_changed': {
+      const detail = statChangeDetail(payload);
+      updated = updateLatestMove(feed, event, (entry) => addDetail(entry, `${target}: ${detail}`, payload.amount && Number(payload.amount) < 0 ? 'negative' : 'positive'));
+      return updated || appendActionFeed(feed, feedEntry(event, 'stat', `${target}'s stats changed`, [detail], Number(payload.amount) < 0 ? 'negative' : 'positive', null, targetSide));
+    }
+    case 'stat_reset':
+      return appendActionFeed(feed, feedEntry(event, 'stat', payload.target === 'all' ? 'All stat changes were cleared' : `${target}'s stat changes were cleared`, [], 'field', null, targetSide));
+    case 'weather_changed': {
+      const detail = `${fieldLabel(payload.weather)} changed the weather`;
+      updated = updateLatestMove(feed, event, (entry) => addDetail(entry, detail, 'field'));
+      return updated || appendActionFeed(feed, feedEntry(event, 'field', detail, [], 'field'));
+    }
+    case 'terrain_started':
+    case 'terrain_ended': {
+      const detail = `${fieldLabel(payload.field)} ${semantic.type === 'terrain_started' ? 'took effect' : 'ended'}`;
+      updated = updateLatestMove(feed, event, (entry) => addDetail(entry, detail, 'field'));
+      return updated || appendActionFeed(feed, feedEntry(event, 'field', detail, [], 'field'));
+    }
+    case 'side_condition_started':
+    case 'side_condition_ended': {
+      const condition = fieldLabel(payload.condition);
+      const side = sideFromText(stringValue(payload.target));
+      const sideName = side ? state.players[side].displayName : 'the field';
+      const detail = semantic.type === 'side_condition_started' ? `Set on ${sideName}'s side` : `Cleared from ${sideName}'s side`;
+      updated = updateLatestMove(feed, event, (entry) => addDetail(entry, `${condition} · ${detail}`, 'field'));
+      return updated || appendActionFeed(feed, feedEntry(event, 'field', condition, [detail], 'field', null, side));
+    }
+    case 'pokemon_switched': {
+      const side = actorSide;
+      const outgoing = activeIdentity(state.battle, side)?.name;
+      const entering = actor;
+      const forced = payload.forced === true || stringValue(payload.command) === 'drag';
+      return appendActionFeed(feed, feedEntry(
+        event,
+        'switch',
+        outgoing && outgoing !== entering ? `${outgoing} ${forced ? 'was forced out' : 'switched out'}` : `${entering} entered the battle`,
+        outgoing && outgoing !== entering ? [`→ ${entering} entered the battle`] : [],
+        forced ? 'critical' : 'field',
+        side,
+        null
+      ));
+    }
+    case 'pokemon_fainted':
+      return appendActionFeed(feed, feedEntry(event, 'faint', `${target} fainted`, [], 'negative', null, targetSide));
+    case 'battle_finished':
+      return appendActionFeed(feed, feedEntry(
+        event, 'result', `${winnerName || state.battle?.result?.winner_name || 'Battle'} wins`, [], 'critical'
+      ));
+    default:
+      return feed;
+  }
 }
 
 function spectatorEntry(

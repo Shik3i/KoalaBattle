@@ -57,3 +57,31 @@ def test_normalizes_effectiveness_and_field_visual_events() -> None:
     assert terrain[1]["field"] == "move: Electric Terrain"
     assert barrier is not None and barrier[0] == "side_condition_started"
     assert barrier[1]["condition"] == "Reflect"
+
+
+def test_normalizes_action_feed_events_and_protocol_annotations() -> None:
+    forced = normalize_showdown_message(
+        ["", "drag", "p2a: Starmie", "Starmie, L50", "73/100"]
+    )
+    ability = normalize_showdown_message(
+        ["", "-activate", "p1a: Gengar", "ability: Cursed Body"]
+    )
+    item = normalize_showdown_message(
+        ["", "-enditem", "p2a: Snorlax", "Sitrus Berry", "[eat]"]
+    )
+    boost = normalize_showdown_message(
+        ["", "-unboost", "p2a: Snorlax", "def", "2"]
+    )
+    residual = normalize_showdown_message(
+        ["", "-damage", "p1a: Pikachu", "75/100", "[from] brn"]
+    )
+
+    assert forced is not None and forced[0] == "pokemon_switched"
+    assert forced[1]["forced"] is True
+    assert ability is not None and ability[0] == "ability_activated"
+    assert ability[1]["ability"] == "Cursed Body"
+    assert item is not None and item[0] == "item_consumed"
+    assert item[1]["item"] == "Sitrus Berry"
+    assert boost is not None and boost[0] == "stat_changed"
+    assert boost[1]["amount"] == -2
+    assert residual is not None and residual[1]["source"] == "brn"

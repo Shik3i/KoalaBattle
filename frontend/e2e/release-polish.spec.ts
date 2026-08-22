@@ -163,6 +163,12 @@ test('an unavailable reroll explains itself and the active-game shell stays comp
 });
 
 test('Battle and Replay use the renderer while private audit stays collapsed', async ({ page, request }) => {
+  const consoleErrors: string[] = [];
+  const pageErrors: string[] = [];
+  page.on('console', (message) => {
+    if (message.type() === 'error') consoleErrors.push(message.text());
+  });
+  page.on('pageerror', (error) => pageErrors.push(error.message));
   const response = await request.post(`${apiBase}/api/matches`, {
     data: {
       name: 'Playwright renderer regression',
@@ -180,6 +186,7 @@ test('Battle and Replay use the renderer while private audit stays collapsed', a
   await page.goto(`/battle/${match.id}`);
   await expect(page.locator('.battle-renderer')).toBeVisible();
   await expect(page.locator('.gen5-hp-track').first()).toBeVisible();
+  await expect(page.locator('.battle-action-feed')).toBeVisible();
   const audit = page.locator('details.audit-drawer');
   await expect(audit).not.toHaveAttribute('open', '');
 
@@ -190,6 +197,58 @@ test('Battle and Replay use the renderer while private audit stays collapsed', a
 
   await page.goto(`/replay/${match.id}`);
   await expect(page.locator('.battle-renderer')).toBeVisible();
+  const slider = page.getByRole('slider', { name: 'Timeline' });
+  await expect(page.locator('.battle-action-feed')).toContainText('Battle ready');
+  await slider.evaluate((input: HTMLInputElement) => {
+    input.value = input.max;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await expect(page.locator('.battle-action-feed article:not(.waiting)').last()).toBeVisible();
+  const finalFeed = (await page.locator('.battle-action-feed').innerText()).replace(/\s+/g, ' ').trim();
+
+  await slider.evaluate((input: HTMLInputElement) => {
+    input.value = '0';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await expect(page.locator('.battle-action-feed')).toContainText('Battle ready');
+  expect((await page.locator('.battle-action-feed').innerText()).replace(/\s+/g, ' ').trim()).not.toBe(finalFeed);
+
+  await page.getByLabel('Speed').selectOption('instant');
   await page.getByRole('button', { name: 'Play', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Pause', exact: true })).toBeVisible();
+  await expect.poll(() => slider.inputValue()).toBe(await slider.getAttribute('max'));
+  await expect.poll(async () => (
+    await page.locator('.battle-action-feed').innerText()
+  ).replace(/\s+/g, ' ').trim()).toBe(finalFeed);
+
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(viewport);
+    const geometry = await page.evaluate(() => {
+      const rect = (selector: string) => {
+        const element = document.querySelector<HTMLElement>(selector);
+        if (!element) throw new Error(`Missing ${selector}`);
+        return element.getBoundingClientRect().toJSON();
+      };
+      const overlap = (a: DOMRect, b: DOMRect) => Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left))
+        * Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
+      const feed = rect('.battle-action-feed');
+      const stage = rect('.stage');
+      const farSprite = document.querySelector<HTMLElement>('.combatant-far .sprite img')?.getBoundingClientRect().toJSON() || null;
+      const plates = [...document.querySelectorAll<HTMLElement>('.hp-plate')].map((element) => element.getBoundingClientRect().toJSON());
+      return {
+        feed,
+        stage,
+        farSpriteOverlap: farSprite ? overlap(feed as DOMRect, farSprite as DOMRect) : 0,
+        plateOverlap: plates.reduce((sum, plate) => sum + overlap(feed as DOMRect, plate as DOMRect), 0),
+        documentWidth: document.documentElement.scrollWidth,
+        viewportWidth: innerWidth
+      };
+    });
+    expect(geometry.feed.left).toBeGreaterThanOrEqual(geometry.stage.left);
+    expect(geometry.feed.right).toBeLessThanOrEqual(geometry.stage.right);
+    expect(geometry.farSpriteOverlap).toBe(0);
+    expect(geometry.plateOverlap).toBe(0);
+    expect(geometry.documentWidth).toBeLessThanOrEqual(geometry.viewportWidth);
+  }
+  expect(consoleErrors).toEqual([]);
+  expect(pageErrors).toEqual([]);
 });

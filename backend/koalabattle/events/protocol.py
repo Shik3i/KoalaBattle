@@ -13,6 +13,15 @@ _EVENT_NAMES = {
     "-crit": "critical_hit",
     "-status": "status_applied",
     "-curestatus": "status_removed",
+    "-ability": "ability_activated",
+    "-item": "item_activated",
+    "-enditem": "item_consumed",
+    "-activate": "effect_activated",
+    "-boost": "stat_changed",
+    "-unboost": "stat_changed",
+    "-setboost": "stat_changed",
+    "-clearboost": "stat_reset",
+    "-clearallboost": "stat_reset",
     "-weather": "weather_changed",
     "-supereffective": "super_effective",
     "-resisted": "resisted",
@@ -40,7 +49,9 @@ def normalize_showdown_message(parts: list[str]) -> tuple[str, dict[str, Any]] |
     if command == "turn" and len(parts) > 2:
         payload["turn"] = int(parts[2])
     elif command in {"switch", "drag"} and len(parts) > 4:
-        payload.update(actor=parts[2], details=parts[3], hp=parts[4])
+        payload.update(
+            actor=parts[2], details=parts[3], hp=parts[4], forced=command == "drag"
+        )
     elif command == "move" and len(parts) > 4:
         payload.update(actor=parts[2], move=parts[3], target=parts[4])
     elif command == "-miss" and len(parts) > 2:
@@ -53,6 +64,30 @@ def normalize_showdown_message(parts: list[str]) -> tuple[str, dict[str, Any]] |
         payload["target"] = parts[2]
     elif command in {"-status", "-curestatus"} and len(parts) > 3:
         payload.update(target=parts[2], status=parts[3])
+    elif command == "-ability" and len(parts) > 3:
+        payload.update(target=parts[2], ability=parts[3])
+    elif command in {"-item", "-enditem"} and len(parts) > 3:
+        payload.update(target=parts[2], item=parts[3])
+    elif command == "-activate" and len(parts) > 3:
+        payload.update(target=parts[2], effect=parts[3])
+        if parts[3].lower().startswith("ability:"):
+            event_type = "ability_activated"
+            payload["ability"] = parts[3].split(":", 1)[1].strip()
+        elif parts[3].lower().startswith("item:"):
+            event_type = "item_activated"
+            payload["item"] = parts[3].split(":", 1)[1].strip()
+    elif command in {"-boost", "-unboost", "-setboost"} and len(parts) > 4:
+        amount = int(parts[4])
+        payload.update(
+            target=parts[2],
+            stat=parts[3],
+            amount=-amount if command == "-unboost" else amount,
+            absolute=command == "-setboost",
+        )
+    elif command == "-clearboost" and len(parts) > 2:
+        payload["target"] = parts[2]
+    elif command == "-clearallboost":
+        payload["target"] = "all"
     elif command == "-weather" and len(parts) > 2:
         payload["weather"] = parts[2]
     elif command in {"-supereffective", "-resisted", "-immune"} and len(parts) > 2:
@@ -67,4 +102,9 @@ def normalize_showdown_message(parts: list[str]) -> tuple[str, dict[str, Any]] |
         payload["winner_name"] = parts[2]
     elif command == "tie":
         payload["winner_name"] = None
+    for token in parts[2:]:
+        if token.startswith("[from] "):
+            payload["source"] = token.removeprefix("[from] ")
+        elif token.startswith("[of] "):
+            payload["source_actor"] = token.removeprefix("[of] ")
     return event_type, payload

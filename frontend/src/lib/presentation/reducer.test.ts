@@ -125,6 +125,96 @@ test('switches clear the previous move before the replacement enters', () => {
   assert.equal(switched.players.p1.motion, 'switching-in');
 });
 
+test('switches expose one strict outgoing-to-incoming transition and clear it on the next event', () => {
+  const pikachu = {
+    id: 'p1: Pikachu', name: 'Pikachu', species: 'pikachu', hp_fraction: 1, status: null,
+    types: ['electric'], moves: [], active: true, fainted: false
+  };
+  const raichu = { ...pikachu, id: 'p1: Raichu', name: 'Raichu', species: 'raichu', active: false };
+  const seeded = reducePresentation(createPresentationState(match), event(1, 'state_snapshot', {
+    state: { ...battle, player: { ...battle.player, active: pikachu, team: [pikachu, raichu] } }
+  }));
+  const switched = reducePresentation(seeded, event(2, 'pokemon_switched', {
+    actor: 'p1a: Raichu', hp: '100/100', forced: true
+  }));
+  assert.equal(switched.switchTransitions.p1?.outgoing?.name, 'Pikachu');
+  assert.equal(switched.switchTransitions.p1?.incoming.name, 'Raichu');
+  assert.equal(switched.switchTransitions.p1?.forced, true);
+  assert.equal(switched.battle?.player.active?.name, 'Raichu');
+
+  const settled = reducePresentation(switched, event(3, 'agent_state', { side: 'p1', state: 'thinking' }));
+  assert.equal(settled.switchTransitions.p1, null);
+  assert.equal(settled.battle?.player.active?.name, 'Raichu');
+});
+
+test('a fainted active Pokemon remains fainted after lifecycle noise and is never a switch-out ghost', () => {
+  const pikachu = {
+    id: 'p1: Pikachu', name: 'Pikachu', species: 'pikachu', hp_fraction: 0.2, status: null,
+    types: ['electric'], moves: [], active: true, fainted: false
+  };
+  const raichu = { ...pikachu, id: 'p1: Raichu', name: 'Raichu', species: 'raichu', active: false, hp_fraction: 1 };
+  const seeded = reducePresentation(createPresentationState(match), event(1, 'state_snapshot', {
+    state: { ...battle, player: { ...battle.player, active: pikachu, team: [pikachu, raichu] } }
+  }));
+  const fainted = reducePresentation(seeded, event(2, 'pokemon_fainted', { target: 'p1a: Pikachu' }));
+  assert.equal(fainted.players.p1.motion, 'fainting');
+  assert.equal(fainted.battle?.player.active?.fainted, true);
+
+  const waiting = reducePresentation(fainted, event(3, 'agent_state', { side: 'p1', state: 'thinking' }));
+  assert.equal(waiting.players.p1.motion, 'idle');
+  assert.equal(waiting.battle?.player.active?.fainted, true);
+  const switched = reducePresentation(waiting, event(4, 'pokemon_switched', { actor: 'p1a: Raichu', hp: '100/100' }));
+  assert.equal(switched.switchTransitions.p1?.outgoing, null);
+  assert.equal(switched.switchTransitions.p1?.incoming.name, 'Raichu');
+});
+
+test('the canonical action feed groups one move with target, damage, effectiveness, crit and status', () => {
+  const pikachu = {
+    id: 'p1: Pikachu', name: 'Pikachu', species: 'pikachu', hp_fraction: 1, status: null,
+    types: ['electric'], moves: [], active: true, fainted: false
+  };
+  const eevee = { ...pikachu, id: 'p2: Eevee', name: 'Eevee', species: 'eevee', types: ['normal'] };
+  const state = reduceEvents(createPresentationState(match), [
+    turnEvent(1, 'state_snapshot', {
+      state: {
+        ...battle,
+        player: { ...battle.player, active: pikachu, team: [pikachu] },
+        opponent: { ...battle.opponent, active: eevee, team: [eevee] }
+      }
+    }, 1),
+    turnEvent(2, 'move_used', { actor: 'p1a: Pikachu', target: 'p2a: Eevee', move: 'Thunderbolt' }, 1),
+    turnEvent(3, 'super_effective', { target: 'p2a: Eevee' }, 1),
+    turnEvent(4, 'damage', { target: 'p2a: Eevee', hp: '31/100' }, 1),
+    turnEvent(5, 'critical_hit', { target: 'p2a: Eevee' }, 1),
+    turnEvent(6, 'status_applied', { target: 'p2a: Eevee', status: 'par' }, 1),
+    turnEvent(7, 'pokemon_fainted', { target: 'p2a: Eevee' }, 1)
+  ]);
+  assert.equal(state.actionFeed.length, 2);
+  assert.equal(state.actionFeed[0].headline, 'Pikachu used Thunderbolt');
+  assert.deepEqual(state.actionFeed[0].detailParts, [
+    'Critical hit!', 'Super effective!', 'Eevee -69% HP', 'Eevee was paralyzed'
+  ]);
+  assert.equal(state.actionFeed[0].emphasis, 'critical');
+  assert.equal(state.actionFeed[1].headline, 'Eevee fainted');
+});
+
+test('ability, item, stat and residual events stay semantic, including old replay protocol lines', () => {
+  const state = reduceEvents(createPresentationState(match), [
+    turnEvent(1, 'ability_activated', { target: 'p1a: Gengar', ability: 'Cursed Body' }, 3),
+    turnEvent(2, 'item_consumed', { target: 'p2a: Snorlax', item: 'Sitrus Berry' }, 3),
+    turnEvent(3, 'stat_changed', { target: 'p2a: Snorlax', stat: 'def', amount: -2 }, 3),
+    turnEvent(4, 'damage', { target: 'p1a: Gengar', hp: '75/100', source: 'brn' }, 3),
+    turnEvent(5, 'showdown_message', {
+      command: '-activate', raw: '|-activate|p1a: Gengar|ability: Levitate'
+    }, 3)
+  ]);
+  assert.deepEqual(state.actionFeed.map((entry) => entry.kind), ['ability', 'item', 'stat', 'residual', 'ability']);
+  assert.equal(state.actionFeed[0].detailParts[0], 'Cursed Body');
+  assert.equal(state.actionFeed[2].detailParts[0], 'Defense fell harshly');
+  assert.deepEqual(state.actionFeed[3].detailParts, ['Burn', 'took damage']);
+  assert.equal(state.actionFeed[4].detailParts[0], 'Levitate');
+});
+
 test('damage, healing, effectiveness and field feedback follow visible events', () => {
   const active = {
     id: 'pikachu', name: 'Pikachu', species: 'pikachu', hp_fraction: 1, status: null,

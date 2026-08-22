@@ -80,6 +80,36 @@ test('pause, resume, instant, reset, event and turn navigation are stable', () =
   assert.equal(timeline.snapshot().playing, false);
 });
 
+test('replay seek and Max rebuild the exact canonical action feed without stale text', () => {
+  const actionEvents: BattleEvent[] = [
+    { ...events[0] },
+    { ...events[1], payload: { actor: 'p1a: A', target: 'p2a: B', move: 'Move A' } },
+    { ...events[1], id: 3, sequence: 3, event_type: 'move_missed', payload: { actor: 'p1a: A', target: 'p2a: B' } },
+    { ...events[2], id: 4, sequence: 4 },
+    { ...events[3], id: 5, sequence: 5 }
+  ];
+  const clock = new FakeClock();
+  const timeline = new PresentationTimeline(match, actionEvents, clock);
+  timeline.seek(3);
+  assert.equal(timeline.snapshot().state.actionFeed.at(-1)?.headline, 'A used Move A');
+  assert.deepEqual(timeline.snapshot().state.actionFeed.at(-1)?.detailParts, ['Missed B']);
+
+  timeline.seek(1);
+  assert.deepEqual(timeline.snapshot().state.actionFeed, []);
+  timeline.seek(5);
+  assert.equal(timeline.snapshot().state.actionFeed.at(-1)?.headline, 'B used Move B');
+
+  timeline.restart();
+  timeline.setSpeed('instant');
+  timeline.play();
+  assert.equal(timeline.snapshot().index, 0);
+  assert.equal(clock.tasks.at(-1)?.delay, 2000);
+  clock.runNext();
+  assert.equal(timeline.snapshot().index, actionEvents.length);
+  assert.equal(timeline.snapshot().state.actionFeed.length, 2);
+  assert.equal(timeline.snapshot().state.actionFeed[0].updatedSequence, 3);
+});
+
 test('follow mode accepts ordered live events without duplicate sequences', () => {
   const clock = new FakeClock();
   const timeline = new PresentationTimeline(match, [], clock, true);

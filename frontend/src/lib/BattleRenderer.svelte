@@ -181,6 +181,23 @@
     return '';
   }
 
+  function switchTransitionStyle(phase: 'outgoing' | 'incoming', isNear: boolean) {
+    if (!deterministic) return '';
+    const progress = Math.max(0, Math.min(1, visualProgress));
+    if (phase === 'outgoing') {
+      const local = Math.min(1, progress / .38);
+      return `opacity:${1 - local};transform:translate(${(isNear ? -1 : 1) * local * 14}%,${local * 10}%) scale(${1 - local * .2})`;
+    }
+    const local = Math.max(0, Math.min(1, (progress - .34) / .66));
+    return `opacity:${local};transform:translate(${(isNear ? 1 : -1) * (1 - local) * 12}%,${(1 - local) * -10}%) scale(${.78 + local * .22})`;
+  }
+
+  function switchPlateStyle(side: Side) {
+    if (!deterministic || !presentation?.switchTransitions[side]) return '';
+    const progress = Math.max(0, Math.min(1, visualProgress));
+    return `opacity:${progress < .34 ? 0 : Math.min(1, (progress - .34) / .2)}`;
+  }
+
   function projectileStyle(direction: 'near-to-far' | 'far-to-near') {
     if (!deterministic) return '';
     const progress = Math.max(0, Math.min(1, visualProgress));
@@ -295,7 +312,9 @@
           {@const gender = pokemonGender(slot.data.active)}
           <div
             class={`hp-plate plate-${slot.place}`}
+            class:switching={Boolean(presentation.switchTransitions[slot.side])}
             data-side={slot.side}
+            style={switchPlateStyle(slot.side)}
             role="region"
             aria-label={`${slot.data.active.name}, ${formatExactHp(slot.data.active)} (${hpPercent(slot.data.active)}%) health`}
           >
@@ -355,33 +374,55 @@
 
       <!-- Combatants: Grounded sprites positioned in classic perspective -->
       {#each slots as slot (slot.side)}
-        {#if slot.data?.active && renderablePokemon(slot.data.active)}
+        {@const transition = presentation.switchTransitions[slot.side]}
+        {#if slot.data?.active && renderablePokemon(slot.data.active) && (transition || !slot.data.active.fainted || presentation.players[slot.side].motion === 'fainting')}
           <article
             class={`combatant combatant-${slot.place}`}
             class:speaking={speaking.includes(slot.side) || speaking.includes('narrator')}
             data-side={slot.side}
+            data-fainted={slot.data.active.fainted}
+            data-switching={Boolean(transition)}
             aria-label={`${slot.data.active.name}: ${formatExactHp(slot.data.active)} HP (${hpPercent(slot.data.active)}%)`}
           >
             <div class="sprite-slot">
               <div class="platform" aria-hidden="true"><i class="pedestal-surface"></i><i class="pedestal-rim"></i></div>
               <div class="contact-shadow" aria-hidden="true"></div>
-              {#key `${slot.data.active.species}:${presentation.players[slot.side].motion}`}
-                <div
-                  style={spriteStyle(presentation.players[slot.side].motion, slot.place === 'near')}
-                  class={`sprite ${presentation.players[slot.side].motion}`}
-                >
-                  {#if !failedAssets.has(assetKey(slot.data, slot.perspective))}
-                    <img
-                      src={spriteUrl(slot.data.active.species, slot.perspective)}
-                      alt={slot.data.active.name}
-                      on:load={onAssetLoad}
-                      on:error={() => slot.data && onAssetError(assetKey(slot.data, slot.perspective))}
-                    />
-                  {:else}
-                    <div class="sprite-missing"><span class="pokeball" aria-hidden="true"><i></i></span><small>SPRITE</small></div>
+              {#if transition}
+                {#key transition.sequence}
+                  {#if transition.outgoing}
+                    {@const outgoingKey = `${transition.outgoing.species}:${slot.perspective}:${config.animatedSprites}`}
+                    <div style={switchTransitionStyle('outgoing', slot.place === 'near')} class="sprite switch-sprite switch-outgoing">
+                      {#if !failedAssets.has(outgoingKey)}
+                        <img src={spriteUrl(transition.outgoing.species, slot.perspective)} alt={transition.outgoing.name} on:load={onAssetLoad} on:error={() => onAssetError(outgoingKey)} />
+                      {:else}<div class="sprite-missing"><span class="pokeball" aria-hidden="true"><i></i></span><small>SPRITE</small></div>{/if}
+                    </div>
                   {/if}
-                </div>
-              {/key}
+                  {@const incomingKey = `${transition.incoming.species}:${slot.perspective}:${config.animatedSprites}`}
+                  <div style={switchTransitionStyle('incoming', slot.place === 'near')} class="sprite switch-sprite switch-incoming">
+                    {#if !failedAssets.has(incomingKey)}
+                      <img src={spriteUrl(transition.incoming.species, slot.perspective)} alt={transition.incoming.name} on:load={onAssetLoad} on:error={() => onAssetError(incomingKey)} />
+                    {:else}<div class="sprite-missing"><span class="pokeball" aria-hidden="true"><i></i></span><small>SPRITE</small></div>{/if}
+                  </div>
+                {/key}
+              {:else}
+                {#key `${slot.data.active.species}:${presentation.players[slot.side].motion}`}
+                  <div
+                    style={spriteStyle(presentation.players[slot.side].motion, slot.place === 'near')}
+                    class={`sprite ${presentation.players[slot.side].motion}`}
+                  >
+                    {#if !failedAssets.has(assetKey(slot.data, slot.perspective))}
+                      <img
+                        src={spriteUrl(slot.data.active.species, slot.perspective)}
+                        alt={slot.data.active.name}
+                        on:load={onAssetLoad}
+                        on:error={() => slot.data && onAssetError(assetKey(slot.data, slot.perspective))}
+                      />
+                    {:else}
+                      <div class="sprite-missing"><span class="pokeball" aria-hidden="true"><i></i></span><small>SPRITE</small></div>
+                    {/if}
+                  </div>
+                {/key}
+              {/if}
               {#if config.showDamageNumbers && presentation.impacts[slot.side]}
                 {#key presentation.impacts[slot.side]?.sequence}
                   <strong
@@ -452,21 +493,9 @@
         {/if}
       {/key}
 
-      <!-- One unambiguous headline: is this action running now, or already resolved? -->
-      {#if presentation.currentMove}
-        <div class="action-banner" data-phase={presentation.currentMovePhase} data-side={presentation.currentMoveSide || ''}>
-          <small>{presentation.currentMovePhase === 'executing' ? 'NOW' : 'LAST ACTION'}</small>
-          <b>{presentation.currentMove}</b>
-          {#if moveProfile && presentation.currentMovePhase === 'executing'}
-            <em>{moveProfile.type.toUpperCase()} · {moveProfile.archetype.toUpperCase()}</em>
-          {/if}
-        </div>
-      {/if}
-
+      <RendererCommentary {presentation} {config} variant="feed" />
       <RendererCommentary {presentation} {config} sideOrder={[farSide, nearSide]} />
     </div>
-
-    <RendererCommentary {presentation} {config} variant="feed" />
 
     <RendererCards {presentation} {config} {formatLabel} {campaign} {deterministic} />
   </section>
@@ -577,6 +606,7 @@
   .gen5-near-pct{font-family:var(--mono);font-size:calc(var(--hud-scale,1) * clamp(.72rem,.95cqw,.95rem));font-weight:700;color:#9fe6b8;font-variant-numeric:tabular-nums;font-feature-settings:'tnum' 1;text-shadow:0 1px 2px rgba(0,0,0,.9)}
   /* ── Authentic Gen 5 Pokemon HP Plates (Symmetrical & High Readability) ─── */
   .hp-plate{position:absolute;z-index:25;pointer-events:none;font-family:var(--display);filter:drop-shadow(0 8px 18px rgba(0,0,0,.75))}
+  .hp-plate.switching{animation:hp-plate-switch .3s .14s ease-out both}
   .plate-far{top:5%;left:3.5%;width:clamp(280px,34cqw,430px)}
   .plate-near{bottom:6%;right:3.5%;width:clamp(280px,34cqw,430px)}
 
@@ -628,7 +658,7 @@
 
   /* ── Combatants & Sprites (Classic Perspective) ─────────────────────────── */
   .combatant{position:absolute;z-index:10;display:flex;align-items:center;justify-content:center;pointer-events:none}
-  .combatant-far{top:15%;right:18%;width:min(32%,360px)}
+  .combatant-far{top:15%;right:27%;width:min(30%,340px)}
   .combatant-near{bottom:4%;left:8%;width:min(38%,440px)}
   .platform{position:absolute;bottom:0;left:50%;width:88%;aspect-ratio:3.4/1;transform:translate(-50%,36%);pointer-events:none}
   .platform .pedestal-surface{position:absolute;inset:0;border-radius:50%;background:radial-gradient(ellipse at 50% 46%,rgba(140,255,190,.32),rgba(20,74,62,.44) 56%,transparent 74%);box-shadow:0 0 32px rgba(122,255,183,.16)}
@@ -639,6 +669,9 @@
   .combatant-far .sprite-slot{--depth:.78}
   .combatant-near .sprite-slot{--depth:1.15}
   .sprite{position:relative;z-index:2;display:flex;align-items:flex-end;justify-content:center;width:100%;height:100%;transform-origin:center bottom}
+  .switch-sprite{position:absolute;inset:0}
+  .switch-outgoing{animation:switch-sequence-out .18s ease-in both}
+  .switch-incoming{opacity:0;animation:switch-sequence-in .3s .16s cubic-bezier(.2,.8,.2,1) both}
   .sprite img{display:block;width:auto;max-width:100%;height:min(100%,calc(var(--natural-h,96) * var(--max-upscale) * var(--depth,1) * 1px));object-fit:contain;image-rendering:pixelated;filter:drop-shadow(0 8px 14px rgba(0,0,0,.45))}
   .sprite-missing{display:grid;place-items:center;gap:.25rem;color:var(--r-dim);font:800 .55rem var(--mono);letter-spacing:.12em}
   .sprite-missing .pokeball{width:clamp(28px,4cqw,52px)}
@@ -712,12 +745,12 @@
   .final-signal span{color:#e4c990;font:600 calc(var(--hud-scale,1) * clamp(.56rem,.72cqw,.72rem)) var(--mono)}
 
   /* ── Motion ─────────────────────────────────────────────────────────────── */
-  .sprite.attacking{animation:attack-far .5s cubic-bezier(.2,.8,.2,1)}
+  .sprite.attacking{animation:attack-far .38s cubic-bezier(.2,.8,.2,1)}
   .combatant-near .sprite.attacking{animation-name:attack-near}
-  .sprite.taking-damage{animation:hit .44s}
-  .sprite.switching-in{animation:switch-in .6s}
-  .sprite.switching-out{animation:switch-out .5s}
-  .sprite.fainting{animation:faint .78s both}
+  .sprite.taking-damage{animation:hit .3s}
+  .sprite.switching-in{animation:switch-in .46s}
+  .sprite.switching-out{animation:switch-out .18s}
+  .sprite.fainting{animation:faint .58s both}
   .sprite.status-flash{animation:status-flash .45s}
   .sprite.idle{animation:idle 3.6s ease-in-out infinite}
   .combatant.speaking .sprite.idle{animation:voice-idle 1.8s ease-in-out infinite}
@@ -731,6 +764,9 @@
   @keyframes hit{20%,60%{transform:translateX(-8%);filter:brightness(1.9) saturate(.5)}40%,80%{transform:translateX(8%)}}
   @keyframes switch-in{from{opacity:0;transform:translateY(-18%) scale(.7)}55%{opacity:1;transform:translateY(2%) scale(1.05)}}
   @keyframes switch-out{to{opacity:0;transform:translateY(18%) scale(.7)}}
+  @keyframes switch-sequence-out{to{opacity:0;transform:translateY(10%) scale(.8);filter:brightness(.7)}}
+  @keyframes switch-sequence-in{from{opacity:0;transform:translateY(-10%) scale(.78)}65%{opacity:1;transform:translateY(2%) scale(1.04)}to{opacity:1;transform:none}}
+  @keyframes hp-plate-switch{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
   @keyframes faint{to{opacity:0;transform:translateY(30%) scale(.75);filter:grayscale(1) brightness(.6)}}
   @keyframes status-flash{50%{filter:drop-shadow(0 0 22px #ffd05d) brightness(1.4)}}
   @keyframes effect-pop{from{opacity:0;transform:scale(.72)}32%{opacity:1;transform:scale(1.06)}to{opacity:0;transform:scale(1.16)}}
@@ -754,7 +790,9 @@
   .battle-renderer.deterministic .sprite,.battle-renderer.deterministic .effect span,.battle-renderer.deterministic .impact-burst i,.battle-renderer.deterministic .move-projectile,.battle-renderer.deterministic .move-beam,.battle-renderer.deterministic .charge-ring,.battle-renderer.deterministic .arena-shake,.battle-renderer.deterministic .weather-layer,.battle-renderer.deterministic .hp-delta{animation:none!important}
   .battle-renderer.deterministic .hp-track i,.battle-renderer.deterministic .hp-track b{transition:none!important}
   .battle-renderer.reduced-motion .sprite,.battle-renderer.reduced-motion .move-visual,.battle-renderer.reduced-motion .impact-burst,.battle-renderer.reduced-motion .arena-shake{animation:none!important;transform:none!important}
-  @media(prefers-reduced-motion:reduce){.sprite,.effect span{animation-duration:.001ms!important;animation-iteration-count:1!important}.hp-track i{transition-duration:.001ms!important}}
+  .battle-renderer.reduced-motion .switch-outgoing{display:none}.battle-renderer.reduced-motion .switch-incoming{opacity:1!important}
+  .battle-renderer.reduced-motion .hp-plate.switching{animation:none;opacity:1!important}
+  @media(prefers-reduced-motion:reduce){.sprite,.effect span,.hp-plate.switching{animation-duration:.001ms!important;animation-delay:0ms!important;animation-iteration-count:1!important}.switch-outgoing{display:none}.switch-incoming{opacity:1!important}.hp-track i{transition-duration:.001ms!important}}
 
   /* ── Vertical (1080×1920) ───────────────────────────────────────────────── */
   .battle-renderer[data-layout='standard-vertical']{width:min(100%,620px);aspect-ratio:9/16;margin-inline:auto}

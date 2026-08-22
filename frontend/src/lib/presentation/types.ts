@@ -1,6 +1,6 @@
-import type { BattleEvent, BattleState, MatchArchive, Side } from '../types.ts';
+import type { BattleEvent, BattleState, MatchArchive, PokemonState, Side } from '../types.ts';
 
-export const RENDERER_VERSION = '2.0.0';
+export const RENDERER_VERSION = '2.1.0';
 export const RENDERER_CONFIG_VERSION = '2.0';
 
 export type RendererLayout =
@@ -139,6 +139,27 @@ export interface SpectatorLogEntry {
   emphasis: 'normal' | 'positive' | 'negative' | 'critical';
 }
 
+export interface ActionFeedEntry {
+  sequence: number;
+  updatedSequence: number;
+  turn: number;
+  kind: 'move' | 'switch' | 'faint' | 'status' | 'ability' | 'item' | 'stat' | 'field' | 'residual' | 'result';
+  headline: string;
+  detailParts: string[];
+  emphasis: 'normal' | 'positive' | 'negative' | 'critical' | 'field';
+  actorSide: Side | null;
+  targetSide: Side | null;
+}
+
+/** One authoritative switch event rendered as a strict outgoing-then-incoming sequence. */
+export interface SwitchTransitionPresentationState {
+  sequence: number;
+  side: Side;
+  forced: boolean;
+  outgoing: PokemonState | null;
+  incoming: PokemonState;
+}
+
 /**
  * Per-Pokemon contribution accumulated while the battle plays, so the end card can show a
  * real recap instead of only a winner name. Damage is in percentage points of the target's
@@ -172,6 +193,10 @@ export interface BattlePresentationState {
   effectValue: number | null;
   /** Latest HP change per side, cleared when the turn resolves. */
   impacts: Record<Side, ImpactPresentationState | null>;
+  /** Canonical spectator messages; every replay seek rebuilds this from event zero. */
+  actionFeed: ActionFeedEntry[];
+  /** Transient only for the currently displayed event; never resurrects a fainted sprite. */
+  switchTransitions: Record<Side, SwitchTransitionPresentationState | null>;
   log: SpectatorLogEntry[];
   winner: Side | null;
   winnerName: string | null;
