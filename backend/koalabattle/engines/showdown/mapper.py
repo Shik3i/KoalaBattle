@@ -39,6 +39,7 @@ _PUBLIC_COMMANDS = {
     "-enditem",
     "-ability",
     "-terastallize",
+    "-mega",
     "faint",
     "win",
     "tie",
@@ -172,6 +173,19 @@ def legal_actions(battle: AbstractBattle) -> tuple[BattleAction, ...]:
                     }
                 )
             )
+        if bool(battle.can_mega_evolve):
+            actions.append(
+                BattleAction.model_validate(
+                    {
+                        "id": f"move:{slot}:mega",
+                        "type": ActionType.MOVE,
+                        "name": f"{name} + Mega Evolve",
+                        "slot": slot,
+                        "mega_evolve": True,
+                        **metadata,
+                    }
+                )
+            )
     for slot, pokemon in enumerate(battle.available_switches, start=1):
         actions.append(
             BattleAction(
@@ -179,7 +193,10 @@ def legal_actions(battle: AbstractBattle) -> tuple[BattleAction, ...]:
                 type=ActionType.SWITCH,
                 name=pokemon.name,
                 slot=slot,
-                species=pokemon.species,
+                # `pokemon.species` is poke-env's normalized machine id. Public action
+                # context and the renderer need the canonical display form (`Mr. Mime`,
+                # `Charizard-Mega-X`, …), which poke-env exposes as `name`.
+                species=pokemon.name,
                 hp_fraction=max(0.0, min(1.0, float(pokemon.current_hp_fraction))),
                 status=_enum_name(pokemon.status),
             )
@@ -195,7 +212,9 @@ def action_to_order(action: BattleAction, battle: AbstractBattle) -> SingleBattl
             move = battle.available_moves[action.slot - 1]
         except IndexError as error:
             raise ValueError(f"move slot {action.slot} is no longer legal") from error
-        return SingleBattleOrder(move, terastallize=action.terastallize)
+        return SingleBattleOrder(
+            move, mega=action.mega_evolve, terastallize=action.terastallize
+        )
     try:
         pokemon = battle.available_switches[action.slot - 1]
     except IndexError as error:

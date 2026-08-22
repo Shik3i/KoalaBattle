@@ -334,6 +334,8 @@ class TacticalAgent:
                 own_hp=hp,
                 opponent_hp=opponent_hp,
             )
+            if action.mega_evolve:
+                damage += 18
             return damage, action.id
 
         selected = max(request.legal_actions, key=score)

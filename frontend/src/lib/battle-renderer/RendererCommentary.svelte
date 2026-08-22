@@ -59,7 +59,13 @@
 {/if}
 
 <style>
-  .dialogue-box{position:absolute;z-index:22;bottom:2%;left:50%;transform:translateX(-50%);width:clamp(320px,46cqw,580px);max-height:24%;display:grid;gap:.35rem;padding:.55rem .85rem;border-radius:8px;background:rgba(8,16,14,.95);border:1.5px solid var(--r-line);box-shadow:0 10px 30px rgba(0,0,0,.85);backdrop-filter:blur(10px)}
+  /* The clearest band across the arena's vertical middle-right: below the far combatant,
+     above the near combatant and its HP plate. A box centered at the very bottom used to
+     cover a third of the near (foreground) combatant. Two simultaneous speakers can still
+     grow past this band on a short/cramped viewport, so z-index sits below the combatants
+     (not just the HP plates) and the background stays translucent: on the rare overlap, the
+     sprite reads through rather than getting hidden. */
+  .dialogue-box{position:absolute;z-index:9;top:46%;right:3%;left:auto;bottom:auto;transform:none;width:clamp(240px,30cqw,360px);max-height:20%;display:grid;gap:.35rem;padding:.55rem .85rem;border-radius:8px;background:rgba(8,16,14,.85);border:1.5px solid var(--r-line);box-shadow:0 10px 30px rgba(0,0,0,.7);backdrop-filter:blur(10px)}
   .dialogue-item{display:grid;gap:.15rem;min-height:3.4em;padding-left:.5rem}.dialogue-item[data-side='p1']{--side-color:var(--r-p1);border-left:3px solid var(--side-color)}.dialogue-item[data-side='p2']{--side-color:var(--r-p2);border-left:3px solid var(--side-color)}
   .dialogue-header{display:flex;align-items:center;justify-content:space-between;gap:.4rem}.dialogue-name{font:800 calc(var(--hud-scale,1) * clamp(.66rem,.82cqw,.84rem)) var(--display);color:#fff;letter-spacing:.02em;text-transform:uppercase}.dialogue-phase{color:var(--side-color);font:900 calc(var(--hud-scale,1) * clamp(.52rem,.66cqw,.68rem)) var(--mono);letter-spacing:.12em}
   .dialogue-copy{display:grid;grid-template-rows:auto auto;gap:.15rem;min-height:3.1em;overflow:hidden;color:#dfeae3;font-size:calc(var(--hud-scale,1) * clamp(.74rem,.92cqw,.92rem));line-height:1.4}.commentary-copy{display:-webkit-box;overflow:hidden;line-clamp:2;-webkit-box-orient:vertical;-webkit-line-clamp:2}.banter-quote{display:block;overflow:hidden;color:#ffd679;font-style:italic;font-weight:700;white-space:nowrap;text-overflow:ellipsis}.thinking{margin:.2rem 0;color:var(--r-dim);font-style:italic}.live-response{color:#f3fff6;font-style:normal}.live-response span{color:var(--side-color);animation:cursor-blink 1s steps(2,end) infinite}.context-meter{color:var(--r-dim);font:600 calc(var(--hud-scale,1) * clamp(.44rem,.55cqw,.55rem)) var(--mono)}

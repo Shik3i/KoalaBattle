@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
@@ -23,6 +24,7 @@ from koalabattle.core.models import (
     TeamSource,
 )
 from koalabattle.core.public import presentation_archive
+from koalabattle.engines.showdown.mapper import action_to_order
 
 
 def test_battle_state_round_trip(state: BattleState) -> None:
@@ -45,6 +47,45 @@ def test_battle_event_round_trip(match_id) -> None:
 def test_action_id_must_match_slot_and_type() -> None:
     with pytest.raises(ValidationError, match="action id must be"):
         BattleAction(id="move:2", type=ActionType.MOVE, name="Tackle", slot=1)
+
+
+def test_mega_action_is_explicit_and_mutually_exclusive_with_tera() -> None:
+    action = BattleAction(
+        id="move:1:mega",
+        type=ActionType.MOVE,
+        name="Flamethrower + Mega Evolve",
+        slot=1,
+        mega_evolve=True,
+    )
+    assert action.mega_evolve is True
+
+    with pytest.raises(ValidationError, match="cannot Terastallize and Mega Evolve"):
+        BattleAction(
+            id="move:1:tera",
+            type=ActionType.MOVE,
+            name="Illegal",
+            slot=1,
+            terastallize=True,
+            mega_evolve=True,
+        )
+
+
+def test_mega_action_serializes_to_a_real_showdown_mega_order() -> None:
+    move = object()
+    battle = SimpleNamespace(available_moves=[move])
+    action = BattleAction(
+        id="move:1:mega",
+        type=ActionType.MOVE,
+        name="Flamethrower + Mega Evolve",
+        slot=1,
+        mega_evolve=True,
+    )
+
+    order = action_to_order(action, battle)
+
+    assert order.order is move
+    assert order.mega is True
+    assert order.terastallize is False
 
 
 def test_agent_decision_rejects_raw_showdown_command(match_id) -> None:

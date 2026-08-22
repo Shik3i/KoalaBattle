@@ -4,7 +4,7 @@ import os
 
 import pytest
 
-from koalabattle.challenges.models import ChallengeDifficulty, player_stage_level
+from koalabattle.challenges.models import ChallengeDifficulty, opponent_stage_level
 from koalabattle.challenges.service import (
     _definition,
     _with_level,
@@ -73,21 +73,24 @@ async def test_shipped_opponent_sets_keep_their_items_abilities_and_natures() ->
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_opponent_teams_stay_legal_while_the_player_takes_the_level_penalty() -> None:
-    """Difficulty must never move an opponent off its campaign level."""
+async def test_opponent_teams_stay_legal_while_difficulty_raises_their_level() -> None:
+    """Difficulty only ever raises the opponent above the campaign curve, never the player."""
     _skip_unless_showdown()
     definition = _definition("kanto-gym-gauntlet")
     validator = _validator()
 
-    for difficulty in ChallengeDifficulty:
-        stage = definition.stages[0]
-        assert player_stage_level(stage.level, difficulty) <= stage.level
-        result = await validator.validate(
-            _with_unique_duplicate_nicknames(_with_level(stage.opponent_team, stage.level)),
-            definition.format,
-        )
-        assert result.valid, (difficulty, result.errors)
-        assert all(entry.get("level") == stage.level for entry in result.structured_team or ())
+    for stage in definition.stages:
+        for difficulty in ChallengeDifficulty:
+            opponent_level = opponent_stage_level(stage.level, difficulty)
+            assert opponent_level >= stage.level
+            result = await validator.validate(
+                _with_unique_duplicate_nicknames(_with_level(stage.opponent_team, opponent_level)),
+                definition.format,
+            )
+            assert result.valid, (stage.id, difficulty, result.errors)
+            assert all(
+                entry.get("level") == opponent_level for entry in result.structured_team or ()
+            )
 
 
 @pytest.mark.integration

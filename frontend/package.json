@@ -8,12 +8,14 @@
     "build": "vite build",
     "preview": "vite preview",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
-    "test": "node --test src/lib/*.test.ts src/lib/presentation/*.test.ts src/lib/production/*.test.ts"
+    "test": "node --test src/lib/*.test.ts src/lib/presentation/*.test.ts src/lib/production/*.test.ts",
+    "test:e2e": "playwright test"
   },
   "overrides": {
     "cookie": "0.7.2"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.0",
     "@sveltejs/adapter-node": "5.5.7",
     "@sveltejs/kit": "2.70.2",
     "@sveltejs/vite-plugin-svelte": "7.3.0",

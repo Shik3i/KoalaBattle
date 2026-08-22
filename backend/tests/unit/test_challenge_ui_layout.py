@@ -102,7 +102,12 @@ def test_campaign_progress_is_a_compact_rail_and_history_is_collapsed() -> None:
 def test_long_battle_audit_is_one_lazy_collapsed_drawer() -> None:
     markup = _markup(BATTLE_PAGE)
 
-    assert '<details bind:open={auditOpen} class="battle-drawer audit-drawer panel">' in markup
+    assert (
+        '<details bind:open={auditOpen} on:toggle={loadAuditArchive} '
+        'class="battle-drawer audit-drawer panel">'
+    ) in markup
+    assert "getPresentationMatch(matchId)" in BATTLE_PAGE.read_text()
+    assert "const archive = await getMatch(data.id)" in BATTLE_PAGE.read_text()
     lazy_guard = markup.index("{#if auditOpen}")
     decision_list = markup.index('<div class="decision-list">')
     assert lazy_guard < decision_list
@@ -131,15 +136,15 @@ def test_new_run_page_offers_every_difficulty_with_its_exact_modifier() -> None:
     source = NEW_RUN_PAGE.read_text(encoding="utf-8")
 
     for identifier, detail in (
-        ("normal", "Equal levels"),
-        ("hard", "You −5 levels"),
-        ("expert", "You −10 levels"),
-        ("nightmare", "You −15 levels"),
+        ("normal", "Campaign levels"),
+        ("hard", "Opponent +5 levels"),
+        ("expert", "Opponent +10 levels"),
+        ("nightmare", "Opponent +15 levels"),
     ):
         assert f"id: '{identifier}'" in source, identifier
         assert detail in source, detail
     assert "difficulty," in source
-    assert "Opponent teams and levels are identical on every difficulty" in source
+    assert "Opponent species and sets are identical on every difficulty" in source
 
 
 def test_a_human_battler_cannot_pick_an_unattended_battle_experience() -> None:

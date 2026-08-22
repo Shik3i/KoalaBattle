@@ -166,7 +166,7 @@ def _source_snapshot() -> list[dict[str, object]]:
 def test_kanto_content_uses_authored_theme_teams() -> None:
     definition = _definition("kanto-gym-gauntlet")
 
-    assert definition.version == "12.0.0"
+    assert definition.version == "14.0.0"
     assert definition.draft_rules.rerolls == 3
     assert definition.draft_rules.type_rerolls == 1
     assert definition.draft_rules.generation_rerolls == 1
@@ -222,7 +222,7 @@ def test_kanto_opponent_sets_are_regression_locked() -> None:
     payload = json.dumps(_source_snapshot(), sort_keys=True, separators=(",", ":")).encode()
 
     assert hashlib.sha256(payload).hexdigest() == (
-        "378bfbace9602724fc94c62e52291ee78fdae80ccd8ba8054bb07e4a45291b6a"
+        "964551b5a543df26eef6b61198110c41d225b13867fd0c415e63c8517ec46245"
     )
 
 

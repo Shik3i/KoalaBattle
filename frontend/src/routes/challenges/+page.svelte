@@ -49,16 +49,16 @@
   <div class="intro-facts">
     <span><i class="ph ph-cards-three" aria-hidden="true"></i><strong>Fresh offers</strong><small>Every shown Pokémon leaves the pool after its round.</small></span>
     <span><i class="ph ph-barbell" aria-hidden="true"></i><strong>Ready to train</strong><small>Recommended legal EVs are applied automatically.</small></span>
-    <span><i class="ph ph-scales" aria-hidden="true"></i><strong>Four difficulties</strong><small>Normal is level-for-level; Hard, Expert and Nightmare give your team −5, −10 or −15 levels.</small></span>
+    <span><i class="ph ph-scales" aria-hidden="true"></i><strong>Four difficulties</strong><small>Your team always follows the campaign's level curve. Hard, Expert and Nightmare only raise the opponent +5, +10 or +15 levels above it.</small></span>
     <span><i class="ph ph-record" aria-hidden="true"></i><strong>Recorded matches</strong><small>Play yourself or use AI; every stage gets a replay.</small></span>
   </div>
   <details>
     <summary>How Draft works</summary>
     <ol>
-      <li>Choose who drafts and who battles. These choices are independent.</li>
-      <li>Choose one Pokémon from each deterministic offer. All shown options are consumed.</li>
+      <li>Choose who battles: yourself, Fast Auto, or an LLM agent.</li>
+      <li>Choose one Pokémon from each deterministic offer. All shown options are consumed. A species with more than one future evolution asks which line to commit to, once.</li>
       <li>Keep or tune each Pokémon's recommended EVs, choose legal abilities, and complete Showdown sets.</li>
-      <li>Play every stage through the normal KoalaBattle match engine.</li>
+      <li>Play every stage through the normal KoalaBattle match engine — your team levels and evolves as you climb.</li>
     </ol>
   </details>
 </section>

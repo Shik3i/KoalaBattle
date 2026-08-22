@@ -203,7 +203,7 @@ def test_malformed_payloads_are_rejected() -> None:
 
 def test_snapshot_file_stays_machine_generated() -> None:
     payload = json.loads(SNAPSHOT_PATH.read_text(encoding="utf-8"))
-    assert payload["schema_version"] == "1.0"
+    assert payload["schema_version"] == "1.2"
     # Every entry carries the fields the Showdown tools server emits, not hand-written ones.
     for entry in payload["formats"][:20]:
         assert {"id", "name", "generation", "game_type", "mechanics"} <= set(entry)

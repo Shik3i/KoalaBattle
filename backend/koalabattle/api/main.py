@@ -36,6 +36,7 @@ from koalabattle.challenges.models import (
     DraftPickInput,
     DraftRerollInput,
     FinalizeTeamInput,
+    MegaSelectionInput,
     RevisionInput,
     TeamAbilityInput,
     TrainingInput,
@@ -785,6 +786,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 payload.entry_id,
                 payload.offer_fingerprint,
                 payload.expected_revision,
+                evolution_choice=payload.evolution_choice,
             )
             return _challenges(request).view(run)
         except KeyError as error:
@@ -909,6 +911,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="challenge not found") from error
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.post("/api/challenges/{run_id}/mega-selection", response_model=ChallengeRunView)
+    async def challenge_mega_selection(
+        run_id: UUID, payload: MegaSelectionInput, request: Request
+    ) -> ChallengeRunView:
+        try:
+            run = await _challenges(request).select_mega(
+                run_id,
+                payload.entry_id,
+                payload.mega_species_id,
+                payload.expected_revision,
+            )
+            return _challenges(request).view(run)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="challenge not found") from error
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
 
     @app.post("/api/challenges/{run_id}/auto/advance")
     async def challenge_auto_advance(run_id: UUID, request: Request) -> dict[str, object]:

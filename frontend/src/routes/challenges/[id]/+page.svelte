@@ -25,7 +25,7 @@
     type DraftRollMode,
     type EvStat
   } from '$lib/challenge';
-  import type { ChallengeRunView, DraftCandidate, EvSpread } from '$lib/types';
+  import type { ChallengeRunView, DraftCandidate, EvolutionTrigger, EvSpread } from '$lib/types';
 
   export let data: { id: string };
   const statEntries: Array<[EvStat, string]> = [['hp','HP'],['atk','Atk'],['def','Def'],['spa','SpA'],['spd','SpD'],['spe','Spe']];
@@ -89,6 +89,16 @@
   } | null = null;
   let stageTransitionTimer: ReturnType<typeof setTimeout> | null = null;
   const STAGE_TRANSITION_MS = 1400;
+  /** Short "X evolved into Y" reveal shown once per stage transition, before the next
+   *  opponent is announced. Shown even under reduced motion — only the animation, not the
+   *  card itself, is skipped then. */
+  let evolutionReveal: Array<{ entryId: string; from: string; to: string }> | null = null;
+  let evolutionRevealTimer: ReturnType<typeof setTimeout> | null = null;
+  const EVOLUTION_REVEAL_MS = 1600;
+  /** A branching species was just picked; the player chooses its future line once, here,
+   *  before the pick is sent. Compact by design — this is the only draft-time interruption
+   *  evolution ever causes. */
+  let evolutionChoicePrompt: { entryId: string; species: string; options: EvolutionTrigger[] } | null = null;
 
   $: if (data.id && activeRunId !== null && data.id !== activeRunId) {
     activeRunId = data.id;
@@ -101,6 +111,9 @@
 
   $: run = view?.run;
   $: downed = new Set(run?.downed_entry_ids || []);
+  /** Current (post-evolution) species/types per pick, keyed by entry id — always prefer this
+   *  over `pick.candidate` once the run has left drafting; evolution never changes candidate. */
+  $: currentByEntryId = new Map((view?.current_roster || []).map((item) => [item.entry_id, item]));
   // An AI draft has to actually draft. Requiring six manual "Ask AI to choose" clicks read
   // as the feature being broken; the AI now takes each offer on its own and only stops when
   // a decision fails, where Retry and Take over remain.
@@ -154,6 +167,7 @@
       if (rollRevealTimer) clearTimeout(rollRevealTimer);
       if (copyTimer) clearTimeout(copyTimer);
       if (stageTransitionTimer) clearTimeout(stageTransitionTimer);
+      if (evolutionRevealTimer) clearTimeout(evolutionRevealTimer);
       window.removeEventListener('keydown', handleDraftShortcut);
     };
   });
@@ -186,6 +200,10 @@
     return stat === 'def' ? candidate.base_stats.defense : candidate.base_stats[stat];
   }
 
+  function rarityLabel(value: DraftCandidate['draft_rarity']) {
+    return value.split('-').map((part) => part[0].toUpperCase() + part.slice(1)).join(' ');
+  }
+
   function setView(nextView: ChallengeRunView) {
     const nextRun = nextView.run;
     const priorActiveMatch = view?.run.active_match_id;
@@ -215,7 +233,8 @@
     ) {
       const stage = nextView.stages[nextRun.current_stage_index];
       const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-      if (stage && !reduced) {
+      const showStageCard = () => {
+        if (!stage || reduced) return;
         stageTransition = {
           name: stage.name,
           title: stage.title,
@@ -229,6 +248,22 @@
         };
         if (stageTransitionTimer) clearTimeout(stageTransitionTimer);
         stageTransitionTimer = setTimeout(() => (stageTransition = null), STAGE_TRANSITION_MS);
+      };
+      // Evolution is a state transition between the same two screens; show it first, then
+      // the next-opponent card, rather than layering both at once.
+      if (nextRun.recent_evolutions.length) {
+        evolutionReveal = nextRun.recent_evolutions.map((item) => ({
+          entryId: item.entry_id,
+          from: item.from_species,
+          to: item.to_species
+        }));
+        if (evolutionRevealTimer) clearTimeout(evolutionRevealTimer);
+        evolutionRevealTimer = setTimeout(() => {
+          evolutionReveal = null;
+          showStageCard();
+        }, EVOLUTION_REVEAL_MS);
+      } else {
+        showStageCard();
       }
     }
     const enteringTraining = view?.run.id === nextRun.id
@@ -329,9 +364,19 @@
     } finally { if (sequence === viewSequence) loading = ''; }
   }
 
-  async function pick(entryId: string) {
+  async function pick(entryId: string, evolutionChoice?: string) {
     if (!run?.current_offer) return;
-    await mutate('/draft/pick', { entry_id: entryId, offer_fingerprint: run.current_offer.fingerprint, expected_revision: run.revision }, `pick:${entryId}`);
+    if (!evolutionChoice) {
+      const option = run.current_offer.options.find((item) => item.entry_id === entryId);
+      if (option && option.evolves_to.length > 1) {
+        evolutionChoicePrompt = { entryId, species: option.species, options: option.evolves_to };
+        return;
+      }
+    }
+    evolutionChoicePrompt = null;
+    const body: Record<string, unknown> = { entry_id: entryId, offer_fingerprint: run.current_offer.fingerprint, expected_revision: run.revision };
+    if (evolutionChoice) body.evolution_choice = evolutionChoice;
+    await mutate('/draft/pick', body, `pick:${entryId}`);
   }
   async function requestReroll(kind: RerollKind) {
     if (!run?.current_offer) return;
@@ -357,6 +402,14 @@
     if (!run) return;
     const abilities = { ...run.ability_selections, [entryId]: abilityId };
     await mutate('/team/abilities', { abilities, expected_revision: run.revision }, `ability:${entryId}`);
+  }
+  async function selectMega(entryId: string, megaSpeciesId: string) {
+    if (!run) return;
+    await mutate('/mega-selection', {
+      entry_id: entryId,
+      mega_species_id: megaSpeciesId,
+      expected_revision: run.revision
+    }, `mega:${entryId}:${megaSpeciesId}`);
   }
   function requestFinalizeTeam() {
     if (!run) return;
@@ -530,6 +583,7 @@
     if (current.status === 'drafting') return current.draft_controller.kind === 'agent' ? 'Continue AI draft' : 'Continue draft';
     if (current.status === 'training') return 'Review EVs';
     if (current.status === 'team_review') return 'Complete team review';
+    if (current.status === 'mega_selection') return 'Choose a Mega Evolution';
     if (current.status === 'ready') return `Fight ${view?.current_stage?.name || 'first stage'}`;
     if (current.status === 'stage_result') return latestResult?.status === 'won' ? `Continue to ${view?.current_stage?.name}` : `Retry ${view?.current_stage?.name}`;
     if (current.status === 'completed') return 'View finale';
@@ -541,6 +595,7 @@
     if (current.status === 'drafting') return '#draft';
     if (current.status === 'training') return '#training';
     if (current.status === 'team_review') return '#team-review';
+    if (current.status === 'mega_selection') return '#mega-selection';
     if (current.status === 'ready' || current.status === 'stage_result') return '#current-stage';
     if (current.status === 'completed') return '#summary';
     if (current.status === 'cancelled') return '/challenges/new';
@@ -562,10 +617,32 @@
 
 {#if initialLoading}<p class="lede" role="status">Loading saved Draft state…</p>{:else if !view}<section class="panel load-error" role="alert"><h1>Draft run could not be loaded</h1><p>{error}</p>{#if technicalError && technicalError !== error}<details><summary>Technical details</summary><code>{technicalError}</code></details>{/if}<button class="button secondary" on:click={() => refresh()}>Retry</button><a class="button ghost" href="/challenges">Back to Draft</a></section>{:else if run}
 <nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/challenges">Draft</a><i class="ph ph-caret-right" aria-hidden="true"></i><span>{run.name}</span></nav>
-<div class="page-head"><div class="run-id"><span class="eyebrow">{run.definition.name} · v{run.definition.version}</span><h1 title={run.name}>{run.name}</h1></div><div class="head-actions"><span class={`status-pill ${run.status}`}>{challengeStatusLabel(run.status)}</span><span class="difficulty-pill" title="Level disadvantage applied to your team only">{difficultyLabel(run.difficulty)}</span>{#if !['completed','cancelled'].includes(run.status)}<details bind:this={runMenu} class="run-menu"><summary title="Run tools"><i class="ph ph-sliders-horizontal" aria-hidden="true"></i><span>Run</span></summary><div class="run-menu-panel" role="none" on:click={() => runMenu && (runMenu.open = false)}><span class="run-menu-label">This run</span><p class="run-menu-note">{run.definition.description}</p><a class="run-menu-item" href="#run-archive"><i class="ph ph-cards-three" aria-hidden="true"></i>Battle history and saved details</a><button type="button" class="run-menu-item danger" disabled={Boolean(loading)} on:click={requestCancelRun}><i class="ph ph-x-circle" aria-hidden="true"></i>Cancel run</button><button type="button" class="run-menu-item danger" disabled={Boolean(loading)} on:click={requestDeleteRun}><i class="ph ph-trash" aria-hidden="true"></i>Delete run</button></div></details>{/if}</div></div>
+<div class="page-head"><div class="run-id"><span class="eyebrow">{run.definition.name} · v{run.definition.version}</span><h1 title={run.name}>{run.name}</h1></div><div class="head-actions"><span class={`status-pill ${run.status}`}>{challengeStatusLabel(run.status)}</span><span class="difficulty-pill" title="Raises the opponent's level above the campaign curve; your own team always follows the curve">{difficultyLabel(run.difficulty)}</span>{#if !['completed','cancelled'].includes(run.status)}<details bind:this={runMenu} class="run-menu"><summary title="Run tools"><i class="ph ph-sliders-horizontal" aria-hidden="true"></i><span>Run</span></summary><div class="run-menu-panel" role="none" on:click={() => runMenu && (runMenu.open = false)}><span class="run-menu-label">This run</span><p class="run-menu-note">{run.definition.description}</p><a class="run-menu-item" href="#run-archive"><i class="ph ph-cards-three" aria-hidden="true"></i>Battle history and saved details</a><button type="button" class="run-menu-item danger" disabled={Boolean(loading)} on:click={requestCancelRun}><i class="ph ph-x-circle" aria-hidden="true"></i>Cancel run</button><button type="button" class="run-menu-item danger" disabled={Boolean(loading)} on:click={requestDeleteRun}><i class="ph ph-trash" aria-hidden="true"></i>Delete run</button></div></details>{/if}</div></div>
 
 {#if ['training','team_review'].includes(run.status)}
   <section class="continue-card panel" aria-labelledby="continue-title"><div><span class="eyebrow">Continue where you left off</span><h2 id="continue-title">{primaryLabel(run)}</h2></div><a class="button" href={primaryHref(run)}>{primaryLabel(run)}<i class="ph ph-arrow-right" aria-hidden="true"></i></a></section>
+{:else if run.status === 'mega_selection'}
+  <section id="mega-selection" class="mega-selection panel" aria-labelledby="mega-selection-title">
+    <div class="mega-intro">
+      <span class="eyebrow">Before the final battle</span>
+      <h2 id="mega-selection-title">Choose one Mega Evolution</h2>
+      <p>The chosen Pokémon receives its required Mega Stone for the finale. This choice is saved immediately and cannot be changed during battle.</p>
+    </div>
+    <div class="mega-options" role="group" aria-label="Available Mega Evolutions">
+      {#each run.mega_options as option}
+        <button
+          type="button"
+          disabled={Boolean(loading)}
+          aria-label={`Choose ${option.mega_species} for the final battle with ${option.required_item}`}
+          on:click={() => selectMega(option.entry_id, option.mega_species_id)}
+        >
+          <PokemonSprite species={option.mega_species} decorative size="large" />
+          <span><small>{option.from_species}</small><strong>{option.mega_species}</strong><em>{option.required_item}</em></span>
+          <i class={`ph ${loading === `mega:${option.entry_id}:${option.mega_species_id}` ? 'ph-circle-notch' : 'ph-arrow-right'}`} aria-hidden="true"></i>
+        </button>
+      {/each}
+    </div>
+  </section>
 {:else if ['ready','battle_queued','battling','stage_result','preparing'].includes(run.status) && view.current_stage}
   <!--
     One hero owns the current opponent, the level rule and the only primary action.
@@ -576,7 +653,7 @@
     <div class="stage-copy">
       <span class="eyebrow">Battle {run.current_stage_index + 1} / {view.stages.length}{#if view.current_stage.specialty} · {view.current_stage.specialty} specialist{/if}</span>
       <h2>{view.current_stage.name}</h2>
-      <p><b>Lv {view.current_stage.level}</b>{#if view.current_stage.player_level && view.current_stage.player_level !== view.current_stage.level} · your team Lv {view.current_stage.player_level} ({difficultyLabel(run.difficulty)}){/if} · {view.current_stage.title}</p>
+      <p><b>Lv {view.current_stage.level}</b>{#if view.current_stage.opponent_level && view.current_stage.opponent_level !== view.current_stage.level} · opponent Lv {view.current_stage.opponent_level} ({difficultyLabel(run.difficulty)}){/if} · {view.current_stage.title}</p>
       {#if view.current_stage.full_heal_before === false && downed.size}<p class="gauntlet-note"><i class="ph ph-warning" aria-hidden="true"></i>Elite Four gauntlet: {downed.size} Pokémon stayed down. You go in with {run.picks.length - downed.size} of {run.picks.length}.</p>{/if}
       {#if latestResult && latestResult.stage_id === view.current_stage.id && latestResult.status !== 'won'}<p class="retry-note">{outcomeTitle(latestResult.status)} recorded. Retrying creates a new match and keeps the previous replay.</p>{/if}
     </div>
@@ -630,7 +707,7 @@
   <section class:success={latestResult.status === 'won'} class:technical={['failed','cancelled','interrupted'].includes(latestResult.status)} class="result-card panel"><div class="result-icon"><i class={`ph ${latestResult.status === 'won' ? 'ph-trophy' : latestResult.status === 'lost' ? 'ph-x-circle' : 'ph-warning'}`} aria-hidden="true"></i></div><div class="result-copy"><span class="eyebrow">Battle result</span><h2>{outcomeTitle(latestResult.status)} — {latestStage?.name}{latestResult.status === 'won' ? ' defeated' : ''}</h2><p>{outcomeDetail(latestResult.status)}</p>{#if view.latest_battle_summary}<div class="battle-summary"><div><strong>Your team used</strong><div>{#each view.latest_battle_summary.player_participants as species}<span><PokemonSprite {species} size="small" decorative />{species}</span>{/each}</div></div><div><strong>Defeated</strong><small>Yours</small><div>{#each view.latest_battle_summary.player_fainted as species}<span class="fainted"><PokemonSprite {species} size="small" decorative />{species}</span>{:else}<em>None</em>{/each}</div><small>{latestStage?.name}</small><div>{#each view.latest_battle_summary.opponent_fainted as species}<span class="fainted opponent"><PokemonSprite {species} size="small" decorative />{species}</span>{:else}<em>None</em>{/each}</div></div></div>{/if}</div><div class="result-actions"><a class="button secondary" href={`/replay/${latestResult.match_id}`}><i class="ph ph-play-circle" aria-hidden="true"></i>Watch replay</a>{#if run.status !== 'completed' && (!autoRunAvailable || run.auto_run_paused || latestResult.status !== 'won')}<button class="button" disabled={Boolean(loading)} on:click={run.auto_run_paused ? continueAutoRun : launch}>{latestResult.status === 'won' ? `Continue to ${view.current_stage?.name}` : `Retry ${latestStage?.name}`}</button>{/if}</div></section>
 {/if}
 
-{#if run.status === 'completed'}<section id="summary" class="complete panel"><i class="ph ph-crown" aria-hidden="true"></i><span class="eyebrow">Kanto Gauntlet complete</span><h2>Champion cleared</h2><p>{view.statistics.wins} wins · {view.statistics.total_battles} battles · {view.statistics.total_turns} turns · {formatDuration(view.statistics.duration_seconds)}</p><dl><div><dt>Draft</dt><dd>{run.picks.length} Pokémon · {run.consumed_species_ids.length} species consumed</dd></div><div><dt>Recommended EVs</dt><dd>{view.statistics.ev_used} allocated</dd></div><div><dt>Rerolls</dt><dd>{view.statistics.rerolls_used} used</dd></div><div><dt>Controllers</dt><dd>{run.draft_controller_history.length ? 'AI → Me draft' : `${run.draft_controller.kind} draft`} · {run.battle_controller.agent_type} battle</dd></div><div><dt>Estimated API cost</dt><dd>${view.statistics.estimated_cost.toFixed(4)}</dd></div><div><dt>Average decision</dt><dd>{view.statistics.average_decision_latency_ms == null ? 'Not available' : `${Math.round(view.statistics.average_decision_latency_ms)} ms`}</dd></div></dl><div class="final-roster">{#each run.picks as pick}<span>{pick.candidate.species}<small>{pick.candidate.abilities.find((ability) => ability.id === run.ability_selections[pick.candidate.entry_id])?.name || 'No ability'}</small></span>{/each}</div><div class="final-actions"><a class="button" href="/challenges/new">Start new Draft run</a><a class="button secondary" href="#run-archive">View all battles</a></div></section>{/if}
+{#if run.status === 'completed'}<section id="summary" class="complete panel"><i class="ph ph-crown" aria-hidden="true"></i><span class="eyebrow">Kanto Gauntlet complete</span><h2>Champion cleared</h2><p>{view.statistics.wins} wins · {view.statistics.total_battles} battles · {view.statistics.total_turns} turns · {formatDuration(view.statistics.duration_seconds)}</p><dl><div><dt>Draft</dt><dd>{run.picks.length} Pokémon · {run.consumed_species_ids.length} species consumed</dd></div><div><dt>Recommended EVs</dt><dd>{view.statistics.ev_used} allocated</dd></div><div><dt>Rerolls</dt><dd>{view.statistics.rerolls_used} used</dd></div><div><dt>Controllers</dt><dd>{run.draft_controller_history.length ? 'AI → Me draft' : `${run.draft_controller.kind} draft`} · {run.battle_controller.agent_type} battle</dd></div><div><dt>Estimated API cost</dt><dd>${view.statistics.estimated_cost.toFixed(4)}</dd></div><div><dt>Average decision</dt><dd>{view.statistics.average_decision_latency_ms == null ? 'Not available' : `${Math.round(view.statistics.average_decision_latency_ms)} ms`}</dd></div></dl><div class="final-roster">{#each run.picks as pick}{@const current = currentByEntryId.get(pick.candidate.entry_id)}<span>{current?.species || pick.candidate.species}{#if current?.evolved}<i class="ph ph-sparkle evolved-mark" aria-hidden="true" title={`Evolved from ${pick.candidate.species}`}></i>{/if}<small>{pick.candidate.abilities.find((ability) => ability.id === run.ability_selections[pick.candidate.entry_id])?.name || 'No ability'}</small></span>{/each}</div><div class="final-actions"><a class="button" href="/challenges/new">Start new Draft run</a><a class="button secondary" href="#run-archive">View all battles</a></div></section>{/if}
 
 {#if !['drafting','training','team_review'].includes(run.status)}<section id="campaign" class="campaign panel">
   <header><div><span class="eyebrow">Campaign route</span><h2>{run.status === 'completed' ? 'Kanto Gauntlet complete' : campaignBattleLabel(run.current_stage_index, view.stages.length, view.current_stage?.name || '')}</h2></div><span class="route-count">{view.statistics.stages_cleared} / {view.stages.length} cleared</span></header>
@@ -653,7 +730,8 @@
     </header>
     <div class="draft-workspace"><div class="draft-choice-area">
       {#if run.current_offer.options.length < run.definition.draft_rules.choice_count}<p class="pool-note" role="status"><i class="ph ph-info" aria-hidden="true"></i>The legal pool is nearly exhausted, so this offer contains fewer cards.</p>{/if}
-      <div class:pending-reveal={Boolean(rollReveal)} class="offer-grid">{#each run.current_offer.options as option, index}<button style={`--reveal-index:${index}`} disabled={Boolean(loading) || Boolean(rollReveal)} aria-label={`Draft ${option.species}`} aria-keyshortcuts={index < 9 ? String(index + 1) : undefined} on:click={() => pick(option.entry_id)}><span class="shortcut" aria-hidden="true">{index + 1}</span><span class="dex">#{String(option.national_dex_number).padStart(4, '0')} · Gen {option.introduction_generation}</span><div class="offer-sprite"><PokemonSprite species={option.species} size="large" decorative /></div><h3>{option.species}</h3><p class="type-badges"><TypeBadges types={option.types} /></p><div class="card-foot">{#if option.base_stat_total}<small>BST <b>{option.base_stat_total}</b></small>{/if}<span>Choose <i class="ph ph-arrow-right" aria-hidden="true"></i></span></div>{#if loading === `pick:${option.entry_id}`}<em role="status"><i class="ph ph-spinner-gap" aria-hidden="true"></i> Locking pick…</em>{/if}</button>{/each}</div>
+      <p class="rarity-note"><i class="ph ph-sparkle" aria-hidden="true"></i>Higher-rated Pokémon appear less often. Points use the strongest reachable non-Mega evolution.</p>
+      <div class:pending-reveal={Boolean(rollReveal)} class="offer-grid">{#each run.current_offer.options as option, index}<button data-rarity={option.draft_rarity} title={`Draft Rarity · Smogon Draft Points: ${option.draft_points}. Higher-rated Pokémon appear less often.`} style={`--reveal-index:${index}`} disabled={Boolean(loading) || Boolean(rollReveal)} aria-label={`Draft ${option.species}, ${rarityLabel(option.draft_rarity)}, ${option.draft_points} Smogon Draft Points`} aria-keyshortcuts={index < 9 ? String(index + 1) : undefined} on:click={() => pick(option.entry_id)}><span class="shortcut" aria-hidden="true">{index + 1}</span><span class="dex">#{String(option.national_dex_number).padStart(4, '0')} · Gen {option.introduction_generation}</span><span class="rarity-badge">{rarityLabel(option.draft_rarity)} · {option.draft_points} pts</span><div class="offer-sprite"><PokemonSprite species={option.species} size="large" decorative /></div><h3>{option.species}</h3><p class="type-badges"><TypeBadges types={option.types} /></p><div class="card-foot">{#if option.base_stat_total}<small>BST <b>{option.base_stat_total}</b></small>{/if}<span>Choose <i class="ph ph-arrow-right" aria-hidden="true"></i></span></div>{#if loading === `pick:${option.entry_id}`}<em role="status"><i class="ph ph-spinner-gap" aria-hidden="true"></i> Locking pick…</em>{/if}</button>{/each}</div>
       <footer>{#if run.draft_controller.kind === 'human'}<div class="reroll-actions"><button class="button secondary" title="Keep Generation and Type; replace only these Pokémon" disabled={!run.rerolls_remaining || !view.can_reroll || Boolean(loading) || Boolean(rollReveal)} on:click={() => requestReroll('pokemon')}><i class="ph ph-arrows-clockwise" aria-hidden="true"></i><span><strong>{loading === 'reroll:pokemon' ? 'Rolling…' : 'Reroll Pokémon'}</strong><small>Keep Gen + Type</small></span><b>{run.rerolls_remaining}</b></button><button class="button ghost" title="Keep Generation; change Type and Pokémon" disabled={!run.type_rerolls_remaining || !view.can_reroll_type || Boolean(loading) || Boolean(rollReveal)} on:click={() => requestReroll('type')}><i class="ph ph-palette" aria-hidden="true"></i><span><strong>{loading === 'reroll:type' ? 'Rolling…' : 'Reroll Type'}</strong><small>Keep Generation</small></span><b>{run.type_rerolls_remaining}</b></button><button class="button ghost" title="Keep Type; change Generation and Pokémon" disabled={!run.generation_rerolls_remaining || !view.can_reroll_generation || Boolean(loading) || Boolean(rollReveal)} on:click={() => requestReroll('generation')}><i class="ph ph-clock-counter-clockwise" aria-hidden="true"></i><span><strong>{loading === 'reroll:generation' ? 'Rolling…' : 'Reroll Generation'}</strong><small>Keep Type</small></span><b>{run.generation_rerolls_remaining}</b></button></div>{@const blocked = (['pokemon','type','generation'] as RerollKind[]).map((kind) => [kind, rerollBlockedReason(kind)] as const).filter(([, reason]) => reason)}{#if blocked.length}<ul class="reroll-blocked" role="status">{#each blocked as [kind, reason]}<li><b>{kind === 'pokemon' ? 'Pokémon' : kind === 'type' ? 'Type' : 'Generation'} reroll</b>{reason}</li>{/each}</ul>{/if}{:else if run.draft_controller.kind === 'agent'}<div class="agent-actions">{#if agentFailed}<button class="button" disabled={Boolean(loading) || Boolean(rollReveal)} on:click={agentDraft}><i class="ph ph-robot" aria-hidden="true"></i>{loading === 'agent' ? 'AI is choosing…' : 'Retry AI decision'}</button>{:else}<span class="agent-busy" role="status"><i class="ph ph-robot" aria-hidden="true"></i>{loading === 'agent' ? 'AI is choosing…' : 'AI is drafting…'}</span>{/if}<button class="button secondary" disabled={Boolean(loading) || Boolean(rollReveal)} on:click={takeOverDraft}>{loading === 'takeover' ? 'Taking over…' : 'Take over manually'}</button></div>{/if}<span class:busy={Boolean(loading)} class="offer-saved" role="status"><i class={`ph ${loading ? 'ph-circle-notch' : 'ph-cloud-check'}`} aria-hidden="true"></i>{loading ? 'Saving change…' : 'All progress saved'}</span></footer>
     </div><aside class="draft-roster" aria-label="Current drafted roster"><span class="eyebrow">Your team</span><h3>{run.picks.length} / {run.definition.draft_rules.roster_size}</h3><div>{#each Array(run.definition.draft_rules.roster_size) as _, index}{#if run.picks[index]}{@const pick = run.picks[index]}<article><PokemonSprite species={pick.candidate.species} size="small" decorative /><span><strong>{pick.candidate.species}</strong><TypeBadges types={pick.candidate.types} compact /></span></article>{:else}<article class="empty"><b>{index + 1}</b><span>Open slot</span></article>{/if}{/each}</div><details class="opponent-preview"><summary class="disclosure-summary"><span><i class="ph ph-path" aria-hidden="true"></i><b>Who you will fight</b><small>{view.stages.length} stages</small></span><i class="ph ph-caret-down disclosure-caret" aria-hidden="true"></i></summary><ol class="campaign-preview">{#each view.stages as stage (stage.id)}<li style={`--stage-accent:${stage.visual_accent}`}><b>{stage.name}</b><span>{stage.specialty || stage.title}</span><i>Lv {stage.level}</i></li>{/each}</ol><p>Draft coverage for these types. Every shown card leaves the run: Pokémon keeps Gen + Type, Type keeps Gen, Generation keeps Type, and each power is single-use.</p></details></aside></div>
     {#if loading === 'agent'}<p class="async-note" role="status">Waiting for one strict legal action. This offer will not reroll while the AI responds.</p>{/if}
@@ -663,7 +741,7 @@
 
 {#if run.picks.length && run.status !== 'drafting'}
   <!-- The locked roster is reference, not a dashboard: one slim sprite strip. -->
-  <section class="roster-strip" aria-label="Drafted roster">{#each run.picks as pick}{@const out = downed.has(pick.candidate.entry_id)}<span class:downed={out} title={out ? `${pick.candidate.species} is out for the rest of this gauntlet` : `${pick.candidate.species} · ${pick.candidate.types.join('/')}`}><PokemonSprite species={pick.candidate.species} size="small" decorative /><b>{pick.candidate.species}</b>{#if out}<i class="ph ph-x" aria-hidden="true"></i>{/if}</span>{/each}</section>
+  <section class="roster-strip" aria-label="Drafted roster">{#each run.picks as pick}{@const out = downed.has(pick.candidate.entry_id)}{@const current = currentByEntryId.get(pick.candidate.entry_id)}{@const species = current?.species || pick.candidate.species}<span class:downed={out} title={out ? `${species} is out for the rest of this gauntlet` : `${species} · ${(current?.types || pick.candidate.types).join('/')}${current?.evolved ? ` · evolved from ${pick.candidate.species}` : ''}`}><PokemonSprite {species} size="small" decorative /><b>{species}</b>{#if current?.evolved}<i class="ph ph-sparkle evolved-mark" aria-hidden="true"></i>{/if}{#if out}<i class="ph ph-x" aria-hidden="true"></i>{/if}</span>{/each}</section>
 {/if}
 
 {#if run.draft_history.length}
@@ -687,6 +765,23 @@
 
 
 <details class="run-details panel"><summary class="disclosure-summary"><span><i class="ph ph-database" aria-hidden="true"></i><b>Saved run details</b><small>Seed, rules and Showdown snapshot</small></span><i class="ph ph-caret-down disclosure-caret" aria-hidden="true"></i></summary><dl><div><dt>Seed</dt><dd>{run.seed}</dd></div><div><dt>Definition</dt><dd>{run.definition.id} · v{run.definition.version}</dd></div><div><dt>Draft rules</dt><dd>{run.draft_rules_version}</dd></div><div><dt>Format</dt><dd>{run.definition.format} · Gen {run.draft_pool.format_generation}</dd></div><div><dt>Showdown</dt><dd>{run.draft_pool.showdown_version}</dd></div><div><dt>Pool catalog</dt><dd><code>{run.draft_pool.catalog_hash}</code></dd></div>{#if run.definition.source}<div><dt>Opponent source</dt><dd>{run.definition.source.game} · Gen {run.definition.source.generation}</dd></div><div><dt>Source variant</dt><dd>{run.definition.source.variant}</dd></div><div><dt>Compatibility</dt><dd>{run.definition.source.compatibility_note}</dd></div>{/if}</dl></details>
+
+<!--
+  One evolution moment per stage transition, shown before the next-opponent card. Reduced
+  motion keeps the card but drops the glow/scale animation — this is a real state change,
+  not decoration, so it stays visible either way.
+-->
+{#if evolutionReveal}
+  <div class="evolution-reveal" role="status" aria-live="polite">
+    {#each evolutionReveal as item (item.entryId)}
+      <div class="evolution-card">
+        <span class="evolution-glow" aria-hidden="true"></span>
+        <PokemonSprite species={item.to} size="large" decorative />
+        <p><b>{item.from}</b> evolved into <b>{item.to}</b>!</p>
+      </div>
+    {/each}
+  </div>
+{/if}
 
 <!--
   The next stage is already starting server-side; this only announces who it is against.
@@ -716,6 +811,25 @@
   </div>
 {/if}
 
+{#if evolutionChoicePrompt}
+  {@const prompt = evolutionChoicePrompt}
+  <div class="confirmation-layer">
+    <button class="confirmation-backdrop" aria-label="Cancel this pick" on:click={() => (evolutionChoicePrompt = null)}></button>
+    <div class="confirmation-card evolution-choice-card" role="alertdialog" aria-modal="true" aria-labelledby="evolution-choice-title">
+      <div><span class="eyebrow">One-time choice</span><h2 id="evolution-choice-title">{prompt.species} evolves more than one way</h2><p>Pick its future line now — this applies for the rest of the run and never interrupts Auto-Run again.</p></div>
+      <div class="evolution-choice-options">
+        {#each prompt.options as option (option.id)}
+          <button type="button" class="evolution-choice-option" disabled={Boolean(loading)} on:click={() => pick(prompt.entryId, option.id)}>
+            <PokemonSprite species={option.name} size="medium" decorative />
+            <span>{option.name}</span>
+          </button>
+        {/each}
+      </div>
+      <div class="confirmation-actions"><button class="button ghost" on:click={() => (evolutionChoicePrompt = null)}>Cancel</button></div>
+    </div>
+  </div>
+{/if}
+
 {#if error}<section class="error-box" role="alert"><strong>{error}</strong>{#if technicalError && technicalError !== error}<details><summary>Technical details</summary><code>{technicalError}</code></details>{/if}<button class="link-button" on:click={() => { error = ''; technicalError = ''; }}>Dismiss</button></section>{/if}
 {/if}
 
@@ -728,7 +842,7 @@
   @media(max-width:750px){.roll-result{grid-template-columns:1fr}.draft{padding:1rem}.offer-grid{gap:.55rem}.offer-grid button{min-height:320px;padding:.9rem}.reroll-actions{display:grid;grid-template-columns:1fr 1fr}.reroll-actions .button:first-child{grid-column:1/-1}.offer-saved{align-self:center}}
   @media(max-width:600px){.reroll-actions{grid-template-columns:1fr;width:100%}.reroll-actions .button,.reroll-actions .button:first-child{grid-column:auto;width:100%}.roll-result::before{right:-55px}.offer-grid button{min-height:300px}.card-foot{padding-top:.5rem}.offer-saved{justify-content:center}.draft-reels{align-items:center!important;flex-direction:row!important;gap:.35rem}.roll-result .draft-reel{padding:0 .48rem}.type-reel .reel-track b{min-width:96px}}
   @media(prefers-reduced-motion:reduce){.roll-result,.roll-result::before,.roll-result h2 span,.offer-grid button,.offer-sprite,.card-foot i,.reroll-actions .button>i,.offer-saved.busy i,.draft-roster article:not(.empty),.roll-result h2 .draft-reel.spinning .reel-track,.roll-result h2 .draft-reel.spinning.generation-reel,.roll-result h2 .draft-reel.spinning.type-reel,.roll-result h2 .draft-reel.spinning{animation:none!important;transition:none!important}.offer-grid button:hover:not(:disabled),.offer-grid button:focus-visible{transform:none}.offer-grid button:hover:not(:disabled) .offer-sprite,.offer-grid button:focus-visible .offer-sprite{transform:none}}/* ── Compact game screen ────────────────────────────────────────────────── */
-  .page-head{position:relative;z-index:90;display:flex;align-items:center;justify-content:space-between;gap:1rem;margin-bottom:.6rem}.run-id{min-width:0}.run-id h1{margin:.1rem 0 0;overflow:hidden;font-size:clamp(1.05rem,1.8vw,1.45rem);text-overflow:ellipsis;white-space:nowrap}.head-actions{display:flex;flex-shrink:0;align-items:center;gap:.45rem}.difficulty-pill{padding:.24rem .55rem;border:1px solid color-mix(in srgb,var(--accent) 40%,var(--border));border-radius:999px;color:var(--accent);font:700 .6rem var(--mono);letter-spacing:.05em;text-transform:uppercase;white-space:nowrap}.run-menu{position:relative;z-index:50}.run-menu>summary{display:flex;min-height:44px;align-items:center;gap:.35rem;padding:.3rem .65rem;border:1px solid var(--border);border-radius:999px;background:var(--panel);color:var(--muted);font:650 .72rem var(--display);cursor:pointer;list-style:none}.run-menu>summary::-webkit-details-marker{display:none}.run-menu[open]>summary,.run-menu>summary:hover{border-color:color-mix(in srgb,var(--accent) 45%,var(--border));color:var(--text)}.run-menu-panel{position:absolute;z-index:60;top:calc(100% + .4rem);right:0;display:grid;gap:.18rem;width:min(21rem,80vw);padding:.5rem;border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--panel);box-shadow:var(--shadow)}.run-menu-label{margin:.25rem .35rem 0;color:var(--accent);font:700 .58rem var(--mono);letter-spacing:.13em;text-transform:uppercase}.run-menu-note{margin:0 .35rem .3rem!important;font-size:.68rem;line-height:1.45}.run-menu-item{display:flex;min-height:44px;align-items:center;gap:.5rem;width:100%;padding:.45rem .55rem;border:0;border-radius:.5rem;background:transparent;color:var(--text);font:600 .8rem var(--display);text-align:left;cursor:pointer}.run-menu-item:hover{background:var(--surface)}.run-menu-item.danger{color:var(--danger)}.stage-hero{display:flex;align-items:center;gap:1.1rem;margin-bottom:.7rem;padding:1rem 1.2rem;border-color:color-mix(in srgb,var(--stage-accent) 55%,var(--border));background:linear-gradient(105deg,color-mix(in srgb,var(--stage-accent) 16%,var(--panel)),var(--panel))}.stage-copy{min-width:0;flex:1}.stage-copy .eyebrow{color:var(--stage-accent)}.stage-copy h2{margin:.1rem 0;font-size:clamp(1.5rem,3.4vw,2.1rem);line-height:1.05}.stage-copy p{margin:.15rem 0 0!important;font-size:.76rem}.stage-copy p b{color:var(--text)}.retry-note{color:var(--danger)!important}.stage-action{display:grid;flex-shrink:0;justify-items:end;gap:.4rem;text-align:right}.stage-action>strong{font:700 .68rem var(--mono)}.stage-buttons{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:.45rem}.stage-action .link-button{font-size:.66rem}.campaign{margin-bottom:.7rem;padding:.85rem 1.1rem;box-shadow:none}.campaign header{display:flex;align-items:center;justify-content:space-between;gap:1rem}.campaign h2{margin:.1rem 0;font-size:.98rem}.route-count{color:var(--muted);font:.62rem var(--mono)}.route-rail{display:flex;flex-wrap:wrap;gap:.3rem;margin:.6rem 0 0;padding:0;list-style:none}.route-rail li{display:flex;align-items:center;gap:.32rem;padding:.24rem .5rem;border:1px solid var(--border);border-radius:999px;background:var(--surface);color:var(--muted);font:650 .64rem var(--display)}.route-rail li b{display:grid;place-items:center;width:15px;aspect-ratio:1;border-radius:50%;background:var(--surface);color:var(--muted);font:800 .55rem var(--mono);box-shadow:inset 0 0 0 1px var(--border)}.route-rail li.won{border-color:color-mix(in srgb,var(--accent) 45%,var(--border));color:var(--text)}.route-rail li.won b{background:var(--accent);color:var(--bg);box-shadow:none}.route-rail li.failed b{background:var(--danger);color:#fff;box-shadow:none}.route-rail li.current{border-color:var(--stage-accent);background:color-mix(in srgb,var(--stage-accent) 20%,var(--panel));color:var(--text)}.route-rail li.current b{background:var(--stage-accent);color:#0b100c;box-shadow:none}.route-rail li:not(.current):not(.won):not(.failed) span{display:none}.roster-strip{display:flex;flex-wrap:wrap;gap:.35rem;margin-bottom:.7rem}.roster-strip span{display:flex;align-items:center;gap:.35rem;padding:.22rem .5rem .22rem .25rem;border:1px solid var(--border);border-radius:999px;background:var(--panel);color:var(--muted);font:650 .66rem var(--display)}/* ── Slot reels ─────────────────────────────────────────────────────────── */
+  .page-head{position:relative;z-index:90;display:flex;align-items:center;justify-content:space-between;gap:1rem;margin-bottom:.6rem}.run-id{min-width:0}.run-id h1{margin:.1rem 0 0;overflow:hidden;font-size:clamp(1.05rem,1.8vw,1.45rem);text-overflow:ellipsis;white-space:nowrap}.head-actions{display:flex;flex-shrink:0;align-items:center;gap:.45rem}.difficulty-pill{padding:.24rem .55rem;border:1px solid color-mix(in srgb,var(--accent) 40%,var(--border));border-radius:999px;color:var(--accent);font:700 .6rem var(--mono);letter-spacing:.05em;text-transform:uppercase;white-space:nowrap}.run-menu{position:relative;z-index:50}.run-menu>summary{display:flex;min-height:44px;align-items:center;gap:.35rem;padding:.3rem .65rem;border:1px solid var(--border);border-radius:999px;background:var(--panel);color:var(--muted);font:650 .72rem var(--display);cursor:pointer;list-style:none}.run-menu>summary::-webkit-details-marker{display:none}.run-menu[open]>summary,.run-menu>summary:hover{border-color:color-mix(in srgb,var(--accent) 45%,var(--border));color:var(--text)}.run-menu-panel{position:absolute;z-index:60;top:calc(100% + .4rem);right:0;display:grid;gap:.18rem;width:min(21rem,80vw);padding:.5rem;border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--panel);box-shadow:var(--shadow)}.run-menu-label{margin:.25rem .35rem 0;color:var(--accent);font:700 .58rem var(--mono);letter-spacing:.13em;text-transform:uppercase}.run-menu-note{margin:0 .35rem .3rem!important;font-size:.68rem;line-height:1.45}.run-menu-item{display:flex;min-height:44px;align-items:center;gap:.5rem;width:100%;padding:.45rem .55rem;border:0;border-radius:.5rem;background:transparent;color:var(--text);font:600 .8rem var(--display);text-align:left;cursor:pointer}.run-menu-item:hover{background:var(--surface)}.run-menu-item.danger{color:var(--danger)}.stage-hero{display:flex;align-items:center;gap:1.1rem;margin-bottom:.7rem;padding:1rem 1.2rem;border-color:color-mix(in srgb,var(--stage-accent) 55%,var(--border));background:linear-gradient(105deg,color-mix(in srgb,var(--stage-accent) 16%,var(--panel)),var(--panel))}.stage-copy{min-width:0;flex:1}.stage-copy .eyebrow{color:var(--stage-accent)}.stage-copy h2{margin:.1rem 0;font-size:clamp(1.5rem,3.4vw,2.1rem);line-height:1.05}.stage-copy p{margin:.15rem 0 0!important;font-size:.76rem}.stage-copy p b{color:var(--text)}.retry-note{color:var(--danger)!important}.stage-action{display:grid;flex-shrink:0;justify-items:end;gap:.4rem;text-align:right}.stage-action>strong{font:700 .68rem var(--mono)}.stage-buttons{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:.45rem}.stage-action .link-button{font-size:.66rem}.campaign{margin-bottom:.7rem;padding:.85rem 1.1rem;box-shadow:none}.campaign header{display:flex;align-items:center;justify-content:space-between;gap:1rem}.campaign h2{margin:.1rem 0;font-size:.98rem}.route-count{color:var(--muted);font:.62rem var(--mono)}.route-rail{display:flex;flex-wrap:wrap;gap:.3rem;margin:.6rem 0 0;padding:0;list-style:none}.route-rail li{display:flex;align-items:center;gap:.32rem;padding:.24rem .5rem;border:1px solid var(--border);border-radius:999px;background:var(--surface);color:var(--muted);font:650 .64rem var(--display)}.route-rail li b{display:grid;place-items:center;width:15px;aspect-ratio:1;border-radius:50%;background:var(--surface);color:var(--muted);font:800 .55rem var(--mono);box-shadow:inset 0 0 0 1px var(--border)}.route-rail li.won{border-color:color-mix(in srgb,var(--accent) 45%,var(--border));color:var(--text)}.route-rail li.won b{background:var(--accent);color:var(--bg);box-shadow:none}.route-rail li.failed b{background:var(--danger);color:#fff;box-shadow:none}.route-rail li.current{border-color:var(--stage-accent);background:color-mix(in srgb,var(--stage-accent) 20%,var(--panel));color:var(--text)}.route-rail li.current b{background:var(--stage-accent);color:#0b100c;box-shadow:none}.route-rail li:not(.current):not(.won):not(.failed) span{display:none}.roster-strip{display:flex;flex-wrap:wrap;gap:.35rem;margin-bottom:.7rem}.roster-strip span{display:flex;align-items:center;gap:.35rem;padding:.22rem .5rem .22rem .25rem;border:1px solid var(--border);border-radius:999px;background:var(--panel);color:var(--muted);font:650 .66rem var(--display)}.evolved-mark{color:var(--accent);font-size:.8em}.final-roster .evolved-mark{margin-left:.2rem}/* ── Slot reels ─────────────────────────────────────────────────────────── */
   .reel-separator{align-self:center;color:var(--muted);font:800 1.1rem var(--display)}.reel-window{-webkit-mask-image:linear-gradient(to bottom,transparent,#000 26%,#000 74%,transparent);mask-image:linear-gradient(to bottom,transparent,#000 26%,#000 74%,transparent)}/* The base .reel-track/.draft-reel rules use !important,so the spin has to as well. */
   .roll-result .draft-reel.spinning .reel-track{animation:slot-reel 620ms cubic-bezier(.16,.62,0,1) both!important}.roll-result .type-reel.spinning .reel-track{animation-duration:620ms!important;animation-delay:70ms!important}.roll-result .generation-reel.spinning .reel-track{animation-duration:480ms!important;animation-delay:0ms!important}.roll-result h2 .draft-reel.spinning{animation:reel-lock 620ms ease-out both!important}.roll-result h2 .generation-reel.spinning{animation-duration:480ms!important;animation-delay:0ms!important}.roll-result h2 .type-reel.spinning{animation-delay:70ms!important}
   @keyframes reel-lock{0%,74%{border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 8%,transparent)}88%{border-color:color-mix(in srgb,var(--accent) 90%,white);box-shadow:0 0 22px 2px color-mix(in srgb,var(--accent) 55%,transparent),0 0 0 3px color-mix(in srgb,var(--accent) 22%,transparent);transform:scale(1.06)}100%{border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 10%,transparent);transform:scale(1)}}.reroll-blocked{display:grid;gap:.2rem;margin:.5rem 0 0;padding:0;list-style:none}.reroll-blocked li{display:flex;flex-wrap:wrap;gap:.35rem;color:var(--muted);font-size:.66rem}.reroll-blocked b{color:var(--text)}.agent-busy{display:flex;align-items:center;gap:.4rem;color:var(--accent);font:700 .74rem var(--display)}.agent-busy i{animation:agent-pulse 1.6s ease-in-out infinite}
@@ -753,4 +867,43 @@
   @media(max-width:750px){.reroll-actions{grid-template-columns:1fr 1fr}.reroll-actions .button:first-child{grid-column:1/-1}}
   @media(max-width:600px){.offer-grid{display:flex;overflow-x:auto;overscroll-behavior-inline:contain;padding-bottom:.4rem;scroll-snap-type:x mandatory;scrollbar-width:thin}.offer-grid button{flex:0 0 auto;width:min(82vw,300px);min-width:min(82vw,300px);min-height:300px;scroll-snap-align:start}.reroll-actions{grid-template-columns:1fr}.reroll-actions .button:first-child{grid-column:auto}.disclosure-summary small{white-space:normal}}
   @media(prefers-reduced-motion:reduce){.disclosure-caret{transition:none}}
+
+  /* ── Stage transition & evolution reveal ─────────────────────────────── */
+  .stage-transition,.evolution-reveal{position:fixed;z-index:80;inset:0;display:grid;place-items:center;pointer-events:none;padding:1rem}
+  .stage-transition-card{display:flex;align-items:center;gap:.9rem;padding:.85rem 1.3rem .85rem .85rem;border:1px solid color-mix(in srgb,var(--stage-accent) 55%,var(--border));border-radius:var(--radius-lg);background:color-mix(in srgb,var(--panel) 94%,var(--stage-accent) 6%);box-shadow:var(--shadow);animation:transition-pop .38s cubic-bezier(.2,.8,.2,1) both}
+  .stage-transition-card div{display:grid;gap:.1rem}
+  .stage-transition-card span{color:var(--stage-accent);font:700 .62rem var(--mono);letter-spacing:.08em;text-transform:uppercase}
+  .stage-transition-card strong{font-size:1.15rem;letter-spacing:-.01em}
+  .stage-transition-card em{color:var(--muted);font-size:.76rem;font-style:normal}
+  .evolution-card{position:relative;isolation:isolate;display:grid;justify-items:center;gap:.35rem;padding:1.3rem 1.6rem;border:1px solid color-mix(in srgb,var(--accent) 55%,var(--border));border-radius:var(--radius-lg);background:color-mix(in srgb,var(--panel) 92%,var(--accent) 8%);box-shadow:var(--shadow);text-align:center;animation:transition-pop .42s cubic-bezier(.2,.8,.2,1) both}
+  .evolution-card p{margin:.2rem 0 0;font-size:.92rem}
+  .evolution-card b{color:var(--accent)}
+  .evolution-glow{position:absolute;z-index:-1;inset:-20%;border-radius:50%;background:radial-gradient(circle,color-mix(in srgb,var(--accent) 30%,transparent),transparent 70%);animation:evolution-pulse 1.6s ease-in-out infinite}
+  @keyframes transition-pop{from{opacity:0;transform:translateY(8px) scale(.96)}to{opacity:1;transform:none}}
+  @keyframes evolution-pulse{0%,100%{opacity:.55;transform:scale(.9)}50%{opacity:1;transform:scale(1.08)}}
+  @media(prefers-reduced-motion:reduce){.stage-transition-card,.evolution-card{animation:none}.evolution-glow{animation:none;opacity:.7}}
+  .evolution-choice-options{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:.6rem;margin:1rem 0}
+  .evolution-choice-option{display:grid;justify-items:center;gap:.4rem;min-height:110px;padding:.75rem .5rem;border:1px solid var(--border);border-radius:.65rem;background:var(--panel-strong);color:var(--text);cursor:pointer;transition:border-color .16s ease,transform .16s ease}
+  .evolution-choice-option:hover:not(:disabled){border-color:var(--accent);transform:translateY(-2px)}
+  .evolution-choice-option span{font-weight:700;font-size:.78rem}
+  .rarity-note{display:flex;align-items:center;gap:.4rem;margin:.55rem 0;color:var(--muted);font-size:.67rem}
+  .rarity-note i{color:var(--accent)}
+  .rarity-badge{justify-self:start;padding:.22rem .45rem;border:1px solid var(--rarity-border,var(--border));border-radius:999px;background:color-mix(in srgb,var(--rarity-accent,var(--accent)) 9%,var(--surface));color:var(--rarity-accent,var(--text));font:750 .58rem var(--mono);letter-spacing:.03em;text-transform:uppercase}
+  .offer-grid button[data-rarity="common"]{--rarity-border:#7f9189;--rarity-accent:#b7c4be}
+  .offer-grid button[data-rarity="uncommon"]{--rarity-border:#4f9d69;--rarity-accent:#75d394}
+  .offer-grid button[data-rarity="rare"]{--rarity-border:#4f86ca;--rarity-accent:#78b4ff}
+  .offer-grid button[data-rarity="super-rare"]{--rarity-border:#9a68cf;--rarity-accent:#c69aff}
+  .offer-grid button[data-rarity="ultra-rare"]{--rarity-border:#d39b39;--rarity-accent:#ffd06d;box-shadow:inset 0 0 0 1px color-mix(in srgb,#ffd06d 10%,transparent)}
+  .offer-grid button[data-rarity]{border-color:color-mix(in srgb,var(--rarity-border) 68%,var(--border))}
+  .mega-selection{display:grid;grid-template-columns:minmax(15rem,.72fr) minmax(18rem,1.28fr);gap:1.2rem;margin-bottom:.7rem;padding:1.1rem;border-color:color-mix(in srgb,#b987ff 45%,var(--border));background:linear-gradient(120deg,color-mix(in srgb,#7c48bd 11%,var(--panel)),var(--panel))}
+  .mega-intro h2{margin:.15rem 0;font-size:clamp(1.35rem,3vw,2rem)}
+  .mega-intro p{margin:.35rem 0 0!important;color:var(--muted);font-size:.76rem;line-height:1.55}
+  .mega-options{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:.55rem}
+  .mega-options button{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:.55rem;min-height:96px;padding:.6rem;border:1px solid var(--border);border-radius:.8rem;background:var(--panel-strong);color:var(--text);text-align:left;cursor:pointer;transition:border-color .16s ease,transform .16s ease}
+  .mega-options button:hover:not(:disabled),.mega-options button:focus-visible{border-color:#b987ff;transform:translateY(-2px)}
+  .mega-options button:disabled{cursor:wait;opacity:.66}
+  .mega-options button>span{display:grid;gap:.1rem;min-width:0}.mega-options small,.mega-options em{overflow:hidden;color:var(--muted);font:.58rem var(--mono);font-style:normal;text-overflow:ellipsis;white-space:nowrap}.mega-options strong{font-size:.78rem}.mega-options i{color:#b987ff}
+  .mega-options .ph-circle-notch{animation:spin .8s linear infinite}
+  @media(max-width:720px){.mega-selection{grid-template-columns:1fr}.mega-options{grid-template-columns:1fr}}
+  @media(prefers-reduced-motion:reduce){.mega-options button{transition:none}.mega-options button:hover:not(:disabled),.mega-options button:focus-visible{transform:none}.mega-options .ph-circle-notch{animation:none}}
 </style>

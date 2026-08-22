@@ -158,9 +158,12 @@ def _move_action_ids(actions: Sequence[BattleAction]) -> dict[str, str]:
     """
     ids: dict[str, str] = {}
     for action in actions:
-        if action.type.value != "move" or action.terastallize:
+        if action.type.value != "move" or action.terastallize or action.mega_evolve:
             continue
-        ids.setdefault(action.name.removesuffix(" + Terastallize").casefold(), action.id)
+        ids.setdefault(
+            action.name.removesuffix(" + Terastallize").removesuffix(" + Mega Evolve").casefold(),
+            action.id,
+        )
     return ids
 
 
@@ -241,8 +244,14 @@ def action_line(action: BattleAction, mechanics: FormatMechanics) -> list[str]:
         parts.append(f"{action.current_pp}/{action.max_pp} PP")
     if action.priority:
         parts.append(f"priority {action.priority:+d}")
-    suffix = " + Terastallize" if action.terastallize else ""
-    name = action.name.removesuffix(" + Terastallize")
+    suffix = (
+        " + Terastallize"
+        if action.terastallize
+        else " + Mega Evolve"
+        if action.mega_evolve
+        else ""
+    )
+    name = action.name.removesuffix(" + Terastallize").removesuffix(" + Mega Evolve")
     return [action.id, f"  {name}{suffix} · {' · '.join(parts)}"]
 
 

@@ -34,10 +34,13 @@ from .domain import (
 )
 from .models import (
     DRAFT_RULES_VERSION,
+    NON_LEVEL_EVOLUTION_MILESTONE_STAGE_INDEX,
     BattleControllerSnapshot,
     ChallengeBattleSummary,
     ChallengeDefinition,
     ChallengeDifficulty,
+    ChallengeMegaOption,
+    ChallengeMegaSelection,
     ChallengeRun,
     ChallengeRunStats,
     ChallengeRunView,
@@ -45,16 +48,20 @@ from .models import (
     ChallengeStageResult,
     ChallengeStatus,
     CreateChallengeRun,
+    CurrentPickView,
     DraftCandidate,
     DraftControllerKind,
     DraftHistoryEntry,
     DraftOffer,
     DraftPick,
     DraftPoolSnapshot,
+    EvolutionEvent,
+    EvolutionTrigger,
     EvSpread,
     PublicChallengeStage,
-    player_stage_level,
+    opponent_stage_level,
 )
+from .rarity import DraftPointsSnapshot, load_draft_points, rarity_for_points
 from .repository import ChallengeRepository
 from .species import ShowdownSpeciesCatalog, SpeciesMetadata, showdown_id
 
@@ -162,7 +169,8 @@ def _public_stage(stage: ChallengeStage, difficulty: ChallengeDifficulty) -> Pub
             "title": stage.title,
             "theme": stage.theme,
             "level": stage.level,
-            "player_level": player_stage_level(stage.level, difficulty),
+            "player_level": stage.level,
+            "opponent_level": opponent_stage_level(stage.level, difficulty),
             "full_heal_before": stage.full_heal_before,
             "specialty": stage.specialty,
             "trainer_asset_id": stage.trainer_asset_id,
@@ -350,6 +358,194 @@ def _with_zero_ev_confirmation(team_export: str) -> str:
     return "\n\n".join(normalized)
 
 
+def _evolution_branches(
+    species_id: str, species_by_id: dict[str, SpeciesMetadata]
+) -> tuple[EvolutionTrigger, ...]:
+    """The one branch point a drafted species' chain needs a choice for, if it has one.
+
+    Only the first branch matters: every real branching line in the current pool branches
+    exactly once, and a non-branching prefix is always walked automatically.
+    """
+    current = species_by_id.get(species_id)
+    while current is not None and len(current.evolves_to) == 1:
+        current = species_by_id.get(current.evolves_to[0].id)
+    if current is not None and len(current.evolves_to) > 1:
+        return current.evolves_to
+    return ()
+
+
+def _resolve_evolution_path(
+    species_id: str, choice: str | None, species_by_id: dict[str, SpeciesMetadata]
+) -> tuple[str, ...]:
+    """Walk every determined step of one chosen evolution line from a drafted species."""
+    path = [species_id]
+    current = species_by_id.get(species_id)
+    while current is not None and current.evolves_to:
+        options = current.evolves_to
+        if len(options) == 1:
+            next_id = options[0].id
+        elif choice is not None and any(option.id == choice for option in options):
+            next_id = choice
+        else:
+            break
+        path.append(next_id)
+        current = species_by_id.get(next_id)
+    return tuple(path)
+
+
+def _current_species_id(pick: DraftPick) -> str:
+    if not pick.evolution_path:
+        return pick.candidate.showdown_id
+    index = min(pick.evolution_stage_index, len(pick.evolution_path) - 1)
+    return pick.evolution_path[index]
+
+
+def _advance_evolutions(
+    run: ChallengeRun,
+    next_stage_index: int,
+    next_stage_level: int,
+    species_by_id: dict[str, SpeciesMetadata],
+) -> tuple[tuple[DraftPick, ...], tuple[EvolutionEvent, ...]]:
+    """Apply at most one evolution step per pick for the transition into one stage.
+
+    Called only when a stage is actually won and there is a next stage — evolution never
+    happens mid-battle or before the first stage. A pick that is already at the last step
+    of its resolved path, or whose evolution was never resolved (older saved runs), never
+    changes.
+    """
+    updated_picks: list[DraftPick] = []
+    events: list[EvolutionEvent] = []
+    for pick in run.picks:
+        if not pick.evolution_path or pick.evolution_stage_index >= len(pick.evolution_path) - 1:
+            updated_picks.append(pick)
+            continue
+        current_id = pick.evolution_path[pick.evolution_stage_index]
+        next_id = pick.evolution_path[pick.evolution_stage_index + 1]
+        current_species = species_by_id.get(current_id)
+        options = current_species.evolves_to if current_species else ()
+        trigger = next((option for option in options if option.id == next_id), None)
+        if trigger is None:
+            updated_picks.append(pick)
+            continue
+        reached = (
+            next_stage_level >= trigger.trigger_level
+            if trigger.trigger_kind == "level" and trigger.trigger_level is not None
+            else next_stage_index >= NON_LEVEL_EVOLUTION_MILESTONE_STAGE_INDEX
+        )
+        if not reached:
+            updated_picks.append(pick)
+            continue
+        next_species = species_by_id.get(next_id)
+        updated_picks.append(
+            pick.model_copy(
+                update={
+                    "evolution_stage_index": pick.evolution_stage_index + 1,
+                    "current_species": next_species.name if next_species else trigger.name,
+                    "current_types": next_species.types if next_species else (),
+                }
+            )
+        )
+        events.append(
+            EvolutionEvent(
+                entry_id=pick.candidate.entry_id,
+                from_species=current_species.name if current_species else current_id,
+                to_species=trigger.name,
+            )
+        )
+    return tuple(updated_picks), tuple(events)
+
+
+def _with_evolutions(
+    team_export: str, run: ChallengeRun, species_by_id: dict[str, SpeciesMetadata]
+) -> str:
+    """Rewrite each evolved pick's block to its current species.
+
+    Only species, ability, item, nature and moves come from the new form's own recommended
+    set (guaranteed legal at the campaign's lowest level); EVs and IVs are read straight from
+    the frozen block so a Training allocation survives evolution. A pick that has not
+    evolved from its drafted form is left untouched.
+    """
+    evolved: dict[str, SpeciesMetadata] = {}
+    for pick in run.picks:
+        current_id = _current_species_id(pick)
+        if current_id != pick.candidate.showdown_id:
+            metadata = species_by_id.get(current_id)
+            if metadata is not None and metadata.showdown_set is not None:
+                evolved[showdown_id(pick.candidate.species)] = metadata
+    if not evolved:
+        return team_export
+    blocks = [block.strip() for block in team_export.strip().split("\n\n") if block.strip()]
+    rewritten: list[str] = []
+    for block in blocks:
+        lines = block.splitlines()
+        heading = lines[0].split("@", 1)[0].strip()
+        match = re.search(r"\(([^()]+)\)\s*$", heading)
+        drafted_id = showdown_id(match.group(1) if match else heading)
+        metadata = evolved.get(drafted_id)
+        if metadata is None:
+            rewritten.append(block)
+            continue
+        current_set = metadata.showdown_set
+        assert current_set is not None
+        ev_line = next((line for line in lines if line.startswith("EVs:")), None)
+        iv_line = next((line for line in lines if line.startswith("IVs:")), None)
+        new_lines = [
+            f"{metadata.name} @ {current_set.item}" if current_set.item else metadata.name,
+            f"Ability: {current_set.ability}",
+        ]
+        if ev_line is not None:
+            new_lines.append(ev_line)
+        if current_set.nature:
+            new_lines.append(f"{current_set.nature} Nature")
+        if iv_line is not None:
+            new_lines.append(iv_line)
+        new_lines.extend(f"- {move}" for move in current_set.moves)
+        rewritten.append("\n".join(new_lines))
+    return "\n\n".join(rewritten)
+
+
+def _mega_options(
+    run: ChallengeRun, species_by_id: dict[str, SpeciesMetadata]
+) -> tuple[ChallengeMegaOption, ...]:
+    options: list[ChallengeMegaOption] = []
+    for pick in run.picks:
+        current_id = _current_species_id(pick)
+        current = species_by_id.get(current_id)
+        if current is None:
+            continue
+        options.extend(
+            ChallengeMegaOption(
+                entry_id=pick.candidate.entry_id,
+                from_species=current.name,
+                mega_species_id=mega.id,
+                mega_species=mega.species,
+                required_item=mega.required_item,
+            )
+            for mega in current.mega_evolutions
+        )
+    return tuple(sorted(options, key=lambda option: (option.entry_id, option.mega_species_id)))
+
+
+def _with_selected_item(team_export: str, species: str, item: str) -> str:
+    """Give one exact species its persisted Mega Stone without changing its set."""
+    target = showdown_id(species)
+    rewritten: list[str] = []
+    matched = False
+    for block in (part.strip() for part in team_export.strip().split("\n\n") if part.strip()):
+        lines = block.splitlines()
+        heading = lines[0].split("@", 1)[0].strip()
+        match = re.search(r"\(([^()]+)\)\s*$", heading)
+        species_id = showdown_id(match.group(1) if match else heading)
+        if species_id == target and not matched:
+            display = heading
+            lines[0] = f"{display} @ {item}"
+            matched = True
+        rewritten.append("\n".join(lines))
+    if not matched:
+        raise ValueError(f"Mega selection species is missing from the derived team: {species}")
+    return "\n\n".join(rewritten)
+
+
 def _with_level(team_export: str, level: int) -> str:
     blocks = [block.strip() for block in team_export.strip().split("\n\n") if block.strip()]
     normalized: list[str] = []
@@ -444,6 +640,16 @@ class ChallengeService:
         self._auto_tasks: dict[UUID, asyncio.Task[None]] = {}
         self._agent_tasks: dict[tuple[UUID, int], asyncio.Task[ChallengeRun]] = {}
 
+    async def _species_by_id(self, format_id: str) -> dict[str, SpeciesMetadata]:
+        """Evolution is a layer on top of a working draft/battle flow, not a precondition
+        for one: an unreachable species catalog degrades to "nothing evolves this attempt"
+        rather than blocking a pick or a match result from being recorded."""
+        try:
+            entries = await self.species.entries(format_id)
+        except RuntimeError:
+            return {}
+        return {item.id: item for item in entries}
+
     @staticmethod
     def auto_run_available(run: ChallengeRun) -> bool:
         interactive = {AgentType.HUMAN, AgentType.MANUAL}
@@ -500,10 +706,34 @@ class ChallengeService:
 
     @staticmethod
     def _candidates(
-        metadata: tuple[SpeciesMetadata, ...], *, abilities_supported: bool
+        metadata: tuple[SpeciesMetadata, ...],
+        *,
+        abilities_supported: bool,
+        draft_points: DraftPointsSnapshot | None = None,
     ) -> tuple[tuple[DraftCandidate, ...], list[dict[str, str]]]:
         candidates: list[DraftCandidate] = []
         excluded: list[dict[str, str]] = []
+        points_snapshot = draft_points or load_draft_points()
+        species_by_id = {species.id: species for species in metadata}
+        banned = set(points_snapshot.banned)
+
+        def reachable_points(species_id: str, seen: frozenset[str] = frozenset()) -> int | None:
+            if species_id in seen or species_id in banned:
+                return None
+            species = species_by_id.get(species_id)
+            if species is None:
+                return points_snapshot.points.get(species_id)
+            next_seen = seen | {species_id}
+            values = [
+                value
+                for option in species.evolves_to
+                if (value := reachable_points(option.id, next_seen)) is not None
+            ]
+            own = points_snapshot.points.get(species_id)
+            if own is not None:
+                values.append(own)
+            return max(values) if values else None
+
         for species in metadata:
             if (
                 species.battle_only
@@ -538,6 +768,16 @@ class ChallengeService:
                     }
                 )
                 continue
+            points = reachable_points(species.id)
+            if points is None:
+                excluded.append(
+                    {
+                        "species": species.name,
+                        "state": "unpriced",
+                        "reason": "no legal Smogon Gen 9 NatDex Draft Points path",
+                    }
+                )
+                continue
             candidates.append(
                 DraftCandidate(
                     entry_id=species.id,
@@ -554,6 +794,10 @@ class ChallengeService:
                     recommended_moves=species.recommended_moves,
                     required_item=species.required_item,
                     showdown_set=species.showdown_set,
+                    evolves_to=species.evolves_to,
+                    mega_evolutions=species.mega_evolutions,
+                    draft_points=points,
+                    draft_rarity=rarity_for_points(points),
                 )
             )
         return tuple(sorted(candidates, key=lambda item: item.entry_id)), excluded
@@ -565,9 +809,11 @@ class ChallengeService:
         if payload.training_rules is not None:
             definition = definition.model_copy(update={"training_rules": payload.training_rules})
         species_snapshot = await self.species.snapshot(definition.format)
+        points_snapshot = load_draft_points()
         candidates, _ = self._candidates(
             species_snapshot.species,
             abilities_supported=species_snapshot.abilities_supported,
+            draft_points=points_snapshot,
         )
         identities = {
             candidate.base_species_id
@@ -603,6 +849,9 @@ class ChallengeService:
                 format_generation=species_snapshot.format_generation,
                 abilities_supported=species_snapshot.abilities_supported,
                 catalog_hash=hashlib.sha256(catalog_material).hexdigest(),
+                draft_points_catalog_hash=points_snapshot.catalog_hash,
+                draft_points_source=points_snapshot.source_name,
+                draft_points_updated_on=points_snapshot.updated_on,
                 candidates=candidates,
             ),
             draft_controller=payload.draft_controller,
@@ -753,6 +1002,17 @@ class ChallengeService:
             if latency_decisions
             else None
         )
+        current_roster = tuple(
+            CurrentPickView(
+                entry_id=pick.candidate.entry_id,
+                species=pick.current_species or pick.candidate.species,
+                showdown_id=_current_species_id(pick),
+                types=pick.current_types or pick.candidate.types,
+                evolved=pick.current_species is not None,
+                drafted_species=pick.candidate.species,
+            )
+            for pick in run.picks
+        )
         visible_candidates = {pick.candidate.entry_id: pick.candidate for pick in run.picks}
         for history in run.draft_history:
             visible_candidates.update(
@@ -846,6 +1106,7 @@ class ChallengeService:
                 ),
                 ev_used=sum(spread.total for spread in run.ev_allocations.values()),
             ),
+            current_roster=current_roster,
         )
 
     async def pick(
@@ -856,9 +1117,11 @@ class ChallengeService:
         expected_revision: int,
         *,
         selected_by: DraftControllerKind | None = None,
+        evolution_choice: str | None = None,
     ) -> ChallengeRun:
         async with self.repository.lock(run_id):
             run = await self.require(run_id)
+            species_by_id = await self._species_by_id(run.definition.format)
             if run.revision != expected_revision:
                 raise ValueError(f"stale challenge revision: current {run.revision}")
             if run.status is not ChallengeStatus.DRAFTING or run.current_offer is None:
@@ -875,6 +1138,27 @@ class ChallengeService:
                 raise ValueError("draft controller changed while this decision was in progress")
             if selected_by is None and controller is not DraftControllerKind.HUMAN:
                 raise ValueError("this draft is controlled by an agent or deterministic random")
+            branches = _evolution_branches(candidate.showdown_id, species_by_id)
+            if branches:
+                valid_ids = {option.id for option in branches}
+                if evolution_choice in valid_ids:
+                    resolved_choice = evolution_choice
+                elif controller is DraftControllerKind.HUMAN:
+                    names = ", ".join(f"{option.name} ({option.id})" for option in branches)
+                    raise ValueError(
+                        f"{candidate.species} can evolve multiple ways; include "
+                        f"evolution_choice with one of: {names}"
+                    )
+                else:
+                    # Automated drafting (Fast Auto's legacy Auto/AI path, deterministic
+                    # Random) picks the first option in a stable, sorted order so the run
+                    # never stalls waiting for a choice nobody will make.
+                    resolved_choice = min(valid_ids)
+            else:
+                resolved_choice = None
+            evolution_path = _resolve_evolution_path(
+                candidate.showdown_id, resolved_choice, species_by_id
+            )
             picks = (
                 *run.picks,
                 DraftPick(
@@ -882,6 +1166,7 @@ class ChallengeService:
                     offer_fingerprint=fingerprint,
                     candidate=candidate,
                     selected_by=controller,
+                    evolution_path=evolution_path,
                 ),
             )
             complete = len(picks) == run.definition.draft_rules.roster_size
@@ -1448,22 +1733,36 @@ class ChallengeService:
                 1 for item in run.stage_results if item.stage_index == run.current_stage_index
             )
             # The drafted roster snapshot stays immutable; only this derived export moves.
-            player_level = player_stage_level(stage.level, run.difficulty)
-            # A hand-edited set can carry a move with an event minimum level that the
-            # difficulty modifier would drop below. Give back the smallest amount of the
-            # level disadvantage that makes the derived team legal instead of failing the
-            # stage; the opponent's level never moves.
-            available = _without_downed(source.normalized_export, run)
+            # The player always follows the campaign's own level curve; difficulty never
+            # lowers them below it, so evolution and levelling stay honest. Recommended sets
+            # are validated at the campaign's lowest stage level during catalog generation
+            # (Showdown's move-level legality is monotonic upward), so this should already be
+            # legal; a hand-edited team_review export that is not surfaces as a real
+            # validation error instead of silently changing the player's level.
+            player_level = stage.level
+            opponent_level = opponent_stage_level(stage.level, run.difficulty)
+            species_by_id = await self._species_by_id(run.definition.format)
+            available = _with_evolutions(
+                _without_downed(source.normalized_export, run), run, species_by_id
+            )
+            if run.mega_selection is not None and run.current_stage_index == len(
+                run.definition.stages
+            ) - 1:
+                available = _with_selected_item(
+                    available,
+                    run.mega_selection.from_species,
+                    run.mega_selection.required_item,
+                )
+                opponent_team = _with_selected_item(
+                    stage.opponent_team, "Charizard", "Charizardite Y"
+                )
+            else:
+                opponent_team = stage.opponent_team
             player_validation = await self.battles.team_validator.validate(
                 _with_level(available, player_level), run.definition.format
             )
-            while not player_validation.valid and player_level < stage.level:
-                player_level = min(stage.level, player_level + 5)
-                player_validation = await self.battles.team_validator.validate(
-                    _with_level(available, player_level), run.definition.format
-                )
             opponent_validation = await self.battles.team_validator.validate(
-                _with_unique_duplicate_nicknames(_with_level(stage.opponent_team, stage.level)),
+                _with_unique_duplicate_nicknames(_with_level(opponent_team, opponent_level)),
                 run.definition.format,
             )
             if not player_validation.valid:
@@ -1481,7 +1780,7 @@ class ChallengeService:
                 validation=player_validation,
             )
             opponent_snapshot = await self.battles.teams.create_snapshot(
-                name=f"{run.definition.name} · {stage.name} · level {stage.level}",
+                name=f"{run.definition.name} · {stage.name} · level {opponent_level}",
                 source=TeamSource.PRESET,
                 submitted_text=opponent_validation.normalized_export or "",
                 validation=opponent_validation,
@@ -1500,7 +1799,7 @@ class ChallengeService:
                     stage_count=len(run.definition.stages),
                     difficulty=run.difficulty.value,
                     player_level=player_level,
-                    opponent_level=stage.level,
+                    opponent_level=opponent_level,
                 ),
                 format=run.definition.format,
                 players=(
@@ -1611,30 +1910,94 @@ class ChallengeService:
                 ]
                 # Never carry a wipe forward: something has to be able to enter the arena.
                 downed_entry_ids = tuple(sorted(carried)) if survivors else ()
+            # Evolution is a state transition between stages, never mid-battle: it is
+            # resolved here, exactly where the next stage is already being entered, and at
+            # most once per pick per win.
+            if won and next_stage is not None:
+                species_by_id = await self._species_by_id(run.definition.format)
+                picks, recent_evolutions = _advance_evolutions(
+                    run, next_index, next_stage.level, species_by_id
+                )
+            else:
+                picks, recent_evolutions = run.picks, ()
+            entering_final = won and next_index == len(run.definition.stages) - 1
+            if entering_final:
+                species_by_id = await self._species_by_id(run.definition.format)
+                mega_options = _mega_options(
+                    run.model_copy(update={"picks": picks}), species_by_id
+                )
+            else:
+                mega_options = run.mega_options
+            requires_mega_selection = bool(
+                entering_final and mega_options and run.mega_selection is None
+            )
             auto_advance_at = (
                 datetime.now(UTC) + timedelta(seconds=AUTO_ADVANCE_DELAYS[run.battle_experience])
                 if won
                 and not completed
                 and self.auto_run_available(run)
                 and not run.auto_run_paused
+                and not requires_mega_selection
                 else None
             )
             updated = run.model_copy(
                 update={
                     "status": ChallengeStatus.COMPLETED
                     if completed
+                    else ChallengeStatus.MEGA_SELECTION
+                    if requires_mega_selection
                     else ChallengeStatus.STAGE_RESULT,
                     "current_stage_index": next_index,
                     "active_match_id": None,
                     "stage_results": (*run.stage_results, result),
                     "auto_advance_at": auto_advance_at,
                     "downed_entry_ids": downed_entry_ids,
+                    "picks": picks,
+                    "recent_evolutions": recent_evolutions,
+                    "mega_options": mega_options,
                     "completed_at": datetime.now(UTC) if completed else None,
                     "error": archive.error if outcome in {"failed", "interrupted"} else None,
                 }
             )
             stored = await self.repository.save(updated, expected_revision=run.revision)
         self._schedule_auto_run(stored)
+
+    async def select_mega(
+        self,
+        run_id: UUID,
+        entry_id: str,
+        mega_species_id: str,
+        expected_revision: int,
+    ) -> ChallengeRun:
+        async with self.repository.lock(run_id):
+            run = await self.require(run_id)
+            if run.revision != expected_revision:
+                raise ValueError(f"stale challenge revision: current {run.revision}")
+            if run.status is not ChallengeStatus.MEGA_SELECTION:
+                raise ValueError("challenge is not waiting for a Mega selection")
+            option = next(
+                (
+                    item
+                    for item in run.mega_options
+                    if item.entry_id == entry_id and item.mega_species_id == mega_species_id
+                ),
+                None,
+            )
+            if option is None:
+                raise ValueError("Mega selection is not one of the persisted legal options")
+            selection = ChallengeMegaSelection(**option.model_dump())
+            update: dict[str, object] = {
+                "mega_selection": selection,
+                "status": ChallengeStatus.STAGE_RESULT,
+                "error": None,
+            }
+            if self.auto_run_available(run) and not run.auto_run_paused:
+                update["auto_advance_at"] = datetime.now(UTC)
+            stored = await self.repository.save(
+                run.model_copy(update=update), expected_revision=run.revision
+            )
+        self._schedule_auto_run(stored)
+        return stored
 
     async def auto_advance(self, run_id: UUID) -> tuple[ChallengeRun, MatchArchive | None]:
         """Idempotently launch the next stage when the persisted deadline is due."""

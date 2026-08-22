@@ -53,6 +53,25 @@ and rendered zero decision records until its audit drawer opened; the active Dra
 1,387 px to 1,034 px. Mobile uses an internal scroll-snap Draft row and retained a 390 px document
 width. The current pinned catalog measured 1,216 validated draftable entries out of 1,417 forms.
 
+The completed 2026-08-22 evolution, rarity, Mega Evolution, and release-polish pass passed Ruff,
+Mypy, 297 backend unit tests, all 18 real-Showdown integration tests, 105 frontend tests, 3 real
+Chromium Playwright flows, Svelte diagnostics with zero errors or warnings, and the production
+frontend build. The Kanto campaign's level curve changed to 25/30/35/40/45/50/55/60/68/76/84/92/100;
+difficulty now only raises the opponent above that curve (`+0/+5/+10/+15`, capped at 100) instead
+of lowering the player, and every drafted species' recommended set is now built and validated at
+level 25 — a full sweep of all 1,216 draftable entries found zero illegal at their assigned level
+(previously up to 62 were illegal depending on difficulty). The primary navigation was reduced to
+Home/Battle/Draft with a utility menu for Dashboard/Tournaments/Teams/Settings. Draft candidates
+now use a locally pinned Smogon Draft Points snapshot and five deterministic weighted rarity
+tiers. Evolution choices and the final Mega choice are persisted in the run, and the real
+Showdown integration proves that a selected Mega action produces a `|-mega|` event.
+
+The Battle control page now consumes the public presentation DTO by default and loads the private
+decision archive only when the audit drawer is opened. On a measured local match, this reduced the
+initial response from 2,090,395 bytes to 520,639 bytes (75.1%). Earlier Lighthouse measurements
+predate this payload fix and must not be treated as current post-fix scores; rerun Lighthouse in
+the target deployment environment before making a performance-score claim.
+
 ## Security expectations
 
 KoalaBattle has no application authentication. Admin, team, prompt, provider, match-control,

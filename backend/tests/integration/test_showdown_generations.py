@@ -81,6 +81,28 @@ EVs: 252 HP / 252 Atk / 252 Def / 252 SpA / 252 Spe
 - Recover
 """
 
+MEGA_TEAM = """Charizard @ Charizardite X
+Ability: Blaze
+EVs: 252 SpA / 4 SpD / 252 Spe
+Timid Nature
+IVs: 0 Atk
+- Flamethrower
+- Air Slash
+- Focus Blast
+- Roost
+"""
+
+MEGA_OPPONENT_TEAM = """Blastoise @ Leftovers
+Ability: Torrent
+EVs: 252 HP / 252 SpA / 4 SpD
+Modest Nature
+IVs: 0 Atk
+- Surf
+- Ice Beam
+- Aura Sphere
+- Protect
+"""
+
 
 def _settings(tmp_path, name: str) -> Settings:
     return Settings(
@@ -302,6 +324,65 @@ async def test_gen1_ou_runs_with_validated_imported_teams(tmp_path) -> None:
     _assert_battle_is_complete(archive)
     assert archive.config.generation == 1
     _assert_prompt_is_generation_correct(archive, 1)
+    await service.close()
+    await database.close()
+
+
+@requires_showdown
+@pytest.mark.asyncio
+async def test_natdex_tactical_agent_executes_a_real_mega_evolution(tmp_path) -> None:
+    settings = _settings(tmp_path, "mega")
+    database = Database(settings.database_url)
+    await database.create_schema()
+    repository = BattleRepository(database)
+    service = BattleService(repository, settings)
+    await service.start()
+    snapshots = []
+    for name, team in (("Mega player", MEGA_TEAM), ("Mega opponent", MEGA_OPPONENT_TEAM)):
+        validation, snapshot = await service.validate_team(
+            name=name,
+            team_text=team,
+            format_id="gen9koalabattlecanonicalnatdexdraft",
+            source=TeamSource.IMPORTED,
+            save=True,
+        )
+        assert validation.valid, validation.errors
+        assert snapshot is not None
+        snapshots.append(snapshot)
+
+    created = await service.create_match(
+        MatchConfig(
+            name="real Mega integration",
+            format="gen9koalabattlecanonicalnatdexdraft",
+            team_policy=TeamPolicy.FIXED,
+            allow_terastallization=False,
+            players=(
+                PlayerConfig(
+                    side=Side.P1,
+                    display_name="Mega player",
+                    agent_type=AgentType.TACTICAL_AUTO,
+                    team_source=TeamSource.IMPORTED,
+                    team_snapshot_id=snapshots[0].id,
+                ),
+                PlayerConfig(
+                    side=Side.P2,
+                    display_name="Opponent",
+                    agent_type=AgentType.RANDOM,
+                    team_source=TeamSource.IMPORTED,
+                    team_snapshot_id=snapshots[1].id,
+                ),
+            ),
+            random_seed=14,
+            limits=MatchLimits(maximum_turns=40),
+        )
+    )
+    archive = await _await_terminal(repository, created.id, 120)
+    _assert_battle_is_complete(archive)
+    assert any(
+        record.decision.side is Side.P1 and record.decision.action.endswith(":mega")
+        for record in archive.decisions
+    )
+    assert archive.raw_showdown_log and "|-mega|" in archive.raw_showdown_log
     await service.close()
     await database.close()
 

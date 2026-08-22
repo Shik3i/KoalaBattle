@@ -11,6 +11,8 @@ backend/htmlcov/
 frontend/node_modules/
 frontend/.svelte-kit/
 frontend/build/
+frontend/test-results/
+frontend/playwright-report/
 # Local runtime state and third-party media. Never commit these paths.
 data/*.db
 data/*.db-*

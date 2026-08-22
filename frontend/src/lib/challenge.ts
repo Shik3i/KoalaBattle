@@ -156,23 +156,25 @@ export function draftRollFrames(
 
 const DIFFICULTY_LABELS: Record<string, string> = {
   normal: 'Normal',
-  hard: 'Hard · −5 levels',
-  expert: 'Expert · −10 levels',
-  nightmare: 'Nightmare · −15 levels'
+  hard: 'Hard · opponent +5 levels',
+  expert: 'Expert · opponent +10 levels',
+  nightmare: 'Nightmare · opponent +15 levels'
 };
 
+// Difficulty only ever raises the opponent above the campaign's own level curve; the
+// player always follows that curve, so their own levelling and evolution are never undone.
 export const DIFFICULTY_LEVEL_MODIFIERS: Record<string, number> = {
   normal: 0,
-  hard: -5,
-  expert: -10,
-  nightmare: -15
+  hard: 5,
+  expert: 10,
+  nightmare: 15
 };
 
 export function difficultyLabel(difficulty: string | undefined): string {
   return DIFFICULTY_LABELS[difficulty || 'normal'] || 'Normal';
 }
 
-export function playerStageLevel(stageLevel: number, difficulty: string | undefined): number {
+export function opponentStageLevel(stageLevel: number, difficulty: string | undefined): number {
   const modifier = DIFFICULTY_LEVEL_MODIFIERS[difficulty || 'normal'] ?? 0;
   return Math.max(1, Math.min(100, stageLevel + modifier));
 }
@@ -207,6 +209,7 @@ export function challengeStatusLabel(status: ChallengeStatus): string {
     battle_queued: 'Battle queued',
     battling: 'Battle in progress',
     stage_result: 'Stage result',
+    mega_selection: 'Final power-up',
     completed: 'Draft run complete',
     failed: 'Draft run failed',
     cancelled: 'Draft run cancelled',

@@ -40,6 +40,7 @@ export interface BattleAction {
   name: string;
   slot: number;
   terastallize: boolean;
+  mega_evolve?: boolean;
   // Public metadata attached by the engine. Absent on archives recorded before this pass.
   move_type?: string | null;
   category?: 'physical' | 'special' | 'status' | null;
@@ -400,7 +401,7 @@ export interface MatchArchive {
 
 export type ChallengeDifficulty = 'normal' | 'hard' | 'expert' | 'nightmare';
 
-export type ChallengeStatus = 'drafting' | 'preparing' | 'training' | 'team_review' | 'ready' | 'battle_queued' | 'battling' | 'stage_result' | 'completed' | 'failed' | 'cancelled' | 'abandoned';
+export type ChallengeStatus = 'drafting' | 'preparing' | 'training' | 'team_review' | 'ready' | 'battle_queued' | 'battling' | 'stage_result' | 'mega_selection' | 'completed' | 'failed' | 'cancelled' | 'abandoned';
 
 export interface DraftCandidate {
   entry_id: string;
@@ -418,6 +419,21 @@ export interface DraftCandidate {
   recommended_moves: string[];
   required_item: string | null;
   showdown_set: ShowdownCompetitiveSet | null;
+  /** Species this one can evolve into. More than one entry means a branch: the future path
+   *  is chosen once, at draft time, and applies for the rest of the run. */
+  evolves_to: EvolutionTrigger[];
+  mega_evolutions: Array<{ id: string; species: string; required_item: string }>;
+  draft_points: number;
+  draft_rarity: 'common' | 'uncommon' | 'rare' | 'super-rare' | 'ultra-rare';
+}
+
+export interface EvolutionTrigger {
+  id: string;
+  name: string;
+  trigger_level: number | null;
+  /** 'level' means `trigger_level` is real; every other kind has no level of its own in the
+   *  source games and is resolved at one fixed campaign milestone instead. */
+  trigger_kind: string;
 }
 
 export interface ShowdownCompetitiveSet {
@@ -483,7 +499,7 @@ export interface ChallengeRunView {
       training_rules: { global_ev_budget?: number | null; per_pokemon_max: number; per_stat_max: number };
     };
     draft_rules_version: 'draft-rules-v2' | 'draft-rules-v1-incompatible';
-    draft_pool: { schema_version: string; showdown_version: string; format: string; format_generation: number; abilities_supported: boolean; catalog_hash: string; candidates: DraftCandidate[] };
+    draft_pool: { schema_version: string; showdown_version: string; format: string; format_generation: number; abilities_supported: boolean; catalog_hash: string; draft_points_catalog_hash: string | null; draft_points_source: string | null; draft_points_updated_on: string | null; candidates: DraftCandidate[] };
     draft_controller: { kind: 'human' | 'agent' | 'random'; provider?: ProviderKind | null; model?: string | null };
     draft_controller_history: Array<{ kind: 'human' | 'agent' | 'random'; provider?: ProviderKind | null; model?: string | null }>;
     battle_controller: { agent_type: AgentType; provider?: ProviderKind | null; model?: string | null };
@@ -498,7 +514,7 @@ export interface ChallengeRunView {
     consumed_species_ids: string[];
     current_offer: { round: number; nonce: number; generation: number; type: string; options: DraftCandidate[]; fingerprint: string } | null;
     draft_history: Array<{ offer: { round: number; nonce: number; generation: number; type: string; options: DraftCandidate[]; fingerprint: string }; outcome: 'picked' | 'rerolled' | 'pokemon_rerolled' | 'type_rerolled' | 'generation_rerolled'; selected_entry_id: string | null; decided_by: 'human' | 'agent' | 'random'; created_at: string }>;
-    picks: Array<{ round: number; candidate: DraftCandidate; selected_by: 'human' | 'agent' | 'random'; created_at: string }>;
+    picks: Array<{ round: number; candidate: DraftCandidate; selected_by: 'human' | 'agent' | 'random'; created_at: string; evolution_path: string[]; evolution_stage_index: number; current_species: string | null; current_types: string[] }>;
     ev_allocations: Record<string, EvSpread>;
     ability_selections: Record<string, string | null>;
     team_snapshot_id: string | null;
@@ -507,6 +523,11 @@ export interface ChallengeRunView {
     stage_results: Array<{ stage_id: string; stage_index: number; match_id: string; status: 'won' | 'lost' | 'draw' | 'failed' | 'cancelled' | 'interrupted'; winner: string | null; turns: number; duration_seconds: number; estimated_cost: number; average_decision_latency_ms: number | null; decision_count: number; started_at: string; completed_at: string }>;
     auto_run_paused: boolean;
     auto_advance_at: string | null;
+    /** Evolutions applied at the most recent stage transition only; overwritten, not
+     *  appended, every transition. */
+    recent_evolutions: Array<{ entry_id: string; from_species: string; to_species: string }>;
+    mega_options: Array<{ entry_id: string; from_species: string; mega_species_id: string; mega_species: string; required_item: string }>;
+    mega_selection: { entry_id: string; from_species: string; mega_species_id: string; mega_species: string; required_item: string } | null;
     error: string | null;
     compatibility_notice: string | null;
     created_at: string;
@@ -522,6 +543,9 @@ export interface ChallengeRunView {
   can_reroll_type: boolean;
   can_reroll_generation: boolean;
   unseen_candidate_count: number;
+  /** The current (post-evolution) species per pick — always read this for display, never
+   *  `run.picks[i].candidate`, which stays the immutable as-drafted record. */
+  current_roster: Array<{ entry_id: string; species: string; showdown_id: string; types: string[]; evolved: boolean; drafted_species: string }>;
 }
 
 export interface ChallengeStageSummary {
@@ -530,8 +554,10 @@ export interface ChallengeStageSummary {
   title: string;
   theme: string;
   level: number;
-  /** Level applied to the player's derived stage team after the difficulty modifier. */
+  /** The player's level for this stage — always the campaign curve, unaffected by difficulty. */
   player_level: number;
+  /** Level applied to the opponent's derived stage team after the difficulty modifier. */
+  opponent_level: number;
   /** False means this stage continues the previous one: knocked-out Pokemon stay out. */
   full_heal_before: boolean;
   specialty: string | null;

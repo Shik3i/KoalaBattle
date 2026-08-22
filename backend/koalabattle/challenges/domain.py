@@ -5,6 +5,7 @@ import json
 import random
 
 from .models import ChallengeRun, DraftCandidate, DraftOffer
+from .rarity import RARITY_WEIGHTS
 
 
 def candidate_identity(candidate: DraftCandidate, species_clause: bool) -> str:
@@ -67,6 +68,21 @@ def _buckets(run: ChallengeRun) -> dict[tuple[int, str], tuple[DraftCandidate, .
     }
 
 
+def _weighted_sample(
+    rng: random.Random, candidates: tuple[DraftCandidate, ...], count: int
+) -> tuple[DraftCandidate, ...]:
+    """Seeded continuous weighted sampling without replacement."""
+    ranked = sorted(
+        candidates,
+        key=lambda candidate: (
+            rng.random() ** (1.0 / RARITY_WEIGHTS[candidate.draft_rarity]),
+            candidate.entry_id,
+        ),
+        reverse=True,
+    )
+    return tuple(sorted(ranked[:count], key=lambda item: item.entry_id))
+
+
 def generate_offer(
     run: ChallengeRun,
     *,
@@ -114,7 +130,7 @@ def generate_offer(
     offer_nonce = run.offer_nonce if nonce is None else nonce
     rng = _rng(run, nonce=offer_nonce)
     (generation, type_name), candidates = valid[rng.randrange(len(valid))]
-    options = tuple(sorted(rng.sample(candidates, offered_count), key=lambda item: item.entry_id))
+    options = _weighted_sample(rng, candidates, offered_count)
     fingerprint_material = json.dumps(
         {
             "round": len(run.picks) + 1,

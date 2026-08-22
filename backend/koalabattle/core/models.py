@@ -374,11 +374,12 @@ class BattleState(FrozenModel):
 
 class BattleAction(FrozenModel):
     schema_version: str = SCHEMA_VERSION
-    id: str = Field(pattern=r"^(move|switch):[1-9][0-9]*(?::tera)?$")
+    id: str = Field(pattern=r"^(move|switch):[1-9][0-9]*(?::(?:tera|mega))?$")
     type: ActionType
     name: str
     slot: int = Field(ge=1)
     terastallize: bool = False
+    mega_evolve: bool = False
     # Optional public metadata so an agent can compare choices without cross-referencing
     # another part of the prompt. Absent on archives recorded before this pass.
     move_type: str | None = None
@@ -394,12 +395,14 @@ class BattleAction(FrozenModel):
 
     @model_validator(mode="after")
     def id_matches_fields(self) -> BattleAction:
-        suffix = ":tera" if self.terastallize else ""
+        suffix = ":tera" if self.terastallize else ":mega" if self.mega_evolve else ""
         expected = f"{self.type.value}:{self.slot}{suffix}"
         if self.id != expected:
             raise ValueError(f"action id must be {expected!r}")
-        if self.type is ActionType.SWITCH and self.terastallize:
-            raise ValueError("switch actions cannot terastallize")
+        if self.terastallize and self.mega_evolve:
+            raise ValueError("one action cannot Terastallize and Mega Evolve")
+        if self.type is ActionType.SWITCH and (self.terastallize or self.mega_evolve):
+            raise ValueError("switch actions cannot activate a battle mechanic")
         return self
 
 

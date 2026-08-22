@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import BattleRenderer from '$lib/BattleRenderer.svelte';
-  import { api, broadcastRendererConfig, copyText as copyToClipboard, getMatch, rematch, resumeMatch, wsBase } from '$lib/api';
+  import { api, broadcastRendererConfig, copyText as copyToClipboard, getMatch, getPresentationMatch, rematch, resumeMatch, wsBase } from '$lib/api';
   import { loadRendererConfig, saveRendererConfig } from '$lib/presentation/config';
   import { PresentationTimeline } from '$lib/presentation/timeline';
   import { connectLiveSocket } from '$lib/presentation/live-socket';
@@ -33,6 +33,8 @@
   let activeTab: Side | null = null;
   let toolMenu: HTMLDetailsElement | null = null;
   let auditOpen = false;
+  let auditLoaded = false;
+  let auditLoading = false;
 
   function closeToolMenu(event: Event) {
     if (!toolMenu?.open) return;
@@ -117,6 +119,8 @@
     pending = {}; responses = {}; validation = {}; submitting = {}; accepted = {};
     lifecycle = { p1: 'idle', p2: 'idle' };
     auditOpen = false;
+    auditLoaded = false;
+    auditLoading = false;
     error = '';
     void connect();
   }
@@ -146,6 +150,11 @@
   async function connect() {
     const matchId = data.id;
     const generation = ++connectionGeneration;
+    // The socket's onConnected also fires on the very first open, right after the explicit
+    // fetch above already ran — without this guard every page load fetched the full archive
+    // twice. A genuine reconnect (this flag already flipped) still refreshes to catch up on
+    // anything missed while disconnected.
+    let firstConnection = true;
     try {
       await refreshLiveState(matchId, generation);
       if (generation !== connectionGeneration || matchId !== data.id) return;
@@ -156,7 +165,13 @@
             handleMessage(JSON.parse(raw) as StreamMessage);
           }
         },
-        onConnected: () => refreshLiveState(matchId, generation),
+        onConnected: () => {
+          if (firstConnection) {
+            firstConnection = false;
+            return;
+          }
+          return refreshLiveState(matchId, generation);
+        },
         onStatus: (status) => {
           if (generation === connectionGeneration && matchId === data.id) {
             error = status === 'connected' ? '' : 'Live control reconnecting…';
@@ -172,7 +187,7 @@
   async function refreshLiveState(matchId = data.id, generation = connectionGeneration) {
     const sequence = ++refreshSequence;
     const [archive, result] = await Promise.all([
-      getMatch(matchId),
+      getPresentationMatch(matchId),
       api<{ requests: AgentRequest[] }>(`/api/matches/${matchId}/pending`)
     ]);
     if (generation !== connectionGeneration || sequence !== refreshSequence || matchId !== data.id) return;
@@ -239,7 +254,7 @@
     if (message.kind === 'match_failed') { if (match) match.status = 'failed'; error = message.error || 'Battle failed.'; }
   }
   async function refreshMetadata(matchId = data.id, generation = connectionGeneration) {
-    const archive = await getMatch(matchId);
+    const archive = await getPresentationMatch(matchId);
     if (generation !== connectionGeneration || matchId !== data.id || !match || archive.id !== match.id) return;
     const knownSequences = new Set(match.events.map((event) => event.sequence));
     for (const event of archive.events) {
@@ -250,6 +265,20 @@
       events: [...archive.events],
       decisions: archive.decisions.length >= match.decisions.length ? archive.decisions : match.decisions
     };
+  }
+  async function loadAuditArchive() {
+    if (!auditOpen || auditLoaded || auditLoading || !match) return;
+    auditLoading = true;
+    try {
+      const archive = await getMatch(data.id);
+      if (archive.id !== match.id) return;
+      match = { ...match, config: archive.config, decisions: archive.decisions };
+      auditLoaded = true;
+    } catch (caught) {
+      error = caught instanceof Error ? caught.message : String(caught);
+    } finally {
+      auditLoading = false;
+    }
   }
   async function finishMatch() {
     const matchId = data.id;
@@ -692,10 +721,11 @@
         <div class="drawer-body team-inspector"><p>Available only in the local control archive; spectator and OBS payloads exclude these exports.</p>{#each match.config.players as player}{#if player.team_export}<details><summary>{player.side.toUpperCase()} · {player.display_name}</summary><textarea readonly value={player.team_export}></textarea></details>{/if}{/each}</div>
       </details>
     {/if}
-    <details bind:open={auditOpen} class="battle-drawer audit-drawer panel">
+    <details bind:open={auditOpen} on:toggle={loadAuditArchive} class="battle-drawer audit-drawer panel">
       <summary><span class="drawer-icon"><i class="ph ph-list-magnifying-glass" aria-hidden="true"></i></span><span class="drawer-label"><b>Decisions and events</b><small>{snapshot?.eventCount || match.events.length} events · {match.decisions.length} decisions · {match.turns} turns</small></span><i class="ph ph-caret-down drawer-caret" aria-hidden="true"></i></summary>
       {#if auditOpen}
         <div class="drawer-body audit-body">
+          {#if auditLoading}<p class="audit-empty" role="status"><i class="ph ph-circle-notch" aria-hidden="true"></i>Loading private decision details…</p>{/if}
           <div class="audit-toolbar"><div class="audit-stats"><span><strong>{snapshot?.eventCount || match.events.length}</strong> events</span><span><strong>{match.decisions.length}</strong> decisions</span><span><strong>{match.turns}</strong> turns</span></div><div class="audit-actions"><a class="button secondary" href={`/replay/${match.id}`}>Replay</a>{#if ['running','waiting'].includes(match.status)}<button class="button secondary" on:click={() => lifecycleAction('pause')}>Pause</button>{:else if match.status === 'paused'}<button class="button secondary" on:click={() => lifecycleAction('resume')}>Resume</button>{/if}{#if ['failed','cancelled','interrupted'].includes(match.status)}<button class="button" disabled={resuming || rematching} on:click={handleResume}>{resuming ? 'Continuing…' : 'Continue'}</button><button class="button secondary" disabled={resuming || rematching} on:click={handleRematch}>{rematching ? 'Rematching…' : 'Rematch'}</button>{/if}{#if !['completed','failed','cancelled','interrupted'].includes(match.status)}<button class="button danger" on:click={cancel}>Cancel</button>{/if}</div></div>
           <div class="decision-list">
     {#each [...match.decisions].reverse() as record}
@@ -737,7 +767,7 @@
   .head-id{min-width:0}
   .live-head .eyebrow{font-size:.58rem}
   .live-head h1{margin:.1rem 0 0;overflow:hidden;font-size:clamp(1.05rem,1.7vw,1.4rem);text-overflow:ellipsis;white-space:nowrap}
-  .battle-context{display:flex;flex-shrink:0;align-items:center;gap:.5rem}
+  .battle-context{display:flex;flex-wrap:wrap;flex-shrink:1;align-items:center;justify-content:flex-end;gap:.4rem .5rem;min-width:0}
   .campaign-rail{display:flex;gap:3px}
   .campaign-rail i{width:14px;height:5px;border-radius:999px;background:var(--border)}
   .campaign-rail i.done{background:color-mix(in srgb,var(--accent) 70%,var(--border))}

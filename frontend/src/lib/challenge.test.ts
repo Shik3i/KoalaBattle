@@ -13,7 +13,7 @@ import {
   DRAFT_ROLL_DURATION_MS,
   difficultyLabel,
   draftRollDuration,
-  playerStageLevel,
+  opponentStageLevel,
   emptyEvSpread,
   evAllocationTotal,
   evSpreadTotal,
@@ -129,15 +129,15 @@ test('a Pokemon reroll locks both reels and only replays the candidate cards', (
   assert.equal(draftRollDuration('generation'), DRAFT_ROLL_DURATION_MS);
 });
 
-test('difficulty labels and derived player levels never touch the opponent level', () => {
+test('difficulty labels and derived opponent levels never touch the player level', () => {
   assert.equal(difficultyLabel('normal'), 'Normal');
   assert.equal(difficultyLabel(undefined), 'Normal');
   assert.ok(difficultyLabel('nightmare').includes('15'));
-  assert.equal(playerStageLevel(75, 'normal'), 75);
-  assert.equal(playerStageLevel(75, 'hard'), 70);
-  assert.equal(playerStageLevel(75, 'expert'), 65);
-  assert.equal(playerStageLevel(75, 'nightmare'), 60);
-  assert.equal(playerStageLevel(5, 'nightmare'), 1);
+  assert.equal(opponentStageLevel(75, 'normal'), 75);
+  assert.equal(opponentStageLevel(75, 'hard'), 80);
+  assert.equal(opponentStageLevel(75, 'expert'), 85);
+  assert.equal(opponentStageLevel(75, 'nightmare'), 90);
+  assert.equal(opponentStageLevel(95, 'nightmare'), 100);
 });
 
 test('draft roll frames settle quickly on authoritative Roman generation and type', () => {
@@ -163,6 +163,7 @@ test('campaign position is one-based and capped at the final battle', () => {
 
 test('status and duration labels are user-facing', () => {
   assert.equal(challengeStatusLabel('team_review'), 'Team review');
+  assert.equal(challengeStatusLabel('mega_selection'), 'Final power-up');
   assert.equal(challengeStatusLabel('completed'), 'Draft run complete');
   assert.equal(formatDuration(0), '0s');
   assert.equal(formatDuration(3670), '1h 1m');

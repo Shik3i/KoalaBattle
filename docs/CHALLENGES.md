@@ -37,28 +37,120 @@ Showdown's `Obtainable Misc` event-origin minimum-level check so any otherwise l
 Pokémon can be normalized to the campaign stage level. Learnsets, abilities, forms, Species
 Clause, EVs, items, and the finalized roster remain validated by the pinned Showdown validator.
 
+## Campaign level curve
+
+The player's team follows one fixed level curve across the thirteen stages, independent of
+difficulty:
+
+| Stage | Trainer | Player level |
+| ---: | --- | ---: |
+| 1 | Brock | 25 |
+| 2 | Misty | 30 |
+| 3 | Lt. Surge | 35 |
+| 4 | Erika | 40 |
+| 5 | Koga | 45 |
+| 6 | Sabrina | 50 |
+| 7 | Blaine | 55 |
+| 8 | Giovanni | 60 |
+| 9 | Lorelei | 68 |
+| 10 | Bruno | 76 |
+| 11 | Agatha | 84 |
+| 12 | Lance | 92 |
+| 13 | Champion Blue | 100 |
+
+`ChallengeStage.level` in the definition *is* this curve. A win advances the player straight to
+the next stage's level; there is no separate experience system to simulate. Levelling can also
+evolve a drafted Pokémon between stages — see [Evolution](#evolution).
+
+Recommended sets are validated at level 25, the campaign's lowest stage level, when the draft
+pool catalog is generated. Showdown's move-level legality is monotonic upward — any move a
+recommended set can legally know at level 25 it can still legally know at every higher level —
+so a set that is real-Showdown-legal at 25 is guaranteed legal for the rest of the campaign. This
+is enforced structurally: the fallback set builder validates each candidate move against the
+real pinned validator at level 25 as it assembles a set, so an illegal-for-level move can never
+be chosen in the first place.
+
 ## Difficulty
 
 Draft has four difficulty modes, chosen at `/challenges/new` and stored in the run's immutable
-rules snapshot. Difficulty is expressed purely as a **level disadvantage for the player**:
+rules snapshot. Difficulty only ever raises the **opponent** above the campaign curve, capped at
+level 100; the player always stays exactly on the curve above, so difficulty never quietly
+undoes the player's own levelling or evolution progress:
 
 | Mode | Player level | Opponent level |
 | --- | --- | --- |
 | Normal | stage level | stage level |
-| Hard | stage level − 5 | stage level |
-| Expert | stage level − 10 | stage level |
-| Nightmare | stage level − 15 | stage level |
+| Hard | stage level | stage level + 5 |
+| Expert | stage level | stage level + 10 |
+| Nightmare | stage level | stage level + 15 |
 
-At a level-75 stage that is 75/75, 70/75, 65/75, and 60/75. Opponent species, sets, and levels
-are byte-identical on every difficulty — harder modes never substitute a different opponent team,
-and difficulty is never a substitute for well-built opposition.
+At the level-75 Sabrina stage that is player 75 against opponent 75, 80, 85, and 90. Opponent
+species and sets are byte-identical on every difficulty — harder modes never substitute a
+different opponent team, and difficulty is never a substitute for well-built opposition.
 
 The drafted roster snapshot is immutable. The stage team is derived at launch by rewriting only
-the level on a copy of the validated export, exactly as the opponent team is. If a hand-edited
-set carries a move with an event minimum level below the derived level, the launch returns the
-smallest part of the level disadvantage needed to keep the derived team legal instead of failing
-the stage; the opponent level never moves. Automatically prepared sets avoid this by only
-recommending moves that are still legal at level 35, the lowest level the campaign can produce.
+the level (and current evolution stage; see below) on a copy of the validated export, exactly as
+the opponent team is. A hand-edited team_review export that carries a move illegal at the
+player's campaign level surfaces as a normal Showdown validation error rather than silently
+changing anyone's level — automatically prepared sets cannot hit this because of the level-25
+guarantee above.
+
+## Evolution
+
+A drafted Pokemon can evolve between stages, exactly once per won stage transition, never
+mid-battle. `DraftPick.evolution_path` is the full resolved species chain from the drafted
+form (index 0) to its final destination; `evolution_stage_index` is where in that chain the
+pick currently is. Both are resolved once, at draft time, from the pinned Dex's own evolution
+data (`SpeciesMetadata.evolves_to`, exposed by `/dex-species`) — never guessed or randomized.
+
+**Level-gated evolution** (`trigger_kind == "level"`) applies the moment the *next* stage's
+level meets the destination's real level-up requirement — checked against the upcoming
+stage's level exactly when the run is about to enter it, using the same win-transition that
+already advances `current_stage_index` and resolves gauntlet casualties. A Charmander drafted
+at level 25 stays Charmander through the Brock fight even though 25 already exceeds
+Charmeleon's level-16 requirement: the check only runs at the transition into the *next*
+stage, and only ever advances one step, even if the level jump would satisfy two thresholds at
+once. Charmander only becomes Charmeleon transitioning into the level-30 stage.
+
+**Every other trigger** (item, trade, friendship, a special condition, or any other kind
+Showdown reports) has no level of its own in the source games. The campaign maps every one of
+them to the same fixed, documented milestone —
+`NON_LEVEL_EVOLUTION_MILESTONE_STAGE_INDEX = 2` (Lt. Surge) — instead of a level, so timing
+stays deterministic and identical for every such species.
+
+**Branching lines** (Eevee, Tyrogue, Scyther, Rockruff, ...) resolve their one branch point at
+draft time: picking a species whose evolution chain reaches more than one final form requires
+`evolution_choice` (the chosen destination's species id) on the `/draft/pick` request. A
+human draft is rejected without one; Fast Auto's legacy Auto/AI draft path and deterministic
+Random both resolve it themselves (the lowest species id, sorted) so a run never stalls on an
+unmade choice. Only the first branch point in a chain needs a choice — a non-branching prefix
+before it is always walked automatically, and the current pool has no line with more than one
+branch point.
+
+The derived stage export swaps an evolved pick's block to its new species' own recommended
+set — species, ability, item, nature and moves, guaranteed legal at the campaign's lowest level
+by the same catalog guarantee that fixes P01 — while EVs and IVs are read straight from the
+frozen block, so a Training Camp allocation survives evolution. This intentionally does not
+carry over a hand-edited move/item/ability choice from Team Review onto the evolved form.
+
+`ChallengeRunView.current_roster` is the read-only, current-species view of the roster
+(`CurrentPickView`): species, types, and whether this pick has evolved from its drafted form.
+The browser always renders this, never `pick.candidate`, once a run has left drafting.
+`ChallengeRun.recent_evolutions` holds only the evolutions from the most recent stage
+transition (overwritten, not appended); the browser shows it once, the same reload-safe way
+it already announces the next opponent — only when it observes `current_stage_index` advance
+while the page is open, never replayed from a cold load.
+
+An older saved run has `evolution_path == ()` on every pick and simply never evolves; this is
+intentional backward compatibility, not a bug.
+
+Before Champion Blue, a run with at least one eligible final-form pick enters the persisted
+`mega_selection` state. The player chooses exactly one Mega form exposed by the pinned NatDex
+Draft catalog. The derived final-stage export gives that species its required Mega Stone;
+Blue's Charizard receives Charizardite Y. Showdown validates both exact exports before launch.
+The battle adapter exposes separate `move:<slot>:mega` legal actions only while Showdown reports
+`can_mega_evolve`, and serializes the selected action as a real Mega order. Tactical Auto favors
+that legal one-time action. Reloads preserve the choice; no client-only species swap exists.
 
 ## The Elite Four is one gauntlet
 
@@ -104,11 +196,15 @@ the campaign worse.
 ## Run the campaign
 
 1. Start `showdown`, `team-validator`, `backend`, and `frontend`.
-2. Open `/challenges/new` and choose who drafts, who battles, the difficulty, and whether to
-   Quick Sim, Fast Watch, or use normal presentation. Tactical Auto is the default and requires
-   no provider.
+2. Open `/challenges/new` and choose who battles, the difficulty, and whether to Quick Sim,
+   Fast Watch, or use normal presentation. Tactical Auto is the default and requires no
+   provider. Drafting itself is always the player's — the draft is the gameplay, so there is
+   no "AI drafts for me" option on a new run. (An older saved run created before this still
+   loads and continues under its saved agent-drafted controller; see below.)
 3. Draft one candidate from each deterministic Generation + Type offer. Every species shown in
-   the offer is consumed for the remainder of the run, whether selected or rejected.
+   the offer is consumed for the remainder of the run, whether selected or rejected. A species
+   with more than one reachable final evolution (Eevee, Tyrogue, Scyther, ...) asks which line
+   to commit to right there, once, before the pick is sent — see [Evolution](#evolution).
 4. Use each optional reroll once: Pokémon keeps Generation + Type, Type keeps Generation, and
    Generation keeps Type. Every replaced card is still consumed permanently.
 5. The sixth pick automatically applies Pokémon-specific recommended EVs and abilities, a nature
@@ -124,40 +220,57 @@ the campaign worse.
    result and leaves that same stage retryable. Every result links to an interactive browser replay.
 
 Number keys `1`–`8` select visible draft choices. A refresh or backend restart restores the exact
-offer, consumed identities, selections, controller decisions, and draft history. A failed AI
-decision can be retried without changing the offer, or the user can take over the remaining
-draft. The optimistic revision check rejects late AI responses after takeover.
+offer, consumed identities, selections, controller decisions, and draft history. A saved run
+still on the retired agent-drafted controller keeps its "Retry AI decision" / "Take over
+manually" recovery path; the optimistic revision check rejects late AI responses after takeover.
 
 ## Draft Rules V2
 
 Bundled defaults: six picks, three Pokémon rerolls, one Type reroll, one Generation reroll,
-three choices per round, Species Clause, 510 EVs per
-Pokémon, and 252 EVs per stat. There is no shared team EV pool. No Draft Credits, Pokémon prices,
-pricing board, tier conversion, or pricing prerequisite exists.
+three choices per round, Species Clause, 510 EVs per Pokémon, and 252 EVs per stat. There is no
+shared team EV pool or spendable Draft Credits budget. A committed, provenance-stamped Smogon
+Gen 9 NatDex Draft Points snapshot maps the strongest reachable non-Mega evolution to five
+rarity tiers; weighted sampling makes higher-rated Pokémon rarer without turning points into a
+team budget. The snapshot is refreshed explicitly with `scripts/update_draft_rarity.py`.
 
 The pool is an immutable snapshot of the pinned Showdown Dex for the Draft format. Every
 candidate stores the exact Showdown form ID, authoritative base-species identity, introduction
 generation, current types, base stats, legal format abilities, fixed maximum HP when supplied by
-Showdown, and one legal recommended set. Temporary, cosmetic, unavailable, Mega, and Gigantamax
-forms are excluded. Species Clause consumes the authoritative base-species identity, preventing
-alternate forms of the same species from returning later.
+Showdown, legal Mega targets, Draft Points/rarity, and one legal recommended set. Temporary,
+cosmetic, unavailable, Mega, and Gigantamax forms are excluded as direct draft candidates; Mega
+targets remain metadata on their base species. Species Clause consumes the authoritative
+base-species identity, preventing alternate forms of the same species from returning later.
 
-Recommended sets have explicit provenance and are resolved in this order:
+Recommended sets have explicit provenance and are resolved in this order, each candidate always
+built and validated at level 25 (see [Campaign level curve](#campaign-level-curve)):
 
 1. a four-move set from the pinned generation-specific Showdown Battle Factory data that validates
-   in the current Draft format;
+   in the current Draft format at level 25;
 2. a set produced deterministically by the pinned generation-specific Showdown Random Battle
-   generator and validated in the current Draft format; or
+   generator and validated at level 25. Older generations' random-battle data has no real EV
+   curation (a flat, evenly split spread at a neutral nature); when the generated set is
+   uncurated in that sense, its nature and EVs are replaced with the same role read used by the
+   third path below, keeping the generator's own move/item/ability choice; or
 3. a deterministic set assembled from the current format Dex's real learnset, abilities, required
-   item, nature, IV, and EV data, with every growing moveset checked by the current-format validator.
+   item, nature, IV, and EV data, with every growing moveset checked by the current-format
+   validator at level 25.
 
-The third path is a legal deterministic fallback, not a claim that Showdown curates it as a
-competitive sample set. No stats, abilities, items, or moves are invented. With the current pin,
-the catalog contains 1,417 forms and 1,216 draftable entries; all 1,216 have a validated set. Ditto,
-Unown, Cosmog, and Cosmoem are the only draftable entries with fewer than four legal recommended
-moves. The three otherwise ordinary-looking unavailable forms are `Pikachu-Starter`,
-`Eevee-Starter`, and `Xerneas-Neutral`; the current format validator reports that they do not exist
-in the game. The remaining exclusions are explicit special-form flags and may overlap.
+The third path reads the species' own base stats to pick a role (physical/special attacker,
+physical/special wall) and derives a nature, a 252/252/4-style EV spread, and a default item
+from it — Eviolite for a species with a remaining evolution, Leftovers for a wall, Choice Band or
+Life Orb otherwise — unless the species has a required item, which always wins. Moves are chosen
+by the same attacking-category and STAB-fit score as before, but capped to one attacking move per
+type until only the last of the four slots remains, so a narrow movepool no longer reads as four
+near-identical same-type attacks. This is a legal deterministic fallback, not a claim that
+Showdown curates it as a competitive sample set. No stats, abilities, items, or moves are
+invented. With the current pin, the catalog contains 1,417 forms and 1,216 draftable entries; all
+1,216 have a validated set, and none of the three paths above produces a neutral nature, a flat
+EV spread, or a missing item unless a curated Battle Factory set itself intentionally omits an
+item (a small number of moves, such as Acrobatics, are stronger without one). Ditto, Unown,
+Cosmog, and Cosmoem are the only draftable entries with fewer than four legal recommended moves.
+The three otherwise ordinary-looking unavailable forms are `Pikachu-Starter`, `Eevee-Starter`, and
+`Xerneas-Neutral`; the current format validator reports that they do not exist in the game. The
+remaining exclusions are explicit special-form flags and may overlap.
 
 Offer generation is deterministic from the definition/version, rules version, seed, round,
 nonce, exact pool hash, pinned Showdown version, and sorted consumed identities. A new offer is
@@ -276,9 +389,9 @@ Trainer identity and specialty references (teams are authored, not copied from t
 
 ## Current limitations
 
-- Mega, Gigantamax, battle-only, cosmetic-only, and unavailable forms are excluded. Challenge
-  battles also disable Terastallization; Z-Moves, Mega Evolution, and Dynamax actions are not part
-  of Challenge mode.
+- Mega, Gigantamax, battle-only, cosmetic-only, and unavailable forms cannot be drafted directly.
+  One eligible drafted Pokémon can Mega Evolve against Champion Blue. Terastallization, Z-Moves,
+  and Dynamax remain outside Challenge mode.
 - The completion summary reports progress, record, battles, technical failures, duration, turns,
   roster, consumed species, rerolls, EV use, and aggregate provider latency/cost. It does not yet
   calculate campaign MVPs.

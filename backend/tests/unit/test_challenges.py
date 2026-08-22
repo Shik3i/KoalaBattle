@@ -27,6 +27,7 @@ from koalabattle.challenges.models import (
     ChallengeSource,
     ChallengeStage,
     ChallengeStatus,
+    CreateChallengeRun,
     DraftCandidate,
     DraftControllerKind,
     DraftControllerSnapshot,
@@ -39,7 +40,7 @@ from koalabattle.challenges.models import (
     PokemonIvSpread,
     ShowdownCompetitiveSet,
     TrainingRules,
-    player_stage_level,
+    opponent_stage_level,
 )
 from koalabattle.challenges.repository import (
     LEGACY_NOTICE,
@@ -84,6 +85,16 @@ def _abilities(index: int) -> tuple[PokemonAbility, ...]:
         PokemonAbility(slot="0", id=f"ability{index}a", name=f"Ability {index} A"),
         PokemonAbility(slot="H", id=f"ability{index}h", name=f"Ability {index} H", hidden=True),
     )
+
+
+def test_new_challenge_drafts_reject_non_human_controllers() -> None:
+    with pytest.raises(ValueError, match="always human-controlled"):
+        CreateChallengeRun(
+            seed=1,
+            draft_controller=DraftControllerSnapshot(kind=DraftControllerKind.RANDOM),
+            battle_controller=BattleControllerSnapshot(agent_type=AgentType.TACTICAL_AUTO),
+            opponent_controller=BattleControllerSnapshot(agent_type=AgentType.RANDOM),
+        )
 
 
 def _candidate(
@@ -1246,16 +1257,16 @@ def test_species_catalog_filters_temporary_forms_but_keeps_legal_hidden_abilitie
     assert excluded[0]["species"] == "Charizard-Mega"
 
 
-def test_difficulty_modifiers_only_lower_the_player_level() -> None:
+def test_difficulty_modifiers_only_raise_the_opponent_level() -> None:
     assert DIFFICULTY_LEVEL_MODIFIERS[ChallengeDifficulty.NORMAL] == 0
-    assert DIFFICULTY_LEVEL_MODIFIERS[ChallengeDifficulty.HARD] == -5
-    assert DIFFICULTY_LEVEL_MODIFIERS[ChallengeDifficulty.EXPERT] == -10
-    assert DIFFICULTY_LEVEL_MODIFIERS[ChallengeDifficulty.NIGHTMARE] == -15
-    assert player_stage_level(75, ChallengeDifficulty.NORMAL) == 75
-    assert player_stage_level(75, ChallengeDifficulty.HARD) == 70
-    assert player_stage_level(75, ChallengeDifficulty.EXPERT) == 65
-    assert player_stage_level(75, ChallengeDifficulty.NIGHTMARE) == 60
-    assert player_stage_level(5, ChallengeDifficulty.NIGHTMARE) == 1
+    assert DIFFICULTY_LEVEL_MODIFIERS[ChallengeDifficulty.HARD] == 5
+    assert DIFFICULTY_LEVEL_MODIFIERS[ChallengeDifficulty.EXPERT] == 10
+    assert DIFFICULTY_LEVEL_MODIFIERS[ChallengeDifficulty.NIGHTMARE] == 15
+    assert opponent_stage_level(75, ChallengeDifficulty.NORMAL) == 75
+    assert opponent_stage_level(75, ChallengeDifficulty.HARD) == 80
+    assert opponent_stage_level(75, ChallengeDifficulty.EXPERT) == 85
+    assert opponent_stage_level(75, ChallengeDifficulty.NIGHTMARE) == 90
+    assert opponent_stage_level(95, ChallengeDifficulty.NIGHTMARE) == 100
 
 
 def test_difficulty_defaults_to_normal_and_survives_a_saved_run() -> None:
@@ -1283,7 +1294,7 @@ def test_oversized_saved_error_is_bounded_during_deserialization() -> None:
 
 
 @pytest.mark.asyncio
-async def test_expert_difficulty_lowers_only_the_derived_player_stage_team(
+async def test_expert_difficulty_raises_only_the_derived_opponent_stage_team(
     tmp_path: Path,
 ) -> None:
     database = Database(f"sqlite+aiosqlite:///{tmp_path / 'difficulty.db'}")
@@ -1311,11 +1322,11 @@ async def test_expert_difficulty_lowers_only_the_derived_player_stage_team(
     launched, _ = await service.launch_stage(run.id, finalized.revision)
 
     player_text, opponent_text = battles.team_validator.submissions[:2]
-    assert "Level: 40" in player_text and "Level: 50" not in player_text
-    assert "Level: 50" in opponent_text and "Level: 40" not in opponent_text
+    assert "Level: 50" in player_text and "Level: 60" not in player_text
+    assert "Level: 60" in opponent_text and "Level: 50" not in opponent_text
     # The immutable drafted snapshot is untouched; only the derived export moved.
     source = await battles.teams.get(launched.team_snapshot_id)
-    assert source is not None and "Level: 40" not in source.normalized_export
+    assert source is not None and "Level: 60" not in source.normalized_export
     await database.close()
 
 
@@ -1349,21 +1360,21 @@ async def test_normal_difficulty_keeps_both_sides_on_the_stage_level(tmp_path: P
     assert "Level: 50" in opponent_text
 
 
-def test_public_stages_publish_the_derived_player_level() -> None:
+def test_public_stages_publish_the_derived_opponent_level() -> None:
     normal = _public_stage_levels(ChallengeDifficulty.NORMAL)
     nightmare = _public_stage_levels(ChallengeDifficulty.NIGHTMARE)
 
-    assert normal == [(50, 50)]
-    assert nightmare == [(50, 35)]
+    assert normal == [(50, 50, 50)]
+    assert nightmare == [(50, 50, 65)]
 
 
-def _public_stage_levels(difficulty: ChallengeDifficulty) -> list[tuple[int, int]]:
+def _public_stage_levels(difficulty: ChallengeDifficulty) -> list[tuple[int, int, int]]:
     run = _run().model_copy(update={"difficulty": difficulty})
     service = ChallengeService(
         cast(Any, None), ShowdownSpeciesCatalog("http://127.0.0.1:9"), cast(Any, None)
     )
     view = service.view(run)
-    return [(stage.level, stage.player_level) for stage in view.stages]
+    return [(stage.level, stage.player_level, stage.opponent_level) for stage in view.stages]
 
 
 def test_automatic_team_preparation_ships_a_complete_set() -> None:

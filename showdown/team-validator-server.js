@@ -7,7 +7,14 @@ const { TeamValidator } = require('./dist/sim/team-validator');
 const HOST = '0.0.0.0';
 const PORT = Number(process.env.KOALABATTLE_TEAM_VALIDATOR_PORT || 8002);
 const MAX_BODY_BYTES = 55_000;
-const CATALOG_SCHEMA_VERSION = '1.0';
+const CATALOG_SCHEMA_VERSION = '1.2';
+/**
+ * The lowest level any campaign definition may assign to its first stage. Recommended sets
+ * are built and validated at this level, not level 100: Showdown's move-legality check is
+ * monotonic in level (a move learnable at level 25 stays learnable at every higher level), so
+ * a set that is real-Showdown-legal here is guaranteed legal for the rest of the campaign.
+ */
+const CAMPAIGN_MIN_LEVEL = 25;
 
 function reply(response, status, payload) {
   const body = JSON.stringify(payload);
@@ -42,12 +49,14 @@ function hasRule(rules, name) {
  */
 function mechanics(format, generation) {
   const rules = ruleTable(format);
-  const megaEvolution = generation >= 6 && generation <= 7;
+  // National Dex deliberately restores past mechanics while keeping the current-generation
+  // mod. Generation alone therefore cannot describe whether a Mega Stone is actionable.
+  const megaEvolution = (generation >= 6 && generation <= 7) || hasRule(rules, 'NatDex Mod');
   return {
     items: generation >= 2,
     abilities: generation >= 3,
     physical_special_split: generation >= 4,
-    mega_evolution: megaEvolution && !hasRule(rules, 'Mega Rayquaza Clause'),
+    mega_evolution: megaEvolution,
     z_moves: generation === 7,
     dynamax: generation === 8 && !hasRule(rules, 'Dynamax Clause'),
     terastallization: generation >= 9 && !hasRule(rules, 'Terastal Clause'),
@@ -160,7 +169,15 @@ function stableSeed(value, attempt = 0) {
   return [hash, (hash ^ 0x9e3779b9) >>> 0, Math.imul(hash || 1, 2654435761) >>> 0, (hash + attempt + 1) >>> 0];
 }
 
-function normalizedSet(entry, raw, level = 100) {
+/** A Random-Battle-generated set stores move IDs, not display names ("dazzlinggleam"). */
+function resolvedMoveName(value) {
+  const name = first(value);
+  if (!name) return '';
+  const move = Dex.moves.get(name);
+  return move && move.exists !== false ? move.name : name;
+}
+
+function normalizedSet(entry, raw, level) {
   const evs = { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0, ...(raw.evs || {}) };
   // Showdown's validator requires the canonical one-EV marker for an intentional zero spread.
   if (!Object.values(evs).some(Number)) evs.hp = 1;
@@ -170,7 +187,7 @@ function normalizedSet(entry, raw, level = 100) {
     item: first(raw.item),
     ability: first(raw.ability),
     nature: first(raw.nature, 'Serious'),
-    moves: (raw.moves || []).map((move) => first(move)).filter(Boolean),
+    moves: (raw.moves || []).map(resolvedMoveName).filter(Boolean),
     evs,
     ivs: { hp: 31, atk: 31, def: 31, spa: 31, spd: 31, spe: 31, ...(raw.ivs || {}) },
     level,
@@ -227,14 +244,14 @@ function factoryAlternatives(raw) {
  * Older generations are considered only when the current data has no set for that species;
  * the final set is still checked by the requested format's current TeamValidator.
  */
-function showdownFactorySet(format, entry, validator) {
+function showdownFactorySet(format, entry, validator, level) {
   for (const source of FACTORY_SET_SOURCES) {
     for (const [tier, entries] of Object.entries(source.tiers)) {
       const record = entries[entry.id];
       if (!record || !Array.isArray(record.sets)) continue;
       for (const raw of record.sets) {
         for (const alternative of factoryAlternatives(raw)) {
-          const set = normalizedSet(entry, alternative);
+          const set = normalizedSet(entry, alternative, level);
           if (set.moves.length !== 4) continue;
           if ((validator.validateTeam([set]) || []).length) continue;
           return exportedSet('showdown-battle-factory', source.generation, tier, set);
@@ -245,8 +262,18 @@ function showdownFactorySet(format, entry, validator) {
   return null;
 }
 
+const NEUTRAL_NATURES = new Set(['Hardy', 'Docile', 'Serious', 'Bashful', 'Quirky']);
+
+/** Older-generation random-battle data has no real EV curation: a flat, evenly-split spread
+ *  at a neutral nature. Re-derive a role-appropriate spread rather than keep it. */
+function isUncuratedSpread(set) {
+  if (NEUTRAL_NATURES.has(set.nature)) return true;
+  const values = Object.values(set.evs);
+  return new Set(values.filter(Boolean)).size <= 1 && values.some(Boolean);
+}
+
 /** Generate a deterministic set with Showdown's own generation-specific RandomTeams code. */
-function showdownRandomSet(format, entry, validator) {
+function showdownRandomSet(format, entry, validator, level) {
   for (const source of RANDOM_SET_SOURCES) {
     if (!source.sets[entry.id]) continue;
     for (let attempt = 0; attempt < 8; attempt += 1) {
@@ -256,8 +283,13 @@ function showdownRandomSet(format, entry, validator) {
           stableSeed(`${source.generation}:${entry.id}`, attempt)
         );
         const raw = generator.randomSet(entry.id, {}, false, false);
-        const set = normalizedSet(entry, raw);
+        let set = normalizedSet(entry, raw, level);
         if (!set.moves.length || set.moves.length > 4) continue;
+        if (isUncuratedSpread(set)) {
+          const role = statRole(entry);
+          const tuned = { ...set, nature: recommendedNature(role), evs: recommendedEvs(role) };
+          if (!(validator.validateTeam([tuned]) || []).length) set = tuned;
+        }
         if ((validator.validateTeam([set]) || []).length) continue;
         return exportedSet(
           'showdown-random-battle',
@@ -293,31 +325,117 @@ function learnableMoves(formatDex, entry) {
     .sort((left, right) => score(right) - score(left) || left.name.localeCompare(right.name));
 }
 
+/**
+ * A coarse offense/bulk read of the species' own base stats, used only to pick a sane
+ * default nature/EV spread/item when no curated competitive set exists. This is a fallback
+ * heuristic, not a claim of competitive optimality — see docs/CHALLENGES.md.
+ */
+function statRole(entry) {
+  const stats = entry.baseStats || {};
+  const hp = Number(stats.hp || 0);
+  const atk = Number(stats.atk || 0);
+  const def = Number(stats.def || 0);
+  const spa = Number(stats.spa || 0);
+  const spd = Number(stats.spd || 0);
+  const spe = Number(stats.spe || 0);
+  const physical = atk >= spa;
+  const offense = physical ? atk : spa;
+  const bulk = hp + def + spd;
+  const bestDefense = Math.max(def, spd);
+  const isWall = bestDefense - offense >= 40 && bulk >= 260;
+  const defenseIsPhysical = def >= spd;
+  return { physical, offense, speed: spe, isWall, defenseIsPhysical };
+}
+
+function recommendedNature(role) {
+  if (role.isWall) return role.defenseIsPhysical ? 'Bold' : 'Calm';
+  if (role.physical) return role.speed >= 90 ? 'Jolly' : 'Adamant';
+  return role.speed >= 90 ? 'Timid' : 'Modest';
+}
+
+function recommendedEvs(role) {
+  if (role.isWall) {
+    return role.defenseIsPhysical
+      ? { hp: 252, atk: 0, def: 252, spa: 0, spd: 4, spe: 0 }
+      : { hp: 252, atk: 0, def: 4, spa: 0, spd: 252, spe: 0 };
+  }
+  if (role.speed >= 90) {
+    return role.physical
+      ? { hp: 0, atk: 252, def: 0, spa: 0, spd: 4, spe: 252 }
+      : { hp: 0, atk: 0, def: 0, spa: 252, spd: 4, spe: 252 };
+  }
+  return role.physical
+    ? { hp: 252, atk: 252, def: 0, spa: 0, spd: 4, spe: 0 }
+    : { hp: 252, atk: 0, def: 0, spa: 252, spd: 4, spe: 0 };
+}
+
+/** Not-fully-evolved species get Eviolite instead of a role item; everyone else gets one. */
+function recommendedItem(role, isNfe) {
+  if (isNfe) return 'Eviolite';
+  if (role.isWall) return 'Leftovers';
+  return role.speed >= 90 ? 'Life Orb' : 'Choice Band';
+}
+
+/**
+ * Fill up to four moves, capping attacking moves to one per type until only the last slot
+ * remains. A curated set never needs this; it is what keeps a fully generated fallback set
+ * from being four same-type attacks (four Water moves on a Water starter, for example).
+ */
+function coverageMoves(formatDex, entry, validator, baseSet, requiredMoveName) {
+  const moves = requiredMoveName ? [requiredMoveName] : [];
+  const usedTypes = new Set();
+  for (const name of moves) {
+    const move = formatDex.moves.get(name);
+    if (move && move.category !== 'Status') usedTypes.add(move.type);
+  }
+  const candidates = learnableMoves(formatDex, entry);
+  const tryAdd = (move) => {
+    if (moves.some((name) => Dex.toID(name) === move.id)) return false;
+    const proposed = { ...baseSet, moves: moves.concat(move.name) };
+    if ((validator.validateTeam([proposed]) || []).length) return false;
+    moves.push(move.name);
+    if (move.category !== 'Status') usedTypes.add(move.type);
+    return true;
+  };
+  for (const move of candidates) {
+    if (moves.length === 4) break;
+    const isAttacking = move.category !== 'Status';
+    const slotsLeft = 4 - moves.length;
+    if (isAttacking && usedTypes.has(move.type) && slotsLeft > 1) continue;
+    tryAdd(move);
+  }
+  // A move with no remaining type-diverse option is still better than an empty slot.
+  for (const move of candidates) {
+    if (moves.length === 4) break;
+    tryAdd(move);
+  }
+  return moves;
+}
+
 /** Fill legal species absent from curated datasets using only pinned Dex and validator data. */
-function showdownDexSet(formatDex, entry, validator, requiredItem) {
+function showdownDexSet(formatDex, entry, validator, requiredItem, level) {
   const abilities = entry.requiredAbility
     ? [entry.requiredAbility]
     : [...new Set(['0', '1', 'H', 'S'].map((slot) => entry.abilities && entry.abilities[slot]).filter(Boolean))];
+  const role = statRole(entry);
+  const isNfe = Boolean(entry.evos && entry.evos.length);
+  const requiredMoveName = (() => {
+    if (!entry.requiredMove) return null;
+    const move = formatDex.moves.get(entry.requiredMove);
+    return move && move.exists !== false ? move.name : null;
+  })();
   for (const ability of abilities) {
-    const set = normalizedSet(entry, {
+    const base = normalizedSet(entry, {
       species: entry.name,
-      item: requiredItem || '',
+      item: requiredItem || recommendedItem(role, isNfe),
       ability,
-      nature: 'Serious',
+      nature: recommendedNature(role),
       moves: [],
-      evs: { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 },
+      evs: recommendedEvs(role),
       ivs: { hp: 31, atk: 31, def: 31, spa: 31, spd: 31, spe: 31 }
-    });
-    if (entry.requiredMove) {
-      const requiredMove = formatDex.moves.get(entry.requiredMove);
-      if (requiredMove && requiredMove.exists !== false) set.moves.push(requiredMove.name);
-    }
-    for (const move of learnableMoves(formatDex, entry)) {
-      if (set.moves.length === 4) break;
-      if (set.moves.some((name) => Dex.toID(name) === move.id)) continue;
-      const proposed = {...set, moves: set.moves.concat(move.name)};
-      if (!(validator.validateTeam([proposed]) || []).length) set.moves.push(move.name);
-    }
+    }, level);
+    const moves = coverageMoves(formatDex, entry, validator, base, requiredMoveName);
+    const set = { ...base, moves };
     if (set.moves.length && !(validator.validateTeam([set]) || []).length) {
       return exportedSet('showdown-dex-validated', formatDex.gen, 'Format legal', set);
     }
@@ -334,8 +452,8 @@ function speciesCatalog(formatId) {
   const validator = TeamValidator.get(format.id);
   const formatGeneration = formatDex.gen;
   const abilitiesSupported = mechanics(format, formatGeneration).abilities;
-  const species = formatDex.species
-    .all()
+  const allSpecies = formatDex.species.all();
+  const species = allSpecies
     .filter((entry) => entry.exists !== false && Number(entry.num) > 0)
     .map((entry) => {
       const base = formatDex.species.get(entry.baseSpecies || entry.name);
@@ -349,9 +467,34 @@ function speciesCatalog(formatId) {
           })
         : [];
       const requiredItem = entry.requiredItem || (entry.requiredItems && entry.requiredItems[0]) || null;
-      const competitiveSet = showdownFactorySet(format, entry, validator) ||
-        showdownRandomSet(format, entry, validator) ||
-        showdownDexSet(formatDex, entry, validator, requiredItem);
+      const competitiveSet = showdownFactorySet(format, entry, validator, CAMPAIGN_MIN_LEVEL) ||
+        showdownRandomSet(format, entry, validator, CAMPAIGN_MIN_LEVEL) ||
+        showdownDexSet(formatDex, entry, validator, requiredItem, CAMPAIGN_MIN_LEVEL);
+      // Every species this one can evolve into, with the trigger for reaching it. A missing
+      // `evoLevel` alongside any other evoType (item/trade/friendship/condition/etc.) has no
+      // level of its own in the source games; the backend maps every such case to one fixed,
+      // documented campaign milestone instead of a level, so evolution stays deterministic.
+      const evolvesTo = (entry.evos || []).map((name) => {
+        const next = formatDex.species.get(name);
+        return {
+          id: Dex.toID(name),
+          name: next.name,
+          trigger_level: typeof next.evoLevel === 'number' ? next.evoLevel : null,
+          trigger_kind: next.evoLevel != null && !next.evoType ? 'level' : (next.evoType || 'other')
+        };
+      });
+      const megaEvolutions = allSpecies
+        .filter((candidate) => (
+          String(candidate.forme || '').toLowerCase().startsWith('mega') &&
+          candidate.baseSpecies === entry.name &&
+          candidate.requiredItem
+        ))
+        .map((candidate) => ({
+          id: candidate.id,
+          species: candidate.name,
+          required_item: candidate.requiredItem
+        }))
+        .sort((left, right) => left.id.localeCompare(right.id));
       return {
         id: entry.id,
         name: entry.name,
@@ -377,7 +520,10 @@ function speciesCatalog(formatId) {
         cosmetic: Boolean(base.cosmeticFormes && base.cosmeticFormes.includes(entry.name)),
         unavailable: Boolean(entry.isNonstandard && entry.isNonstandard !== 'Past') || !competitiveSet,
         is_mega: String(entry.forme || '').toLowerCase().startsWith('mega'),
-        is_gmax: String(entry.forme || '').toLowerCase() === 'gmax'
+        is_gmax: String(entry.forme || '').toLowerCase() === 'gmax',
+        prevo_id: entry.prevo ? Dex.toID(entry.prevo) : null,
+        evolves_to: evolvesTo,
+        mega_evolutions: megaEvolutions
       };
     })
     .sort((left, right) => left.national_dex_number - right.national_dex_number || left.id.localeCompare(right.id));

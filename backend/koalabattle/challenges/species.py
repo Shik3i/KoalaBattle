@@ -9,7 +9,13 @@ from urllib.request import Request, urlopen
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, model_validator
 
-from .models import PokemonAbility, PokemonBaseStats, ShowdownCompetitiveSet
+from .models import (
+    EvolutionTrigger,
+    MegaEvolutionOption,
+    PokemonAbility,
+    PokemonBaseStats,
+    ShowdownCompetitiveSet,
+)
 
 
 def showdown_id(value: str) -> str:
@@ -37,6 +43,9 @@ class SpeciesMetadata(BaseModel):
     unavailable: bool = False
     is_mega: bool = False
     is_gmax: bool = False
+    prevo_id: str | None = None
+    evolves_to: tuple[EvolutionTrigger, ...] = ()
+    mega_evolutions: tuple[MegaEvolutionOption, ...] = ()
 
 
 _SPECIES = TypeAdapter(tuple[SpeciesMetadata, ...])

@@ -57,9 +57,18 @@
 
   async function connect() {
     await refresh();
+    // onConnected also fires on this very first open, right after the fetch above — only a
+    // later, genuine reconnect should trigger a second one.
+    let firstConnection = true;
     stopSocket = connectLiveSocket({
       url: `${wsBase()}/api/matches/${data.id}/stream`,
-      onConnected: refresh,
+      onConnected: () => {
+        if (firstConnection) {
+          firstConnection = false;
+          return;
+        }
+        return refresh();
+      },
       onStatus: (status) => (connection = status === 'connected' ? 'live' : 'reconnecting'),
       onMessage: (raw) => handleMessage(JSON.parse(raw) as StreamMessage)
     });
