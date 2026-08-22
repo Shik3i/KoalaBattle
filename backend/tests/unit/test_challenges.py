@@ -97,6 +97,17 @@ def test_new_challenge_drafts_reject_non_human_controllers() -> None:
         )
 
 
+def test_new_challenge_opponents_are_always_local_tactical_auto() -> None:
+    payload = CreateChallengeRun(
+        seed=1,
+        draft_controller=DraftControllerSnapshot(kind=DraftControllerKind.HUMAN),
+        battle_controller=BattleControllerSnapshot(agent_type=AgentType.TACTICAL_AUTO),
+        opponent_controller=BattleControllerSnapshot(agent_type=AgentType.RANDOM),
+    )
+
+    assert payload.opponent_controller.agent_type is AgentType.TACTICAL_AUTO
+
+
 def _candidate(
     index: int,
     *,
@@ -817,6 +828,96 @@ async def test_brock_victory_advances_to_misty_once_and_survives_restart(tmp_pat
 
 
 @pytest.mark.asyncio
+async def test_fast_watch_waits_for_the_browser_before_launching_another_stage(
+    tmp_path: Path,
+) -> None:
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'fast-watch-gate.db'}")
+    await database.create_schema()
+    repository = ChallengeRepository(database)
+    definition = load_definition("kanto-gym-gauntlet")
+    match_id = uuid4()
+    run = _run(status=ChallengeStatus.READY).model_copy(
+        update={
+            "definition": definition,
+            "battle_experience": "fast-watch",
+        }
+    )
+    await repository.create(run)
+    await BattleRepository(database).create_match(
+        match_id,
+        _auto_match_config(),
+        engine="test",
+        engine_version="unit-test",
+        showdown_version="unit-test",
+        poke_env_version="unit-test",
+        challenge_run_id=run.id,
+        challenge_stage_id="brock",
+    )
+    run = await repository.save(
+        run.model_copy(update={"status": ChallengeStatus.BATTLING, "active_match_id": match_id}),
+        expected_revision=run.revision,
+    )
+    service = ChallengeService(
+        repository, ShowdownSpeciesCatalog("http://127.0.0.1:9"), cast(Any, None)
+    )
+
+    await service.on_match_terminal(match_id, _won_archive(run, match_id, "brock"))
+    stored = await service.require(run.id)
+
+    assert stored.status is ChallengeStatus.STAGE_RESULT
+    assert stored.current_stage_index == 1
+    assert stored.active_match_id is None
+    assert stored.auto_advance_at is None
+    await asyncio.sleep(0.05)
+    assert (await service.require(run.id)).active_match_id is None
+    await database.close()
+
+
+@pytest.mark.asyncio
+async def test_fast_watch_loss_never_auto_retries_the_stage(tmp_path: Path) -> None:
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'fast-watch-loss.db'}")
+    await database.create_schema()
+    repository = ChallengeRepository(database)
+    definition = load_definition("kanto-gym-gauntlet")
+    match_id = uuid4()
+    run = _run(status=ChallengeStatus.READY).model_copy(
+        update={"definition": definition, "battle_experience": "fast-watch"}
+    )
+    await repository.create(run)
+    await BattleRepository(database).create_match(
+        match_id,
+        _auto_match_config(),
+        engine="test",
+        engine_version="unit-test",
+        showdown_version="unit-test",
+        poke_env_version="unit-test",
+        challenge_run_id=run.id,
+        challenge_stage_id="brock",
+    )
+    run = await repository.save(
+        run.model_copy(update={"status": ChallengeStatus.BATTLING, "active_match_id": match_id}),
+        expected_revision=run.revision,
+    )
+    service = ChallengeService(
+        repository, ShowdownSpeciesCatalog("http://127.0.0.1:9"), cast(Any, None)
+    )
+    lost = _won_archive(run, match_id, "brock").model_copy(update={"winner": Side.P2})
+
+    await service.on_match_terminal(match_id, lost)
+    stopped = await service.require(run.id)
+    advanced, retry = await service.auto_advance(run.id)
+
+    assert stopped.status is ChallengeStatus.STAGE_RESULT
+    assert stopped.stage_results[-1].status == "lost"
+    assert stopped.auto_advance_at is None
+    assert advanced.id == stopped.id
+    assert advanced.revision == stopped.revision
+    assert advanced.active_match_id is None
+    assert retry is None
+    await database.close()
+
+
+@pytest.mark.asyncio
 async def test_no_progress_technical_failure_does_not_count_as_gym_defeat(
     tmp_path: Path,
 ) -> None:
@@ -946,6 +1047,8 @@ async def test_final_team_enforces_abilities_then_creates_first_campaign_match(
     assert launched.active_match_id == match.id
     assert match.challenge_run_id == run.id
     assert match.challenge_stage_id == "stage-one"
+    assert launched.opponent_controller.agent_type is AgentType.TACTICAL_AUTO
+    assert match.config.players[1].agent_type is AgentType.TACTICAL_AUTO
     await database.close()
 
 

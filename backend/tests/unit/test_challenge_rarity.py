@@ -21,6 +21,12 @@ def _candidate(entry_id: str, rarity: DraftRarity) -> DraftCandidate:
     )
 
 
+def _evolved_candidate(entry_id: str, stage: int) -> DraftCandidate:
+    return _candidate(entry_id, DraftRarity.COMMON).model_copy(
+        update={"evolution_stage": stage}
+    )
+
+
 def test_committed_smogon_snapshot_is_large_versioned_and_hash_validated() -> None:
     snapshot = load_draft_points()
 
@@ -54,3 +60,17 @@ def test_ultra_rare_candidates_are_statistically_less_frequent_across_seeds() ->
         counts[picked.entry_id] += 1
 
     assert counts["common"] > counts["ultra"] * 5
+
+
+def test_already_evolved_forms_are_much_rarer_than_base_forms() -> None:
+    base = _evolved_candidate("base", 0)
+    middle = _evolved_candidate("middle", 1)
+    final = _evolved_candidate("final", 2)
+    counts = {item.entry_id: 0 for item in (base, middle, final)}
+
+    for seed in range(10_000):
+        picked = _weighted_sample(random.Random(seed), (base, middle, final), 1)[0]
+        counts[picked.entry_id] += 1
+
+    assert counts["base"] > counts["middle"] * 3
+    assert counts["middle"] > counts["final"] * 2

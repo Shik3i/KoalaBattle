@@ -264,6 +264,9 @@ class DraftCandidate(FrozenModel):
     showdown_set: ShowdownCompetitiveSet | None = None
     evolves_to: tuple[EvolutionTrigger, ...] = ()
     mega_evolutions: tuple[MegaEvolutionOption, ...] = ()
+    # Zero is a base form. Already-evolved forms stay legal Draft candidates, but are
+    # deliberately much rarer because a drafted base form progresses during the campaign.
+    evolution_stage: int = Field(default=0, ge=0, le=8)
     # Defaults keep Draft V2 save files readable; every newly generated pool receives the
     # exact values from the committed Smogon snapshot.
     draft_points: int = Field(default=1, ge=1, le=20)
@@ -526,8 +529,32 @@ class CreateChallengeRun(FrozenModel):
     draft_rules: DraftRules | None = None
     training_rules: TrainingRules | None = None
 
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_opponent_controller(cls, value: object) -> object:
+        if not isinstance(value, dict):
+            return value
+        opponent = value.get("opponent_controller")
+        if isinstance(opponent, BattleControllerSnapshot):
+            if opponent.agent_type is AgentType.TACTICAL_AUTO:
+                return value
+            normalized: object = BattleControllerSnapshot(
+                agent_type=AgentType.TACTICAL_AUTO,
+                configuration=opponent.configuration,
+            )
+        elif isinstance(opponent, dict):
+            if opponent.get("agent_type") == AgentType.TACTICAL_AUTO.value:
+                return value
+            normalized = {
+                "agent_type": AgentType.TACTICAL_AUTO.value,
+                "configuration": opponent.get("configuration", {}),
+            }
+        else:
+            return value
+        return {**value, "opponent_controller": normalized}
+
     @model_validator(mode="after")
-    def new_drafts_are_human_controlled(self) -> CreateChallengeRun:
+    def validate_human_draft(self) -> CreateChallengeRun:
         if self.draft_controller.kind is not DraftControllerKind.HUMAN:
             raise ValueError("new Challenge drafts are always human-controlled")
         return self

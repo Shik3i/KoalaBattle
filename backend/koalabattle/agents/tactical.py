@@ -191,7 +191,28 @@ def _candidate_matchup_score(candidate: PokemonState, opponent: PokemonState | N
         default=1,
     )
     defense = {0: 45, 0.25: 30, 0.5: 18, 1: 0, 2: -25, 4: -55}.get(incoming, -70)
-    return 15 * candidate.hp_fraction + min(90, max(0, best_damage) / 6) + defense
+    # Keep the score on the same scale as move damage. The old `/ 6` compression made even
+    # a clearly superior counter-switch lose to almost every neutral move, so Fast Auto
+    # effectively behaved like a no-switch attacker outside forced switches.
+    return 15 * candidate.hp_fraction + min(420, max(0, best_damage)) + defense
+
+
+def _roster_matchup_score(
+    candidate: PokemonState,
+    active_opponent: PokemonState | None,
+    opponent_team: tuple[PokemonState, ...],
+) -> float:
+    if active_opponent is not None:
+        return _candidate_matchup_score(candidate, active_opponent)
+    visible = tuple(
+        pokemon for pokemon in opponent_team if not pokemon.fainted and pokemon.revealed
+    )
+    if not visible:
+        return _candidate_matchup_score(candidate, None)
+    scores = tuple(_candidate_matchup_score(candidate, pokemon) for pokemon in visible)
+    # Team Preview has no active foe yet. Prefer the strongest matchup across the known
+    # roster while penalizing a lead that is terrible into a large part of it.
+    return sum(scores) / len(scores) + min(scores) * 0.2
 
 
 class TacticalAgent:
@@ -263,13 +284,16 @@ class TacticalAgent:
                         None,
                     )
                 switch_score = 8 + (
-                    _candidate_matchup_score(candidate, opponent)
+                    _roster_matchup_score(candidate, opponent, request.state.opponent.team)
                     if candidate
                     else 15 * (action.hp_fraction or 0)
                 )
                 if forced_switch:
                     switch_score += 1000
                 else:
+                    # Switching spends a turn; require a material matchup improvement, but
+                    # allow a real counter to beat a merely available neutral attack.
+                    switch_score -= 55
                     # Switching into our own hazards is not free, and a switch-in that
                     # would arrive nearly dead is worse than staying in.
                     arriving = (candidate.hp_fraction if candidate else (action.hp_fraction or 1))

@@ -48,12 +48,12 @@ test('scheduler orders events deterministically and ignores historical wall-cloc
   timeline.play();
   assert.equal(clock.tasks[0].delay, 2000);
   clock.runNext();
-  assert.equal(clock.tasks[1].delay, 480);
+  assert.equal(clock.tasks[1].delay, 160);
   clock.runNext();
   assert.equal(timeline.snapshot().index, 1);
-  assert.equal(clock.tasks[2].delay, 520);
+  assert.equal(clock.tasks[2].delay, 800);
   timeline.setSpeed(2);
-  assert.equal(clock.tasks.at(-1)?.delay, 260);
+  assert.equal(clock.tasks.at(-1)?.delay, 420);
 });
 
 test('pause, resume, instant, reset, event and turn navigation are stable', () => {
@@ -103,7 +103,7 @@ test('follow mode accelerates when a fast match creates a large backlog', () => 
   timeline.play();
   assert.equal(clock.tasks[0].delay, 2000);
   clock.runNext();
-  assert.equal(clock.tasks[1].delay, 33);
+  assert.equal(clock.tasks[1].delay, 420);
 });
 
 test('intro and completed result cards each receive an unscaled two-second reading hold', () => {
@@ -123,11 +123,40 @@ test('intro and completed result cards each receive an unscaled two-second readi
 
   assert.equal(clock.tasks[0].delay, 2000);
   clock.runNext();
-  assert.equal(clock.tasks[1].delay, 225);
+  assert.equal(clock.tasks[1].delay, 60);
   clock.runNext();
   assert.equal(timeline.snapshot().state.finished, true);
   assert.equal(timeline.snapshot().playing, true);
   assert.equal(clock.tasks[2].delay, 2000);
   clock.runNext();
+  assert.equal(timeline.snapshot().playing, false);
+});
+
+test('a completed follow archive and late lifecycle events can never stay playing forever', () => {
+  const clock = new FakeClock();
+  const finished = {
+    id: 5,
+    match_id: 'match-1',
+    sequence: 1,
+    turn: 1,
+    event_type: 'battle_finished',
+    logical_offset_ms: 1,
+    payload: { winner: 'p1', winner_name: 'Alpha' }
+  } satisfies BattleEvent;
+  const timeline = new PresentationTimeline(match, [finished], clock, true);
+  timeline.seek(1);
+  timeline.play();
+  assert.equal(timeline.snapshot().playing, false);
+
+  const lateLifecycle = {
+    ...finished,
+    id: 6,
+    sequence: 2,
+    event_type: 'agent_state',
+    payload: { side: 'p2', state: 'finished' }
+  } satisfies BattleEvent;
+  timeline.append(lateLifecycle);
+  assert.equal(timeline.snapshot().index, 2);
+  assert.equal(timeline.snapshot().eventCount, 2);
   assert.equal(timeline.snapshot().playing, false);
 });

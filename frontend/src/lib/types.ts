@@ -423,6 +423,7 @@ export interface DraftCandidate {
    *  is chosen once, at draft time, and applies for the rest of the run. */
   evolves_to: EvolutionTrigger[];
   mega_evolutions: Array<{ id: string; species: string; required_item: string }>;
+  evolution_stage: number;
   draft_points: number;
   draft_rarity: 'common' | 'uncommon' | 'rare' | 'super-rare' | 'ultra-rare';
 }

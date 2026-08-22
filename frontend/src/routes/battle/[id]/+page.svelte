@@ -7,7 +7,7 @@
   import { PresentationTimeline } from '$lib/presentation/timeline';
   import { connectLiveSocket } from '$lib/presentation/live-socket';
   import { defaultRendererConfig, HUD_SCALE_RANGE, type AgentPresentationStatus, type CommentaryMode, type EffectQuality, type MoveEffectSkin, type PlaybackSpeed, type RendererConfig, type RendererLayout, type RendererTheme, type TimelineSnapshot } from '$lib/presentation/types';
-  import type { AgentLifecycleState, AgentRequest, BattleAction, BattleEvent, MatchArchive, Side } from '$lib/types';
+  import type { AgentLifecycleState, AgentRequest, BattleAction, BattleEvent, ChallengeRunView, MatchArchive, Side } from '$lib/types';
   import { actionIndexForKey, actionPreview, isForcedSwitch, shortcutFor } from '$lib/manual-action';
   import { challengeErrorMessage } from '$lib/challenge';
 
@@ -91,6 +91,7 @@
     if (player.agent_type === 'human') return 'Human Player';
     if (player.agent_type === 'manual') return 'Manual Web Chat';
     if (player.agent_type === 'random') return 'Random agent';
+    if (player.agent_type === 'tactical-auto') return 'Fast Auto · local tactical AI';
     return [player.provider, player.model].filter(Boolean).join(' · ');
   }
   function isHuman(side: Side) {
@@ -285,17 +286,28 @@
     const generation = connectionGeneration;
     await refreshMetadata(matchId, generation);
     if (generation !== connectionGeneration || matchId !== data.id) return;
+    if (!match?.challenge_run_id) return;
     const fastDraftWatch = new URLSearchParams(window.location.search).get('speed') === '4';
-    if (!fastDraftWatch || !match?.challenge_run_id) return;
     const challengeRunId = match.challenge_run_id;
-    const waitForPresentation = () => {
+    const waitForPresentation = async () => {
       if (snapshot && snapshot.index >= snapshot.eventCount && snapshot.state.finished && !snapshot.playing) {
-        void goto(`/challenges/${challengeRunId}#latest-result`);
+        if (fastDraftWatch && match?.winner === 'p1') {
+          try {
+            const result = await api<{ run: ChallengeRunView; match: MatchArchive | null }>(`/api/challenges/${challengeRunId}/auto/advance`, { method: 'POST' });
+            if (result.match) {
+              await goto(`/battle/${result.match.id}?speed=4`);
+              return;
+            }
+          } catch {
+            // The Challenge page exposes the saved result and a retry/continue action.
+          }
+        }
+        await goto(`/challenges/${challengeRunId}#latest-result`);
         return;
       }
-      draftReturnTimer = setTimeout(waitForPresentation, 100);
+      draftReturnTimer = setTimeout(() => void waitForPresentation(), 100);
     };
-    waitForPresentation();
+    void waitForPresentation();
   }
   function updateConfig(patch: Partial<RendererConfig>) {
     config = { ...config, ...patch }; saveRendererConfig(config);

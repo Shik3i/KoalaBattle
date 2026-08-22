@@ -22,20 +22,32 @@ const INTRO_READABILITY_HOLD_MS = 2_000;
 const RESULT_READABILITY_HOLD_MS = 2_000;
 
 const EVENT_DURATIONS: Record<string, number> = {
-  move_used: 520,
-  move_missed: 420,
-  damage: 420,
-  healing: 460,
-  critical_hit: 520,
-  status_applied: 420,
-  status_removed: 360,
-  pokemon_switched: 620,
-  pokemon_fainted: 760,
-  agent_decision: 340,
+  move_used: 800,
+  move_missed: 620,
+  damage: 650,
+  healing: 650,
+  critical_hit: 700,
+  status_applied: 620,
+  status_removed: 520,
+  pokemon_switched: 900,
+  pokemon_fainted: 1100,
+  agent_decision: 40,
   agent_progress: 20,
-  turn_started: 480,
-  state_snapshot: 100,
-  battle_finished: 900
+  turn_started: 160,
+  state_snapshot: 20,
+  battle_finished: 240
+};
+
+const MIN_VISIBLE_DURATIONS: Record<string, number> = {
+  move_used: 420,
+  move_missed: 340,
+  damage: 320,
+  healing: 320,
+  critical_hit: 300,
+  status_applied: 280,
+  status_removed: 240,
+  pokemon_switched: 500,
+  pokemon_fainted: 650
 };
 
 const PRESET_MULTIPLIERS: Record<PresentationPreset, number> = {
@@ -102,8 +114,20 @@ export class PresentationTimeline {
 
   append(event: BattleEvent): void {
     if (this.events.some((item) => item.sequence === event.sequence)) return;
+    const wasAtEnd = this.index === this.events.length;
     this.events.push(event);
     this.events.sort((a, b) => a.sequence - b.sequence);
+    // Showdown may append final agent lifecycle records after battle_finished. Consume those
+    // immediately without reopening or invalidating the result hold; otherwise eventCount
+    // moves ahead of index and the Draft return waits forever.
+    if (wasAtEnd && this.state.finished) {
+      while (this.index < this.events.length) {
+        this.state = reducePresentation(this.state, this.events[this.index]);
+        this.index += 1;
+      }
+      this.emit();
+      return;
+    }
     this.emit();
     if (this.playing && this.timer === null) this.schedule();
   }
@@ -217,13 +241,20 @@ export class PresentationTimeline {
       return;
     }
     if (this.index >= this.events.length) {
-      if (this.state.finished && !this.resultHoldComplete) {
-        this.resultHoldComplete = true;
-        this.timer = this.clock.set(() => {
-          this.timer = null;
-          this.playing = false;
-          this.emit();
-        }, RESULT_READABILITY_HOLD_MS);
+      if (this.state.finished) {
+        if (!this.resultHoldComplete) {
+          this.resultHoldComplete = true;
+          this.timer = this.clock.set(() => {
+            this.timer = null;
+            this.playing = false;
+            this.emit();
+          }, RESULT_READABILITY_HOLD_MS);
+          return;
+        }
+        // A completed archive initialized at its end has already satisfied the hold. Follow
+        // mode must still settle instead of remaining "playing" with no timer forever.
+        this.playing = false;
+        this.emit();
         return;
       }
       if (!this.follow) {
@@ -251,7 +282,8 @@ export class PresentationTimeline {
     const base = EVENT_DURATIONS[event.event_type] ?? 120;
     const backlog = this.follow ? this.events.length - this.index : 0;
     const catchUp = backlog > 96 ? 16 : backlog > 48 ? 8 : backlog > 24 ? 4 : backlog > 12 ? 2 : 1;
-    return Math.max(16, Math.round((base * PRESET_MULTIPLIERS[this.preset]) / this.speed / catchUp));
+    const scaled = Math.round((base * PRESET_MULTIPLIERS[this.preset]) / this.speed / catchUp);
+    return Math.max(MIN_VISIBLE_DURATIONS[event.event_type] ?? 16, scaled);
   }
 
   private clearTimer(): void {

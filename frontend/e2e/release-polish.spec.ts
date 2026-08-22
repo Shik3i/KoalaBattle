@@ -66,22 +66,100 @@ test('Draft rarity, pick and reload recovery work in a real browser', async ({ p
 
 test('an unavailable reroll explains itself and the active-game shell stays compact', async ({ page, request }) => {
   const consoleErrors: string[] = [];
+  const pageErrors: string[] = [];
   page.on('console', (message) => {
     if (message.type() === 'error') consoleErrors.push(message.text());
   });
+  page.on('pageerror', (error) => pageErrors.push(error.message));
   const created = await createDraft(request, 1787424372);
-  await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto(`/challenges/${created.run.id}`);
-  await page.getByRole('button', { name: /^Draft Metagross/ }).click();
 
   const reroll = page.getByRole('button', { name: /Reroll Pokémon/ });
   await expect(reroll).toHaveAttribute('aria-disabled', 'true');
   await expect(reroll).toHaveAttribute('title', /remaining pool cannot fill another offer/i);
-  await reroll.focus();
   await expect(page.locator('.reroll-control').first()).toHaveAttribute('data-tooltip', /remaining pool cannot fill another offer/i);
-  expect(await page.locator('.app-header').evaluate((header) => Math.round(header.getBoundingClientRect().height))).toBe(56);
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
+  await expect(page.getByRole('button', { name: 'How Draft rarity and evolution weighting work' })).toBeVisible();
+  expect(await page.locator('body').innerText()).not.toContain('Higher-rated Pokémon appear less often.');
+
+  for (const viewport of [
+    { width: 1440, height: 900 },
+    { width: 1366, height: 768 },
+    { width: 1024, height: 768 },
+    { width: 390, height: 844 }
+  ]) {
+    await page.setViewportSize(viewport);
+    await expect(page.locator('.draft')).toBeVisible();
+    const geometry = await page.evaluate(() => {
+      const box = (selector: string) => {
+        const element = document.querySelector(selector);
+        if (!(element instanceof HTMLElement)) throw new Error(`Missing ${selector}`);
+        return element.getBoundingClientRect().toJSON();
+      };
+      const buttons = [...document.querySelectorAll<HTMLElement>('.reroll-actions button')]
+        .map((button) => ({
+          ...button.getBoundingClientRect().toJSON(),
+          clippedText: button.scrollWidth > button.clientWidth || button.scrollHeight > button.clientHeight
+        }));
+      return {
+        header: box('.app-header'),
+        pageHead: box('.page-head'),
+        roll: box('.roll-result'),
+        footer: box('.draft-choice-area > footer'),
+        buttons,
+        viewportWidth: innerWidth,
+        viewportHeight: innerHeight,
+        documentWidth: document.documentElement.scrollWidth
+      };
+    });
+    expect(Math.round(geometry.header.height)).toBe(56);
+    expect(geometry.pageHead.top).toBeGreaterThanOrEqual(geometry.header.bottom);
+    expect(geometry.roll.width).toBeLessThan(430);
+    expect(geometry.documentWidth).toBeLessThanOrEqual(geometry.viewportWidth);
+    for (const button of geometry.buttons) {
+      expect(button.left).toBeGreaterThanOrEqual(0);
+      expect(button.right).toBeLessThanOrEqual(geometry.viewportWidth);
+      expect(button.clippedText).toBeFalsy();
+    }
+    if (viewport.width >= 1366) expect(geometry.footer.bottom).toBeLessThanOrEqual(geometry.viewportHeight);
+
+    const draftInfo = page.getByRole('button', { name: 'How Draft rarity and evolution weighting work' });
+    await draftInfo.focus();
+    await expect.poll(() => page.locator('.draft-info').evaluate(
+      (info) => getComputedStyle(info, '::after').opacity
+    )).toBe('1');
+    const layers = await page.evaluate(() => {
+      const roll = document.querySelector<HTMLElement>('.roll-result');
+      const workspace = document.querySelector<HTMLElement>('.draft-workspace');
+      const info = document.querySelector<HTMLElement>('.draft-info');
+      const cards = document.querySelector<HTMLElement>('.offer-grid');
+      if (!roll || !workspace || !info || !cards) throw new Error('Missing Draft layer');
+      const tooltip = getComputedStyle(info, '::after');
+      return {
+        roll: Number.parseInt(getComputedStyle(roll).zIndex, 10),
+        workspace: Number.parseInt(getComputedStyle(workspace).zIndex, 10),
+        tooltipBottom: info.getBoundingClientRect().bottom + Number.parseFloat(tooltip.height),
+        cardsTop: cards.getBoundingClientRect().top
+      };
+    });
+    expect(layers.tooltipBottom).toBeGreaterThan(layers.cardsTop);
+    expect(layers.roll).toBeGreaterThan(layers.workspace);
+
+    await reroll.focus();
+    await expect.poll(() => page.locator('.reroll-control').first().evaluate(
+      (control) => getComputedStyle(control, '::after').opacity
+    )).toBe('1');
+    const tooltip = await page.locator('.reroll-control').first().evaluate((control) => {
+      const rect = control.getBoundingClientRect();
+      const style = getComputedStyle(control, '::after');
+      const width = Number.parseFloat(style.width);
+      return { left: rect.left, right: rect.left + width, opacity: style.opacity, viewportWidth: innerWidth };
+    });
+    expect(tooltip.opacity).toBe('1');
+    expect(tooltip.left).toBeGreaterThanOrEqual(0);
+    expect(tooltip.right).toBeLessThanOrEqual(tooltip.viewportWidth);
+  }
   expect(consoleErrors).toEqual([]);
+  expect(pageErrors).toEqual([]);
 });
 
 test('Battle and Replay use the renderer while private audit stays collapsed', async ({ page, request }) => {

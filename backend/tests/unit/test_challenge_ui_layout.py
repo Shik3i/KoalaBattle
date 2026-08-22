@@ -92,6 +92,10 @@ def test_campaign_progress_is_a_compact_rail_and_history_is_collapsed() -> None:
     markup = _markup(CHALLENGE_PAGE)
 
     assert 'class="route-rail"' in markup
+    assert 'class="route-entry" href={`/replay/${result.match_id}`}' in markup
+    assert "<TrainerPortrait trainerId={stage.trainer_asset_id}" in markup
+    assert 'class="stage-emblem"' in markup
+    assert "attemptIndex + 1" in markup
     assert re.search(r'<details[^>]*class="battle-history[^"]*"', markup)
     history_tag = re.search(r'<details[^>]*class="battle-history[^"]*"[^>]*>', markup)
     assert history_tag and " open" not in history_tag.group(0)

@@ -7,6 +7,8 @@ import random
 from .models import ChallengeRun, DraftCandidate, DraftOffer
 from .rarity import RARITY_WEIGHTS
 
+EVOLUTION_STAGE_WEIGHTS = {0: 1.0, 1: 0.24, 2: 0.07}
+
 
 def candidate_identity(candidate: DraftCandidate, species_clause: bool) -> str:
     """Use Showdown's authoritative base-species identity for Species Clause."""
@@ -75,7 +77,14 @@ def _weighted_sample(
     ranked = sorted(
         candidates,
         key=lambda candidate: (
-            rng.random() ** (1.0 / RARITY_WEIGHTS[candidate.draft_rarity]),
+            rng.random()
+            ** (
+                1.0
+                / (
+                    RARITY_WEIGHTS[candidate.draft_rarity]
+                    * EVOLUTION_STAGE_WEIGHTS.get(candidate.evolution_stage, 0.04)
+                )
+            ),
             candidate.entry_id,
         ),
         reverse=True,

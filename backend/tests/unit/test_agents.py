@@ -307,6 +307,92 @@ async def test_tactical_agent_uses_matchup_scoring_for_forced_switch_and_lead(
 
 
 @pytest.mark.asyncio
+async def test_tactical_agent_leads_grass_into_a_known_water_roster(
+    agent_request: AgentRequest,
+) -> None:
+    grass = PokemonState(
+        id="p1: Ivysaur",
+        name="Ivysaur",
+        species="Ivysaur",
+        hp_fraction=1,
+        active=False,
+        types=("grass", "poison"),
+        moves=(
+            MoveState(
+                id="gigadrain",
+                name="Giga Drain",
+                type="grass",
+                category="special",
+                power=75,
+                accuracy=100,
+            ),
+        ),
+    )
+    water = grass.model_copy(
+        update={
+            "id": "p1: Wartortle",
+            "name": "Wartortle",
+            "species": "Wartortle",
+            "types": ("water",),
+            "moves": (
+                MoveState(
+                    id="waterpulse",
+                    name="Water Pulse",
+                    type="water",
+                    category="special",
+                    power=60,
+                    accuracy=100,
+                ),
+            ),
+        }
+    )
+    starmie = water.model_copy(
+        update={
+            "id": "p2: Starmie",
+            "name": "Starmie",
+            "species": "Starmie",
+            "types": ("water", "psychic"),
+        }
+    )
+    golduck = water.model_copy(
+        update={"id": "p2: Golduck", "name": "Golduck", "species": "Golduck"}
+    )
+    state = agent_request.state.model_copy(
+        update={
+            "player": agent_request.state.player.model_copy(
+                update={"active": None, "team": (water, grass)}
+            ),
+            "opponent": agent_request.state.opponent.model_copy(
+                update={"active": None, "team": (starmie, golduck)}
+            ),
+        }
+    )
+    actions = (
+        BattleAction(
+            id="switch:1",
+            type=ActionType.SWITCH,
+            name="Wartortle",
+            species="Wartortle",
+            slot=1,
+            hp_fraction=1,
+        ),
+        BattleAction(
+            id="switch:2",
+            type=ActionType.SWITCH,
+            name="Ivysaur",
+            species="Ivysaur",
+            slot=2,
+            hp_fraction=1,
+        ),
+    )
+
+    decision = await TacticalAgent().decide(
+        agent_request.model_copy(update={"state": state, "legal_actions": actions})
+    )
+    assert decision.action == "switch:2"
+
+
+@pytest.mark.asyncio
 async def test_tactical_agent_scores_duplicate_species_by_unique_nickname(
     agent_request: AgentRequest,
 ) -> None:

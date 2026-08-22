@@ -534,7 +534,10 @@
     return '';
   }
 
-  function stageResult(stageId: string) { return [...(run?.stage_results || [])].reverse().find((item) => item.stage_id === stageId); }
+  function stageAttempts(stageId: string) {
+    return (run?.stage_results || []).filter((item) => item.stage_id === stageId);
+  }
+  function stageResult(stageId: string) { return stageAttempts(stageId).at(-1); }
   function historyOutcomeLabel(outcome: ChallengeRunView['run']['draft_history'][number]['outcome']) {
     if (outcome === 'picked') return 'Pick locked';
     if (outcome === 'type_rerolled') return 'Type rerolled';
@@ -705,6 +708,37 @@
 
 {#if run.compatibility_notice}<section class="snapshot-warning panel" role="alert"><i class="ph ph-warning" aria-hidden="true"></i><div><strong>This saved run uses retired Draft Rules</strong><p>{run.compatibility_notice}</p></div></section>{/if}
 
+{#if !['drafting','training','team_review'].includes(run.status)}<section id="campaign" class="campaign panel">
+  <header><div><span class="eyebrow">Campaign route</span><h2>{run.status === 'completed' ? 'Kanto Gauntlet complete' : campaignBattleLabel(run.current_stage_index, view.stages.length, view.current_stage?.name || '')}</h2></div><span class="route-count">{view.statistics.stages_cleared} / {view.stages.length} cleared</span></header>
+  <ol class="route-rail" aria-label="Kanto campaign progression">
+    {#each view.stages as stage, index}
+      {@const attempts = stageAttempts(stage.id)}
+      {#if attempts.length}
+        {#each attempts as result, attemptIndex}
+          <li class:current={index === run.current_stage_index && run.status !== 'completed' && attemptIndex === attempts.length - 1} class:won={result.status === 'won'} class:failed={result.status !== 'won'} style={`--stage-accent:${stage.visual_accent}`}>
+            <span class="attempt-state" aria-hidden="true"><b><i class={`ph ${result.status === 'won' ? 'ph-check' : 'ph-x'}`}></i></b></span>
+            <a class="route-entry" href={`/replay/${result.match_id}`} title={`Replay: ${stage.name} · ${stage.specialty || stage.title} · Attempt ${attemptIndex + 1}`} aria-label={`Watch ${stage.name} replay, ${outcomeTitle(result.status)}, attempt ${attemptIndex + 1}`} aria-current={index === run.current_stage_index && run.status !== 'completed' && attemptIndex === attempts.length - 1 ? 'step' : undefined}>
+              <TrainerPortrait trainerId={stage.trainer_asset_id} name={stage.name} accent={stage.visual_accent} compact decorative />
+              <span><strong>{stage.name}</strong><small>{stage.specialty || stage.title}{attempts.length > 1 ? ` · Try ${attemptIndex + 1}` : ''}</small></span>
+              <em class="stage-emblem" title={stage.specialty || stage.title}>{(stage.specialty || stage.title).slice(0, 2).toUpperCase()}</em>
+              <i class="ph ph-play-circle replay-mark" aria-hidden="true"></i>
+            </a>
+          </li>
+        {/each}
+      {:else}
+        <li class:current={index === run.current_stage_index && run.status !== 'completed'} style={`--stage-accent:${stage.visual_accent}`}>
+          <span class="attempt-state upcoming-state" aria-hidden="true"><b>{index + 1}</b></span>
+          <div class="route-entry upcoming" title={`${stage.name} · ${stage.specialty || stage.title} · Lv. ${stage.level}`} aria-current={index === run.current_stage_index && run.status !== 'completed' ? 'step' : undefined}>
+            <TrainerPortrait trainerId={stage.trainer_asset_id} name={stage.name} accent={stage.visual_accent} compact decorative />
+            <span><strong>{stage.name}</strong><small>{stage.specialty || stage.title}</small></span>
+            <em class="stage-emblem" title={stage.specialty || stage.title}>{(stage.specialty || stage.title).slice(0, 2).toUpperCase()}</em>
+          </div>
+        </li>
+      {/if}
+    {/each}
+  </ol>
+</section>{/if}
+
 <!--
   The next stage now starts within half a second, so gating this on `stage_result`
   meant the player never saw the outcome of the battle they just watched. The last
@@ -712,16 +746,10 @@
 -->
 {#if latestResult && !['drafting','preparing','training','team_review'].includes(run.status)}
   <span id="latest-result" class="result-anchor" aria-hidden="true"></span>
-  <section class:success={latestResult.status === 'won'} class:technical={['failed','cancelled','interrupted'].includes(latestResult.status)} class="result-card panel"><div class="result-icon"><i class={`ph ${latestResult.status === 'won' ? 'ph-trophy' : latestResult.status === 'lost' ? 'ph-x-circle' : 'ph-warning'}`} aria-hidden="true"></i></div><div class="result-copy"><span class="eyebrow">Battle result</span><h2>{outcomeTitle(latestResult.status)} — {latestStage?.name}{latestResult.status === 'won' ? ' defeated' : ''}</h2><p>{outcomeDetail(latestResult.status)}</p>{#if view.latest_battle_summary}<div class="battle-summary"><div><strong>Your team used</strong><div>{#each view.latest_battle_summary.player_participants as species}<span><PokemonSprite {species} size="small" decorative />{species}</span>{/each}</div></div><div><strong>Defeated</strong><small>Yours</small><div>{#each view.latest_battle_summary.player_fainted as species}<span class="fainted"><PokemonSprite {species} size="small" decorative />{species}</span>{:else}<em>None</em>{/each}</div><small>{latestStage?.name}</small><div>{#each view.latest_battle_summary.opponent_fainted as species}<span class="fainted opponent"><PokemonSprite {species} size="small" decorative />{species}</span>{:else}<em>None</em>{/each}</div></div></div>{/if}</div><div class="result-actions"><a class="button secondary" href={`/replay/${latestResult.match_id}`}><i class="ph ph-play-circle" aria-hidden="true"></i>Watch replay</a>{#if run.status !== 'completed' && (!autoRunAvailable || run.auto_run_paused || latestResult.status !== 'won')}<button class="button" disabled={Boolean(loading)} on:click={run.auto_run_paused ? continueAutoRun : launch}>{latestResult.status === 'won' ? `Continue to ${view.current_stage?.name}` : `Retry ${latestStage?.name}`}</button>{/if}</div></section>
+  <section class:success={latestResult.status === 'won'} class:technical={['failed','cancelled','interrupted'].includes(latestResult.status)} class="result-card panel"><div class="result-icon"><i class={`ph ${latestResult.status === 'won' ? 'ph-trophy' : latestResult.status === 'lost' ? 'ph-x-circle' : 'ph-warning'}`} aria-hidden="true"></i></div><div class="result-copy"><span class="eyebrow">Battle result</span><h2>{outcomeTitle(latestResult.status)} — {latestStage?.name}{latestResult.status === 'won' ? ' defeated' : ''}</h2><p>{outcomeDetail(latestResult.status)}</p>{#if view.latest_battle_summary}<div class="battle-summary"><div><strong>Your team used</strong><div>{#each view.latest_battle_summary.player_participants as species}<span><PokemonSprite {species} size="small" decorative />{species}</span>{/each}</div></div><div><strong>Defeated</strong><small>Yours</small><div>{#each view.latest_battle_summary.player_fainted as species}<span class="fainted"><PokemonSprite {species} size="small" decorative />{species}</span>{:else}<em>None</em>{/each}</div><small>{latestStage?.name}</small><div>{#each view.latest_battle_summary.opponent_fainted as species}<span class="fainted opponent"><PokemonSprite {species} size="small" decorative />{species}</span>{:else}<em>None</em>{/each}</div></div></div>{/if}</div><div class="result-actions"><a class="button secondary" href={`/replay/${latestResult.match_id}`}><i class="ph ph-play-circle" aria-hidden="true"></i>Watch replay</a>{#if run.status !== 'completed' && (!autoRunAvailable || run.auto_run_paused || !run.auto_advance_at || latestResult.status !== 'won')}<button class="button" disabled={Boolean(loading)} on:click={run.auto_run_paused ? continueAutoRun : launch}>{latestResult.status === 'won' ? `Continue to ${view.current_stage?.name}` : `Retry ${latestStage?.name}`}</button>{/if}</div></section>
 {/if}
 
 {#if run.status === 'completed'}<section id="summary" class="complete panel"><i class="ph ph-crown" aria-hidden="true"></i><span class="eyebrow">Kanto Gauntlet complete</span><h2>Champion cleared</h2><p>{view.statistics.wins} wins · {view.statistics.total_battles} battles · {view.statistics.total_turns} turns · {formatDuration(view.statistics.duration_seconds)}</p><dl><div><dt>Draft</dt><dd>{run.picks.length} Pokémon · {run.consumed_species_ids.length} species consumed</dd></div><div><dt>Recommended EVs</dt><dd>{view.statistics.ev_used} allocated</dd></div><div><dt>Rerolls</dt><dd>{view.statistics.rerolls_used} used</dd></div><div><dt>Controllers</dt><dd>{run.draft_controller_history.length ? 'AI → Me draft' : `${run.draft_controller.kind} draft`} · {run.battle_controller.agent_type} battle</dd></div><div><dt>Estimated API cost</dt><dd>${view.statistics.estimated_cost.toFixed(4)}</dd></div><div><dt>Average decision</dt><dd>{view.statistics.average_decision_latency_ms == null ? 'Not available' : `${Math.round(view.statistics.average_decision_latency_ms)} ms`}</dd></div></dl><div class="final-roster">{#each run.picks as pick}{@const current = currentByEntryId.get(pick.candidate.entry_id)}<span>{current?.species || pick.candidate.species}{#if current?.evolved}<i class="ph ph-sparkle evolved-mark" aria-hidden="true" title={`Evolved from ${pick.candidate.species}`}></i>{/if}<small>{pick.candidate.abilities.find((ability) => ability.id === run.ability_selections[pick.candidate.entry_id])?.name || 'No ability'}</small></span>{/each}</div><div class="final-actions"><a class="button" href="/challenges/new">Start new Draft run</a><a class="button secondary" href="#run-archive">View all battles</a></div></section>{/if}
-
-{#if !['drafting','training','team_review'].includes(run.status)}<section id="campaign" class="campaign panel">
-  <header><div><span class="eyebrow">Campaign route</span><h2>{run.status === 'completed' ? 'Kanto Gauntlet complete' : campaignBattleLabel(run.current_stage_index, view.stages.length, view.current_stage?.name || '')}</h2></div><span class="route-count">{view.statistics.stages_cleared} / {view.stages.length} cleared</span></header>
-  <ol class="route-rail" aria-label="Kanto campaign progression">{#each view.stages as stage, index}{@const result = stageResult(stage.id)}<li class:current={index === run.current_stage_index && run.status !== 'completed'} class:won={result?.status === 'won'} class:failed={result && result.status !== 'won'} style={`--stage-accent:${stage.visual_accent}`} title={`${stage.name} · ${stage.specialty || stage.title} · Lv. ${stage.level}`} aria-current={index === run.current_stage_index && run.status !== 'completed' ? 'step' : undefined}><b>{result?.status === 'won' ? '✓' : index + 1}</b><span>{stage.name}</span></li>{/each}</ol>
-</section>{/if}
-
 
 {#if run.stage_results.length}
   <details id="run-archive" class="battle-history panel">
@@ -735,11 +763,11 @@
     {#key run.current_offer.fingerprint}
     <header class="roll-result">
       <h2 id="draft-title" class="draft-reels"><span class="visually-hidden" aria-live="polite">Generation {generationRomanNumeral(run.current_offer.generation)}, {run.current_offer.type} type</span><span aria-hidden="true" class:spinning={rollReveal?.mode === 'both' || rollReveal?.mode === 'generation'} class:locked={rollReveal?.mode === 'type' || rollReveal?.mode === 'pokemon'} class="draft-reel generation-reel"><small>GEN</small><span class="reel-window" aria-hidden="true"><span class="reel-track" style={`--reel-offset:${-((rollReveal?.generations.length || 1) - 1) * DRAFT_REEL_FRAME_HEIGHT}px`}>{#each rollReveal?.generations || [run.current_offer.generation] as generation}<b>{generationRomanNumeral(generation)}</b>{/each}</span></span></span><b class="reel-separator" aria-hidden="true">·</b><span aria-hidden="true" class:spinning={rollReveal?.mode === 'both' || rollReveal?.mode === 'type'} class:locked={rollReveal?.mode === 'generation' || rollReveal?.mode === 'pokemon'} class="draft-reel type-reel"><span class="reel-window" aria-hidden="true"><span class="reel-track" style={`--reel-offset:${-((rollReveal?.types.length || 1) - 1) * DRAFT_REEL_FRAME_HEIGHT}px`}>{#each rollReveal?.types || [run.current_offer.type] as type}<b style={`--type-color:${pokemonTypeColor(type)}`}>{type}</b>{/each}</span></span></span></h2>
+      <span class="draft-info" data-tooltip="Higher-rated Pokémon appear less often. Points use the strongest reachable non-Mega evolution. Already-evolved forms are much rarer because base forms evolve during the campaign."><button type="button" aria-label="How Draft rarity and evolution weighting work"><i class="ph ph-info" aria-hidden="true"></i></button></span>
     </header>
     <div class="draft-workspace"><div class="draft-choice-area">
       {#if run.current_offer.options.length < run.definition.draft_rules.choice_count}<p class="pool-note" role="status"><i class="ph ph-info" aria-hidden="true"></i>The legal pool is nearly exhausted, so this offer contains fewer cards.</p>{/if}
-      <p class="rarity-note"><i class="ph ph-sparkle" aria-hidden="true"></i>Higher-rated Pokémon appear less often. Points use the strongest reachable non-Mega evolution.</p>
-      <div class:pending-reveal={Boolean(rollReveal)} class="offer-grid">{#each run.current_offer.options as option, index}<button data-rarity={option.draft_rarity} title={`Draft Rarity · Smogon Draft Points: ${option.draft_points}. Higher-rated Pokémon appear less often.`} style={`--reveal-index:${index}`} disabled={Boolean(loading) || Boolean(rollReveal)} aria-label={`Draft ${option.species}, ${rarityLabel(option.draft_rarity)}, ${option.draft_points} Smogon Draft Points`} aria-keyshortcuts={index < 9 ? String(index + 1) : undefined} on:click={() => pick(option.entry_id)}><span class="shortcut" aria-hidden="true">{index + 1}</span><span class="dex">#{String(option.national_dex_number).padStart(4, '0')} · Gen {option.introduction_generation}</span><span class="rarity-badge">{rarityLabel(option.draft_rarity)} · {option.draft_points} pts</span><div class="offer-sprite"><PokemonSprite species={option.species} size="large" decorative /></div><h3>{option.species}</h3><p class="type-badges"><TypeBadges types={option.types} /></p><div class="card-foot">{#if option.base_stat_total}<small>BST <b>{option.base_stat_total}</b></small>{/if}<span>Choose <i class="ph ph-arrow-right" aria-hidden="true"></i></span></div>{#if loading === `pick:${option.entry_id}`}<em role="status"><i class="ph ph-spinner-gap" aria-hidden="true"></i> Locking pick…</em>{/if}</button>{/each}</div>
+      <div class:pending-reveal={Boolean(rollReveal)} class="offer-grid">{#each run.current_offer.options as option, index}<button data-rarity={option.draft_rarity} title={`Draft Rarity · Smogon Draft Points: ${option.draft_points}.${option.evolution_stage ? ' Already-evolved form: deliberately much rarer.' : ''}`} style={`--reveal-index:${index}`} disabled={Boolean(loading) || Boolean(rollReveal)} aria-label={`Draft ${option.species}, ${rarityLabel(option.draft_rarity)}, ${option.draft_points} Smogon Draft Points${option.evolution_stage ? ', evolved form, rarer' : ''}`} aria-keyshortcuts={index < 9 ? String(index + 1) : undefined} on:click={() => pick(option.entry_id)}><span class="shortcut" aria-hidden="true">{index + 1}</span><span class="dex">#{String(option.national_dex_number).padStart(4, '0')} · Gen {option.introduction_generation}</span><span class="rarity-badge">{rarityLabel(option.draft_rarity)} · {option.draft_points} pts</span>{#if option.evolution_stage}<span class="evolution-rarity-badge">Evolved · rarer</span>{/if}<div class="offer-sprite"><PokemonSprite species={option.species} size="large" decorative /></div><h3>{option.species}</h3><p class="type-badges"><TypeBadges types={option.types} /></p><div class="card-foot">{#if option.base_stat_total}<small>BST <b>{option.base_stat_total}</b></small>{/if}<span>Choose <i class="ph ph-arrow-right" aria-hidden="true"></i></span></div>{#if loading === `pick:${option.entry_id}`}<em role="status"><i class="ph ph-spinner-gap" aria-hidden="true"></i> Locking pick…</em>{/if}</button>{/each}</div>
       <footer>
         {#if run.draft_controller.kind === 'human'}
           {@const pokemonReason = rerollBlockedReason('pokemon', run, view, loading, rollReveal)}
@@ -919,8 +947,6 @@
   .evolution-choice-option{display:grid;justify-items:center;gap:.4rem;min-height:110px;padding:.75rem .5rem;border:1px solid var(--border);border-radius:.65rem;background:var(--panel-strong);color:var(--text);cursor:pointer;transition:border-color .16s ease,transform .16s ease}
   .evolution-choice-option:hover:not(:disabled){border-color:var(--accent);transform:translateY(-2px)}
   .evolution-choice-option span{font-weight:700;font-size:.78rem}
-  .rarity-note{display:flex;align-items:center;gap:.4rem;margin:.55rem 0;color:var(--muted);font-size:.67rem}
-  .rarity-note i{color:var(--accent)}
   .rarity-badge{justify-self:start;padding:.22rem .45rem;border:1px solid var(--rarity-border,var(--border));border-radius:999px;background:color-mix(in srgb,var(--rarity-accent,var(--accent)) 9%,var(--surface));color:var(--rarity-accent,var(--text));font:750 .58rem var(--mono);letter-spacing:.03em;text-transform:uppercase}
   .offer-grid button[data-rarity="common"]{--rarity-border:#7f9189;--rarity-accent:#b7c4be}
   .offer-grid button[data-rarity="uncommon"]{--rarity-border:#4f9d69;--rarity-accent:#75d394}
@@ -942,4 +968,57 @@
   .reroll-control.unavailable .button::before{display:none}
   @media(max-width:720px){.mega-selection{grid-template-columns:1fr}.mega-options{grid-template-columns:1fr}}
   @media(prefers-reduced-motion:reduce){.mega-options button{transition:none}.mega-options button:hover:not(:disabled),.mega-options button:focus-visible{transform:none}.mega-options .ph-circle-notch{animation:none}}
+  /* Draft workspace audit: compact hierarchy, no clipped controls, viewport-safe help. */
+  .page-head{z-index:5}
+  .draft{overflow:visible;padding:1rem}
+  .draft .roll-result{position:relative;z-index:30;isolation:isolate;display:flex!important;grid-template-columns:none;align-items:center!important;gap:.4rem;width:max-content;max-width:100%;min-height:0;margin:0;padding:.15rem;border:0;background:none;overflow:visible;animation:none}
+  .draft .roll-result::before{display:none}
+  .draft .draft-reels{justify-content:flex-start;width:auto;max-width:calc(100% - 40px)}
+  .draft .roll-result .draft-reel{height:40px;padding:0 .55rem}
+  .draft .reel-window,.draft .reel-track b{height:38px;line-height:38px}
+  .draft-info{position:relative;z-index:2;display:block;flex:0 0 auto}
+  .draft-info button{display:grid;place-items:center;width:34px;height:34px;padding:0;border:1px solid var(--border);border-radius:50%;background:var(--surface);color:var(--accent);cursor:help}
+  .draft-info::after{position:absolute;z-index:140;top:calc(100% + .45rem);left:0;width:max-content;max-width:min(340px,calc(100vw - 2rem));padding:.55rem .65rem;border:1px solid color-mix(in srgb,var(--accent) 38%,var(--border));border-radius:.55rem;background:var(--panel-strong);box-shadow:var(--shadow-sm);color:var(--text);font:600 .68rem/1.4 var(--display);text-align:left;white-space:normal;content:attr(data-tooltip);opacity:0;pointer-events:none;transform:translateY(-4px);transition:opacity .14s ease,transform .14s ease}
+  .draft-info:hover::after,.draft-info:focus-within::after{opacity:1;transform:none}
+  .draft-workspace{position:relative;z-index:1;margin-top:.45rem}
+  .offer-grid{margin-top:.55rem}
+  .offer-grid button{min-height:clamp(250px,36vh,320px)}
+  .offer-sprite{min-height:112px}
+  .evolution-rarity-badge{justify-self:start;padding:.2rem .4rem;border:1px solid color-mix(in srgb,var(--warning) 55%,var(--border));border-radius:999px;background:color-mix(in srgb,var(--warning) 9%,var(--surface));color:var(--warning)!important;font:700 .52rem var(--mono)!important;text-transform:uppercase}
+  .draft-choice-area>footer{display:grid!important;grid-template-columns:minmax(0,1fr) auto;align-items:start!important;gap:.45rem .7rem!important;margin-top:.65rem!important}
+  .reroll-actions{grid-column:1;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,210px),1fr));gap:.45rem;min-width:0;width:100%}
+  .reroll-actions .button{min-width:0;overflow:hidden}
+  .reroll-actions .button>span{min-width:0}
+  .reroll-actions .button strong,.reroll-actions .button small{overflow-wrap:anywhere;line-height:1.18}
+  .offer-saved{grid-column:2;grid-row:1;align-self:center}
+  .reroll-blocked{grid-column:1/-1;margin:.1rem 0 0}
+  .reroll-blocked li{min-width:0;overflow-wrap:anywhere}
+  .reroll-control[data-tooltip]::after{right:auto;left:0;max-width:min(320px,calc(100vw - 2rem))}
+  .reroll-control:nth-child(2)[data-tooltip]::after{left:50%;transform:translate(-50%,4px)}
+  .reroll-control:nth-child(2)[data-tooltip]:hover::after,.reroll-control:nth-child(2)[data-tooltip]:focus-within::after{transform:translate(-50%,0)}
+  .reroll-control:last-child[data-tooltip]::after{right:0;left:auto}
+  @media(max-width:900px){.draft-workspace{grid-template-columns:1fr}.draft-roster{position:static}.draft-choice-area>footer{grid-template-columns:1fr}.offer-saved{grid-column:1;grid-row:auto;justify-self:start}.reroll-control:nth-child(2)[data-tooltip]::after,.reroll-control:last-child[data-tooltip]::after{right:auto;left:0;transform:translateY(4px)}.reroll-control:nth-child(2)[data-tooltip]:hover::after,.reroll-control:nth-child(2)[data-tooltip]:focus-within::after{transform:none}}
+  @media(max-width:600px){.draft .roll-result{width:100%}.draft .draft-reels{max-width:calc(100% - 38px)}.draft .roll-result .draft-reel{padding:0 .4rem}.type-reel .reel-track b{min-width:84px}.offer-grid button{min-height:285px}.draft-info::after{right:0;left:auto}.reroll-actions{grid-template-columns:1fr}}
+  /* Every recorded attempt is a direct replay target in the top campaign rail. */
+  .campaign .route-rail{display:grid;grid-template-columns:none;grid-auto-columns:180px;grid-auto-flow:column;gap:.4rem;overflow-x:auto;overscroll-behavior-inline:contain;margin:.6rem 0 0;padding:0 0 .35rem;list-style:none;scroll-snap-type:x proximity;scrollbar-width:thin}
+  .route-rail li{position:relative;display:block;min-width:0;overflow:hidden;padding:0;border:1px solid var(--border);border-radius:.7rem;background:var(--surface);scroll-snap-align:start}
+  .route-rail li>span.attempt-state{position:absolute;z-index:2;top:.2rem;left:.2rem;display:grid;place-items:center;width:14px;height:14px;border:1px solid var(--border);border-radius:50%;background:var(--surface);color:var(--muted);font:800 .46rem var(--mono)}
+  .route-rail li>span.attempt-state b{display:contents;width:auto;aspect-ratio:auto;background:transparent;color:inherit;font:inherit;box-shadow:none}
+  .route-rail li.won>span.attempt-state{background:var(--accent);color:var(--accent-ink)}
+  .route-rail li.failed>span.attempt-state{border-color:var(--danger);background:var(--danger);color:#fff}
+  .route-entry{display:grid;grid-template-columns:38px minmax(0,1fr) 26px 18px;align-items:center;gap:.35rem;min-height:52px;padding:.35rem;color:var(--text);text-decoration:none}
+  .route-entry :global(.trainer){width:38px;height:38px;border-radius:.45rem;box-shadow:none}
+  .route-rail li .route-entry>span{display:grid!important;min-width:0}
+  .route-entry strong,.route-entry small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .route-entry strong{font:750 .67rem var(--display)}
+  .route-entry small{color:var(--stage-accent);font:650 .52rem var(--mono);text-transform:uppercase}
+  .stage-emblem{display:grid;place-items:center;width:25px;aspect-ratio:1;border:1px solid color-mix(in srgb,var(--stage-accent) 58%,var(--border));border-radius:50%;background:color-mix(in srgb,var(--stage-accent) 16%,var(--panel));color:var(--stage-accent);font:800 .48rem var(--mono);font-style:normal}
+  .replay-mark{color:var(--accent);font-size:1rem}
+  .route-entry.upcoming{grid-template-columns:38px minmax(0,1fr) 26px;color:var(--muted)}
+  .route-rail li.won{border-color:color-mix(in srgb,var(--accent) 48%,var(--border))}
+  .route-rail li.failed{border-color:color-mix(in srgb,var(--danger) 52%,var(--border))}
+  .route-rail li.failed .replay-mark{color:var(--danger)}
+  .route-rail li.current{border-color:var(--stage-accent);background:color-mix(in srgb,var(--stage-accent) 12%,var(--panel));box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--stage-accent) 30%,transparent)}
+  .route-entry[href]:hover,.route-entry[href]:focus-visible{background:color-mix(in srgb,var(--stage-accent) 11%,var(--panel));outline:none}
+  .route-entry[href]:focus-visible{box-shadow:inset 0 0 0 2px var(--stage-accent)}
 </style>

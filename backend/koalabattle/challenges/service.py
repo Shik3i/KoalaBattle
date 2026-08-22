@@ -66,9 +66,10 @@ from .repository import ChallengeRepository
 from .species import ShowdownSpeciesCatalog, SpeciesMetadata, showdown_id
 
 CONTENT_ROOT = Path(__file__).with_name("content")
-#: The next stage starts immediately after a win. The short "next opponent" transition is
-#: presentation in the browser, not a server-side wait, so nothing blocks progression.
+#: Quick Sim has no watched presentation to acknowledge. Watched modes deliberately receive
+#: no deadline: the browser advances only after its result card has actually finished.
 AUTO_ADVANCE_DELAYS = {"quick-sim": 0.0, "fast-watch": 0.0, "normal": 0.0}
+PRESENTATION_GATED_EXPERIENCES = {"fast-watch", "normal"}
 
 
 def _event_pokemon(value: object) -> tuple[str, str] | None:
@@ -658,9 +659,21 @@ class ChallengeService:
             and run.opponent_controller.agent_type not in interactive
         )
 
+    @staticmethod
+    def auto_advance_was_earned(run: ChallengeRun) -> bool:
+        """A retry is always a deliberate user action; only victories continue a run."""
+        if run.status is ChallengeStatus.READY:
+            return True
+        return bool(
+            run.status is ChallengeStatus.STAGE_RESULT
+            and run.stage_results
+            and run.stage_results[-1].status == "won"
+        )
+
     def _schedule_auto_run(self, run: ChallengeRun) -> None:
         if (
             not self.auto_run_available(run)
+            or not self.auto_advance_was_earned(run)
             or run.auto_run_paused
             or run.auto_advance_at is None
             or run.status not in {ChallengeStatus.READY, ChallengeStatus.STAGE_RESULT}
@@ -734,6 +747,19 @@ class ChallengeService:
                 values.append(own)
             return max(values) if values else None
 
+        def evolution_stage(species: SpeciesMetadata) -> int:
+            stage = 0
+            current = species
+            seen: set[str] = set()
+            while current.prevo_id and current.prevo_id not in seen:
+                seen.add(current.id)
+                previous = species_by_id.get(current.prevo_id)
+                if previous is None:
+                    break
+                stage += 1
+                current = previous
+            return stage
+
         for species in metadata:
             if (
                 species.battle_only
@@ -796,6 +822,7 @@ class ChallengeService:
                     showdown_set=species.showdown_set,
                     evolves_to=species.evolves_to,
                     mega_evolutions=species.mega_evolutions,
+                    evolution_stage=evolution_stage(species),
                     draft_points=points,
                     draft_rarity=rarity_for_points(points),
                 )
@@ -897,6 +924,7 @@ class ChallengeService:
                     run.active_match_id is None
                     and run.status in {ChallengeStatus.READY, ChallengeStatus.STAGE_RESULT}
                     and run.auto_advance_at is not None
+                    and self.auto_advance_was_earned(run)
                 ):
                     self._schedule_auto_run(run)
                     continue
@@ -1712,6 +1740,21 @@ class ChallengeService:
                 raise ValueError(f"stale challenge revision: current {run.revision}")
             if run.status not in {ChallengeStatus.READY, ChallengeStatus.STAGE_RESULT}:
                 raise ValueError("challenge is not ready to launch a stage")
+            # Saved V1/V2 runs could carry a Random or provider opponent. Draft campaign
+            # opponents are an invariant: every newly launched stage uses the same local,
+            # switch-capable Tactical Fast Auto logic as the player preset.
+            if run.opponent_controller.agent_type is not AgentType.TACTICAL_AUTO:
+                run = await self.repository.save(
+                    run.model_copy(
+                        update={
+                            "opponent_controller": BattleControllerSnapshot(
+                                agent_type=AgentType.TACTICAL_AUTO,
+                                configuration=run.opponent_controller.configuration,
+                            )
+                        }
+                    ),
+                    expected_revision=run.revision,
+                )
             if run.team_snapshot_id is None or run.current_stage_index >= len(
                 run.definition.stages
             ):
@@ -1938,6 +1981,7 @@ class ChallengeService:
                 and self.auto_run_available(run)
                 and not run.auto_run_paused
                 and not requires_mega_selection
+                and run.battle_experience not in PRESENTATION_GATED_EXPERIENCES
                 else None
             )
             updated = run.model_copy(
@@ -2000,12 +2044,19 @@ class ChallengeService:
         return stored
 
     async def auto_advance(self, run_id: UUID) -> tuple[ChallengeRun, MatchArchive | None]:
-        """Idempotently launch the next stage when the persisted deadline is due."""
+        """Launch after a Quick Sim deadline or a watched presentation acknowledgement."""
         run = await self.require(run_id)
+        earned = self.auto_advance_was_earned(run)
+        presentation_acknowledged = (
+            run.battle_experience in PRESENTATION_GATED_EXPERIENCES
+            and run.status is ChallengeStatus.STAGE_RESULT
+            and earned
+        )
         if (
             not self.auto_run_available(run)
+            or not earned
             or run.auto_run_paused
-            or run.auto_advance_at is None
+            or (run.auto_advance_at is None and not presentation_acknowledged)
             or run.status not in {ChallengeStatus.READY, ChallengeStatus.STAGE_RESULT}
             or run.current_stage_index >= len(run.definition.stages)
         ):
@@ -2015,7 +2066,7 @@ class ChallengeService:
                 else None
             )
             return run, match
-        if run.auto_advance_at > datetime.now(UTC):
+        if run.auto_advance_at is not None and run.auto_advance_at > datetime.now(UTC):
             self._schedule_auto_run(run)
             return run, None
         try:
@@ -2050,7 +2101,7 @@ class ChallengeService:
                 raise ValueError(f"stale challenge revision: current {run.revision}")
             if not self.auto_run_available(run):
                 raise ValueError("this run requires player-controlled battles")
-            launchable = run.status in {ChallengeStatus.READY, ChallengeStatus.STAGE_RESULT}
+            launchable = self.auto_advance_was_earned(run)
             stored = await self.repository.save(
                 run.model_copy(
                     update={
