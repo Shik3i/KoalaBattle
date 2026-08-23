@@ -142,9 +142,7 @@ def test_an_invalid_choice_is_ignored_and_the_path_still_stops_at_the_branch() -
 
 def test_mega_options_are_derived_from_the_persisted_current_species() -> None:
     pick = _pick("charizard", "Charmander", "charmander", ("charmander", "charizard"))
-    pick = pick.model_copy(
-        update={"current_species": "Charizard", "evolution_stage_index": 1}
-    )
+    pick = pick.model_copy(update={"current_species": "Charizard", "evolution_stage_index": 1})
     metadata = _species("charizard", "Charizard").model_copy(
         update={
             "mega_evolutions": (
@@ -162,13 +160,47 @@ def test_mega_options_are_derived_from_the_persisted_current_species() -> None:
         }
     )
 
-    options = _mega_options(cast(ChallengeRun, _FakeRun((pick,))), {"charizard": metadata})
+    mega_x = _species("charizardmegax", "Charizard-Mega-X").model_copy(
+        update={"is_mega": True, "required_item": "Charizardite X"}
+    )
+    mega_y = _species("charizardmegay", "Charizard-Mega-Y").model_copy(
+        update={"is_mega": True, "required_item": "Charizardite Y"}
+    )
+    options = _mega_options(
+        cast(ChallengeRun, _FakeRun((pick,))),
+        {"charizard": metadata, "charizardmegax": mega_x, "charizardmegay": mega_y},
+    )
 
     assert [option.mega_species_id for option in options] == [
         "charizardmegax",
         "charizardmegay",
     ]
     assert options[0].required_item == "Charizardite X"
+
+
+def test_mega_options_exclude_forms_marked_unavailable_by_the_format() -> None:
+    pick = _pick("chandelure", "Chandelure", "chandelure", ("chandelure",))
+    metadata = _species("chandelure", "Chandelure").model_copy(
+        update={
+            "mega_evolutions": (
+                MegaEvolutionOption(
+                    id="chandeluremega",
+                    species="Chandelure-Mega",
+                    required_item="Chandelurite",
+                ),
+            )
+        }
+    )
+    unavailable = _species("chandeluremega", "Chandelure-Mega").model_copy(
+        update={"is_mega": True, "unavailable": True, "required_item": "Chandelurite"}
+    )
+
+    options = _mega_options(
+        cast(ChallengeRun, _FakeRun((pick,))),
+        {"chandelure": metadata, "chandeluremega": unavailable},
+    )
+
+    assert options == ()
 
 
 def test_selected_mega_stone_replaces_only_the_exact_species_item() -> None:
@@ -230,18 +262,17 @@ def test_advance_evolutions_applies_at_most_one_level_gated_step() -> None:
     assert picks3[0].current_species == "Final"
 
 
-def test_non_level_evolution_waits_for_the_fixed_campaign_milestone() -> None:
+def test_non_level_evolution_uses_the_level_50_fallback() -> None:
     pick = _pick("mon1", "BranchA", "brancha", ("brancher", "brancha"))
-    # brancher -> brancha is a useItem trigger (no level); before the milestone stage it
-    # must not fire even at a very high level.
+    # brancher -> brancha is a useItem trigger (no level); level 49 is still too early.
     picks, events = _advance_evolutions(
-        _FakeRun((pick,)), next_stage_index=1, next_stage_level=90, species_by_id=SPECIES_BY_ID
+        _FakeRun((pick,)), next_stage_index=1, next_stage_level=49, species_by_id=SPECIES_BY_ID
     )
     assert picks[0].evolution_stage_index == 0
     assert events == ()
 
     picks2, events2 = _advance_evolutions(
-        _FakeRun((pick,)), next_stage_index=2, next_stage_level=90, species_by_id=SPECIES_BY_ID
+        _FakeRun((pick,)), next_stage_index=2, next_stage_level=50, species_by_id=SPECIES_BY_ID
     )
     assert picks2[0].evolution_stage_index == 1
     assert events2[0].to_species == "BranchA"
@@ -390,9 +421,7 @@ async def test_a_human_pick_of_a_branching_species_requires_a_valid_choice(
     entry_id = next(o.entry_id for o in run.current_offer.options if o.entry_id == "brancher")
     await repository.create(run)
     catalog = ShowdownSpeciesCatalog("http://127.0.0.1:9")
-    catalog.set_entries_for_test(
-        tuple(SPECIES_BY_ID.values()), format_id=run.definition.format
-    )
+    catalog.set_entries_for_test(tuple(SPECIES_BY_ID.values()), format_id=run.definition.format)
     service = ChallengeService(repository, catalog, cast(Any, None))
 
     with pytest.raises(ValueError, match="evolution_choice"):
@@ -422,9 +451,7 @@ async def test_random_controlled_drafting_never_stalls_on_an_unresolved_branch(
     entry_id = next(o.entry_id for o in run.current_offer.options if o.entry_id == "brancher")
     await repository.create(run)
     catalog = ShowdownSpeciesCatalog("http://127.0.0.1:9")
-    catalog.set_entries_for_test(
-        tuple(SPECIES_BY_ID.values()), format_id=run.definition.format
-    )
+    catalog.set_entries_for_test(tuple(SPECIES_BY_ID.values()), format_id=run.definition.format)
     service = ChallengeService(repository, catalog, cast(Any, None))
 
     picked = await service.pick(

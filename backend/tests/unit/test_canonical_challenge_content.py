@@ -209,6 +209,15 @@ def test_kanto_content_offers_original_and_filled_teams() -> None:
     assert definition.stages[0].trainer_asset_id == "brock-gen1rb"
 
 
+def test_campaigns_start_at_level_ten() -> None:
+    summaries = _definition_summaries()
+
+    assert summaries
+    for summary in summaries:
+        definition = _definition(summary.id)
+        assert definition.stages[0].level == 10, summary.id
+
+
 def test_original_sets_preserve_moves_and_filled_sets_are_competitive() -> None:
     definition = _definition("kanto-gym-gauntlet")
 
@@ -260,7 +269,7 @@ def test_kanto_opponent_sets_are_regression_locked() -> None:
     payload = json.dumps(_source_snapshot(), sort_keys=True, separators=(",", ":")).encode()
 
     assert hashlib.sha256(payload).hexdigest() == (
-        "599699e9a1bed961e6f57352f9224ae902142a81beef70603c799710c6cc8bd5"
+        "16f035209998dddbc784e39bf08d10f0c5e346142361a06c5a7f988cb55bf295"
     )
 
 

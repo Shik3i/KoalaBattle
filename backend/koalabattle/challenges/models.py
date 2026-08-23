@@ -61,11 +61,10 @@ def opponent_stage_level(stage_level: int, difficulty: ChallengeDifficulty) -> i
 
 
 # Any evolution trigger other than a real level-up (item, trade, friendship, a special
-# condition, ...) has no level of its own in the source games. The campaign maps every one
-# of them to this single fixed stage index instead of a level: reachable starting with the
-# stage-transition into this stage (index 2 = Lt. Surge), the same for every such species, so
-# evolution timing stays deterministic and does not depend on the player's own choices.
-NON_LEVEL_EVOLUTION_MILESTONE_STAGE_INDEX = 2
+# condition, ...) has no level of its own in the source games. The campaign uses level 50 as a
+# deterministic fallback (for example Sneasler's Razor Claw/day requirement), so these forms
+# still evolve without inventing a species-specific item or time-of-day system.
+NON_LEVEL_EVOLUTION_FALLBACK_LEVEL = 50
 
 
 class EvolutionTrigger(FrozenModel):
@@ -74,7 +73,7 @@ class EvolutionTrigger(FrozenModel):
     `trigger_kind == "level"` means `trigger_level` is a real level-up requirement. Every
     other kind (item/trade/friendship/condition/etc.) has no level of its own in the source
     games; the challenge service maps every such case to
-    `NON_LEVEL_EVOLUTION_MILESTONE_STAGE_INDEX` instead, so evolution timing stays
+    `NON_LEVEL_EVOLUTION_FALLBACK_LEVEL` instead, so evolution timing stays
     deterministic and reproducible.
     """
 
@@ -258,9 +257,7 @@ class PokemonIvSpread(FrozenModel):
 
 
 class ShowdownCompetitiveSet(FrozenModel):
-    source: Literal[
-        "showdown-battle-factory", "showdown-random-battle", "showdown-dex-validated"
-    ]
+    source: Literal["showdown-battle-factory", "showdown-random-battle", "showdown-dex-validated"]
     source_generation: int = Field(ge=1, le=9)
     source_tier: str = Field(min_length=1, max_length=40)
     species: str = Field(min_length=1, max_length=120)
@@ -315,9 +312,7 @@ class DraftPoolSnapshot(FrozenModel):
     catalog_hash: str = Field(min_length=64, max_length=64)
     draft_points_catalog_hash: str | None = Field(default=None, min_length=64, max_length=64)
     draft_points_source: str | None = Field(default=None, min_length=1, max_length=200)
-    draft_points_updated_on: str | None = Field(
-        default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"
-    )
+    draft_points_updated_on: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
     candidates: tuple[DraftCandidate, ...]
 
 
@@ -388,6 +383,23 @@ class ChallengeStageResult(FrozenModel):
 
 class ChallengeBattleSummary(FrozenModel):
     match_id: UUID
+    player_participants: tuple[str, ...] = ()
+    opponent_participants: tuple[str, ...] = ()
+    player_fainted: tuple[str, ...] = ()
+    opponent_fainted: tuple[str, ...] = ()
+
+
+class ChallengeBattleOverview(FrozenModel):
+    """One replay-backed row for the completed campaign overview."""
+
+    stage_id: str
+    stage_index: int = Field(ge=0)
+    attempt: int = Field(default=1, ge=1)
+    match_id: UUID
+    status: Literal["won", "lost", "draw", "failed", "cancelled", "interrupted"]
+    winner: str | None = None
+    turns: int = Field(default=0, ge=0)
+    duration_seconds: float = Field(default=0, ge=0)
     player_participants: tuple[str, ...] = ()
     opponent_participants: tuple[str, ...] = ()
     player_fainted: tuple[str, ...] = ()
@@ -467,7 +479,7 @@ class ChallengeRun(FrozenModel):
     # already shows the next-opponent transition: only when it observes the stage index
     # advance while the page is open, never replayed from a cold load.
     recent_evolutions: tuple[EvolutionEvent, ...] = ()
-    # Persisted when the run reaches Blue. Empty means the final roster has no legal Mega;
+    # Persisted after the eighth badge. Empty means the current roster has no legal Mega;
     # a non-empty tuple with no selection is the only state that pauses Tactical Auto.
     mega_options: tuple[ChallengeMegaOption, ...] = ()
     mega_selection: ChallengeMegaSelection | None = None
@@ -529,6 +541,7 @@ class ChallengeRunView(FrozenModel):
     statistics: ChallengeRunStats
     current_stage: PublicChallengeStage | None = None
     latest_battle_summary: ChallengeBattleSummary | None = None
+    battle_overview: tuple[ChallengeBattleOverview, ...] = ()
     pokemon_statistics: tuple[ChallengePokemonStats, ...] = ()
     continuation_options: tuple[ChallengeDefinitionSummary, ...] = ()
     team_export_scaffold: str | None = None

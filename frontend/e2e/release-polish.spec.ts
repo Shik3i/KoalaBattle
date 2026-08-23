@@ -161,7 +161,9 @@ test('an unavailable reroll explains itself and the active-game shell stays comp
     if (message.type() === 'error') consoleErrors.push(message.text());
   });
   page.on('pageerror', (error) => pageErrors.push(error.message));
-  const created = await createDraft(request, 1);
+  // Seed 4 deterministically lands on a three-card Generation/Type pool,
+  // so the custom Pokémon reroll is unavailable and must explain why.
+  const created = await createDraft(request, 4);
   await page.goto(`/challenges/${created.run.id}`);
 
   const reroll = page.getByRole('button', { name: /Reroll Pokémon/ });

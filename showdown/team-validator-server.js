@@ -14,7 +14,7 @@ const CATALOG_SCHEMA_VERSION = '1.2';
  * monotonic in level (a move learnable at level 25 stays learnable at every higher level), so
  * a set that is real-Showdown-legal here is guaranteed legal for the rest of the campaign.
  */
-const CAMPAIGN_MIN_LEVEL = 25;
+const CAMPAIGN_MIN_LEVEL = 10;
 
 function reply(response, status, payload) {
   const body = JSON.stringify(payload);

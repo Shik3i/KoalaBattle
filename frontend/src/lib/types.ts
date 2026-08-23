@@ -556,6 +556,20 @@ export interface ChallengeRunView {
   stages: ChallengeStageSummary[];
   current_stage: ChallengeStageSummary | null;
   latest_battle_summary: { match_id: string; player_participants: string[]; opponent_participants: string[]; player_fainted: string[]; opponent_fainted: string[] } | null;
+  battle_overview: Array<{
+    stage_id: string;
+    stage_index: number;
+    attempt: number;
+    match_id: string;
+    status: 'won' | 'lost' | 'draw' | 'failed' | 'cancelled' | 'interrupted';
+    winner: string | null;
+    turns: number;
+    duration_seconds: number;
+    player_participants: string[];
+    opponent_participants: string[];
+    player_fainted: string[];
+    opponent_fainted: string[];
+  }>;
   pokemon_statistics: Array<{
     entry_id: string;
     species: string;

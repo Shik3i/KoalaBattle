@@ -885,7 +885,7 @@ def _stage(
     assert isinstance(title, str)
     assert isinstance(specialty, str)
     roster = tuple(str(item).strip() for item in species if str(item).strip())
-    level = round(25 + (75 * index / max(1, total - 1)))
+    level = round(10 + (90 * index / max(1, total - 1)))
     reserve = tuple(dict.fromkeys(roster))
     # Filled mode keeps the leader's known roster first and adds themed reserve species
     # only where the story team is smaller than six.  The exact source roster remains the
@@ -945,7 +945,7 @@ def _definition(region: dict[str, object]) -> dict[str, object]:
         "mechanics_assumptions": [
             "Canonical story-mode species and order are preserved in Original teams mode",
             "The pinned Gen 9 NatDex Draft validator supplies legal modern move and ability details",
-            "Regional campaign levels are normalized to the shared 25-to-100 progression",
+            "Regional campaign levels are normalized to the shared 10-to-100 progression",
         ],
         "source": {
             "game": f"Pokémon {region['region']} story campaign",

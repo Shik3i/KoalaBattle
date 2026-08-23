@@ -15,7 +15,7 @@
     "Event-origin minimum levels are ignored only so every legal drafted Pokemon can use that shared stage level",
     "Original teams add only explicit legal abilities required by the modern engine; filled teams also carry authored items, natures, EVs, and IVs",
     "Difficulty modes raise only the opponent above the shared campaign level curve; the player's level never changes",
-    "Before Champion Blue, the player chooses one legal drafted Mega Evolution; Z-Moves, Dynamax, and Terastallization stay disabled",
+    "After the eighth badge and before the Elite Four, the player chooses one legal drafted Mega Evolution; that stone can activate once per battle while Z-Moves, Dynamax, and Terastallization stay disabled",
     "The Elite Four and Champion are one gauntlet: Pokemon knocked out there stay out until the run leaves it"
   ],
   "source": {
@@ -47,7 +47,7 @@
       "name": "Brock",
       "title": "Pewter Gym Leader",
       "theme": "Pokémon Red/Blue · Boulder Badge",
-      "level": 25,
+      "level": 10,
       "specialty": "Rock",
       "trainer_asset_id": "brock-gen1rb",
       "visual_accent": "#B8A038",

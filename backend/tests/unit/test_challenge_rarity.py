@@ -4,7 +4,12 @@ import random
 
 from koalabattle.challenges.domain import _weighted_sample
 from koalabattle.challenges.models import DraftCandidate
-from koalabattle.challenges.rarity import DraftRarity, load_draft_points, rarity_for_points
+from koalabattle.challenges.rarity import (
+    DraftRarity,
+    load_draft_points,
+    rarity_for_candidate,
+    rarity_for_points,
+)
 
 
 def _candidate(entry_id: str, rarity: DraftRarity) -> DraftCandidate:
@@ -22,9 +27,7 @@ def _candidate(entry_id: str, rarity: DraftRarity) -> DraftCandidate:
 
 
 def _evolved_candidate(entry_id: str, stage: int) -> DraftCandidate:
-    return _candidate(entry_id, DraftRarity.COMMON).model_copy(
-        update={"evolution_stage": stage}
-    )
+    return _candidate(entry_id, DraftRarity.COMMON).model_copy(update={"evolution_stage": stage})
 
 
 def test_committed_smogon_snapshot_is_large_versioned_and_hash_validated() -> None:
@@ -38,7 +41,7 @@ def test_committed_smogon_snapshot_is_large_versioned_and_hash_validated() -> No
 
 
 def test_draft_points_map_to_five_explicit_rarity_tiers() -> None:
-    assert [rarity_for_points(points) for points in (4, 5, 8, 9, 12, 13, 16, 17)] == [
+    assert [rarity_for_points(points) for points in (3, 4, 6, 7, 10, 11, 15, 16)] == [
         DraftRarity.COMMON,
         DraftRarity.UNCOMMON,
         DraftRarity.UNCOMMON,
@@ -48,6 +51,12 @@ def test_draft_points_map_to_five_explicit_rarity_tiers() -> None:
         DraftRarity.SUPER_RARE,
         DraftRarity.ULTRA_RARE,
     ]
+
+
+def test_legendary_tier_base_stats_have_a_scarcity_floor() -> None:
+    assert rarity_for_candidate(3, 580) is DraftRarity.SUPER_RARE
+    assert rarity_for_candidate(3, 600) is DraftRarity.ULTRA_RARE
+    assert rarity_for_candidate(3, 500) is DraftRarity.COMMON
 
 
 def test_ultra_rare_candidates_are_statistically_less_frequent_across_seeds() -> None:

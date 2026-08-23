@@ -656,16 +656,16 @@
 {:else if run.status === 'mega_selection'}
   <section id="mega-selection" class="mega-selection panel" aria-labelledby="mega-selection-title">
     <div class="mega-intro">
-      <span class="eyebrow">Before the final battle</span>
-      <h2 id="mega-selection-title">Choose one Mega Evolution</h2>
-      <p>The chosen Pokémon receives its required Mega Stone for the finale. This choice is saved immediately and cannot be changed during battle.</p>
+      <span class="eyebrow">After the eighth badge · before the Elite Four</span>
+      <h2 id="mega-selection-title">Choose your team’s Mega Evolution</h2>
+      <p>One legal Mega Stone is assigned to one team member for the rest of this run. Showdown allows at most one Mega activation per side and battle; the opponent follows the same rule.</p>
     </div>
     <div class="mega-options" role="group" aria-label="Available Mega Evolutions">
       {#each run.mega_options as option}
         <button
           type="button"
           disabled={Boolean(loading)}
-          aria-label={`Choose ${option.mega_species} for the final battle with ${option.required_item}`}
+          aria-label={`Choose ${option.mega_species} for later battles with ${option.required_item}`}
           on:click={() => selectMega(option.entry_id, option.mega_species_id)}
         >
           <PokemonSprite species={option.mega_species} decorative size="large" />
@@ -812,6 +812,28 @@
         {/each}
       </div>
     {:else}<p class="empty-stats">Replay statistics are still being indexed. Refresh this run in a moment.</p>{/if}
+  </section>
+  <section class="battle-overview panel" aria-labelledby="battle-overview-title">
+    <header><div><span class="eyebrow">Replay archive</span><h2 id="battle-overview-title">All battles</h2></div><small>{view.battle_overview.length} replay{view.battle_overview.length === 1 ? '' : 's'} · retries included</small></header>
+    {#if view.battle_overview.length}
+      <ol class="battle-overview-list">
+        {#each view.battle_overview as battle}
+          {@const stage = view.stages[battle.stage_index]}
+          <li class:success={battle.status === 'won'} class:failed={battle.status !== 'won'}>
+            <div class="battle-overview-head">
+              <div class="battle-overview-stage"><TrainerPortrait trainerId={stage?.trainer_asset_id} name={stage?.name || battle.stage_id} accent={stage?.visual_accent || '#7bf0a2'} compact decorative /><span><strong>{stage?.name || battle.stage_id}</strong><small>Battle {battle.stage_index + 1}{battle.attempt > 1 ? ` · Attempt ${battle.attempt}` : ''} · {outcomeTitle(battle.status)}</small></span></div>
+              <a class="button secondary compact" href={`/replay/${battle.match_id}`}>Replay</a>
+            </div>
+            <div class="battle-overview-teams">
+              <div><b>Your team</b><span>{#each battle.player_participants as species}<PokemonSprite {species} size="small" decorative />{species}{:else}<em>Not recorded</em>{/each}</span></div>
+              <div><b>Opponent</b><span>{#each battle.opponent_participants as species}<PokemonSprite {species} size="small" decorative />{species}{:else}<em>Not recorded</em>{/each}</span></div>
+            </div>
+            <dl><div><dt>Turns</dt><dd>{battle.turns}</dd></div><div><dt>Duration</dt><dd>{formatDuration(battle.duration_seconds)}</dd></div><div><dt>KOs</dt><dd>{battle.opponent_fainted.length}–{battle.player_fainted.length}</dd></div></dl>
+            {#if battle.player_fainted.length || battle.opponent_fainted.length}<p class="battle-overview-faints">Faints · yours: {battle.player_fainted.join(', ') || 'none'} · opponent: {battle.opponent_fainted.join(', ') || 'none'}</p>{/if}
+          </li>
+        {/each}
+      </ol>
+    {:else}<p class="empty-stats">Replay overview is still being indexed. Refresh this run in a moment.</p>{/if}
   </section>
   {#if view.continuation_options.length}
     <section class="same-team panel" aria-labelledby="same-team-title">
@@ -1044,6 +1066,30 @@
   .reroll-control.unavailable .button::before{display:none}
   @media(max-width:720px){.mega-selection{grid-template-columns:1fr}.mega-options{grid-template-columns:1fr}}
   @media(prefers-reduced-motion:reduce){.mega-options button{transition:none}.mega-options button:hover:not(:disabled),.mega-options button:focus-visible{transform:none}.mega-options .ph-circle-notch{animation:none}}
+  .battle-overview{margin-top:.75rem;padding:1rem 1.1rem}
+  .battle-overview>header{display:flex;align-items:end;justify-content:space-between;gap:.8rem}
+  .battle-overview h2{margin:.12rem 0 0;font-size:1.1rem}
+  .battle-overview>header small{color:var(--muted);font:.62rem var(--mono);text-align:right}
+  .battle-overview-list{display:grid;gap:.55rem;margin:.8rem 0 0;padding:0;list-style:none}
+  .battle-overview-list>li{display:grid;gap:.55rem;padding:.7rem;border:1px solid var(--border);border-left:3px solid var(--muted);border-radius:.7rem;background:var(--surface)}
+  .battle-overview-list>li.success{border-left-color:var(--accent)}
+  .battle-overview-list>li.failed{border-left-color:var(--danger)}
+  .battle-overview-head{display:flex;align-items:center;justify-content:space-between;gap:.7rem}
+  .battle-overview-stage{display:flex;align-items:center;gap:.5rem;min-width:0}
+  .battle-overview-stage>span{display:grid;gap:.1rem;min-width:0}
+  .battle-overview-stage strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .battle-overview-stage small{color:var(--muted);font:.6rem var(--mono)}
+  .battle-overview-teams{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.55rem}
+  .battle-overview-teams>div{display:grid;gap:.25rem;min-width:0}
+  .battle-overview-teams b{color:var(--muted);font:.58rem var(--mono);letter-spacing:.06em;text-transform:uppercase}
+  .battle-overview-teams span{display:flex;align-items:center;flex-wrap:wrap;gap:.25rem .45rem;color:var(--text);font-size:.7rem}
+  .battle-overview-teams em{color:var(--muted);font-style:normal}
+  .battle-overview-list dl{display:flex;flex-wrap:wrap;gap:.8rem;margin:0;padding-top:.45rem;border-top:1px solid var(--border)}
+  .battle-overview-list dl div{display:flex;gap:.3rem;align-items:baseline}
+  .battle-overview-list dt{color:var(--muted);font:.58rem var(--mono);text-transform:uppercase}
+  .battle-overview-list dd{margin:0;font-weight:700;font-size:.72rem}
+  .battle-overview-faints{margin:0;color:var(--muted);font-size:.65rem;line-height:1.35}
+  @media(max-width:600px){.battle-overview>header{align-items:flex-start;flex-direction:column}.battle-overview>header small{text-align:left}.battle-overview-head{align-items:flex-start;flex-direction:column}.battle-overview-teams{grid-template-columns:1fr}}
   /* Draft workspace audit: compact hierarchy, no clipped controls, viewport-safe help. */
   .page-head{z-index:5}
   .draft{overflow:visible;padding:1rem}

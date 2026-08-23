@@ -34,8 +34,9 @@ from .domain import (
 )
 from .models import (
     DRAFT_RULES_VERSION,
-    NON_LEVEL_EVOLUTION_MILESTONE_STAGE_INDEX,
+    NON_LEVEL_EVOLUTION_FALLBACK_LEVEL,
     BattleControllerSnapshot,
+    ChallengeBattleOverview,
     ChallengeBattleSummary,
     ChallengeDefinition,
     ChallengeDefinitionSummary,
@@ -62,10 +63,11 @@ from .models import (
     EvolutionEvent,
     EvolutionTrigger,
     EvSpread,
+    MegaEvolutionOption,
     PublicChallengeStage,
     opponent_stage_level,
 )
-from .rarity import DraftPointsSnapshot, load_draft_points, rarity_for_points
+from .rarity import DraftPointsSnapshot, load_draft_points, rarity_for_candidate
 from .repository import ChallengeRepository
 from .species import ShowdownSpeciesCatalog, SpeciesMetadata, showdown_id
 
@@ -74,6 +76,9 @@ CONTENT_ROOT = Path(__file__).with_name("content")
 #: no deadline: the browser advances only after its result card has actually finished.
 AUTO_ADVANCE_DELAYS = {"quick-sim": 0.0, "fast-watch": 0.0, "normal": 0.0}
 PRESENTATION_GATED_EXPERIENCES = {"fast-watch", "normal"}
+# The first eight stages are the Gym/Trial route; Mega selection opens after its eighth
+# badge, immediately before the first Elite Four stage (stage index 8 in regional routes).
+MEGA_UNLOCK_STAGE_INDEX = 8
 
 
 def _event_pokemon(value: object) -> tuple[str, str] | None:
@@ -122,6 +127,36 @@ def derive_battle_summary(archive: MatchArchive) -> ChallengeBattleSummary:
         player_fainted=tuple(fainted["p1"]),
         opponent_fainted=tuple(fainted["p2"]),
     )
+
+
+def derive_battle_overview(
+    run: ChallengeRun, archives: tuple[MatchArchive, ...]
+) -> tuple[ChallengeBattleOverview, ...]:
+    """Combine each saved stage result with its replay-derived participant summary."""
+    summaries = {archive.id: derive_battle_summary(archive) for archive in archives}
+    attempts: dict[str, int] = {}
+    overview: list[ChallengeBattleOverview] = []
+    for result in run.stage_results:
+        attempt = attempts.get(result.stage_id, 0) + 1
+        attempts[result.stage_id] = attempt
+        summary = summaries.get(result.match_id)
+        overview.append(
+            ChallengeBattleOverview(
+                stage_id=result.stage_id,
+                stage_index=result.stage_index,
+                attempt=attempt,
+                match_id=result.match_id,
+                status=result.status,
+                winner=result.winner,
+                turns=result.turns,
+                duration_seconds=result.duration_seconds,
+                player_participants=summary.player_participants if summary else (),
+                opponent_participants=summary.opponent_participants if summary else (),
+                player_fainted=summary.player_fainted if summary else (),
+                opponent_fainted=summary.opponent_fainted if summary else (),
+            )
+        )
+    return tuple(overview)
 
 
 def _hp_value(value: object) -> tuple[int, int | None] | None:
@@ -258,9 +293,7 @@ def derive_pokemon_statistics(
                         or move_sources.get(target)
                     )
                     source_entry = (
-                        player_entry(f"{source[0]}a: {source[1]}", aliases)
-                        if source
-                        else None
+                        player_entry(f"{source[0]}a: {source[1]}", aliases) if source else None
                     )
                     if source_entry is not None:
                         values[source_entry]["damage_dealt"] += points
@@ -381,9 +414,7 @@ def _definition_summaries() -> tuple[ChallengeDefinitionSummary, ...]:
                 stage_count=len(definition.stages),
                 stage_count_label=definition.stage_count_label,
                 specialties=tuple(
-                    dict.fromkeys(
-                        stage.specialty for stage in definition.stages if stage.specialty
-                    )
+                    dict.fromkeys(stage.specialty for stage in definition.stages if stage.specialty)
                 ),
             )
         )
@@ -411,6 +442,46 @@ def _opponent_stage_team(stage: ChallengeStage, mode: Literal["original", "fille
     if mode == "filled" and stage.filled_opponent_team is not None:
         return stage.filled_opponent_team
     return stage.opponent_team
+
+
+def _team_block_species(block: str) -> str:
+    heading = block.splitlines()[0].split("@", 1)[0].strip()
+    species_match = re.search(r"\(([^()]+)\)\s*$", heading)
+    return species_match.group(1) if species_match else heading
+
+
+def _legal_mega_options(
+    species: SpeciesMetadata, species_by_id: dict[str, SpeciesMetadata]
+) -> tuple[MegaEvolutionOption, ...]:
+    """Keep only Mega forms exposed as legal by the same format catalog as validation."""
+    legal: list[MegaEvolutionOption] = []
+    for option in species.mega_evolutions:
+        target = species_by_id.get(showdown_id(option.id))
+        if target is None or target.unavailable or not target.is_mega:
+            continue
+        if target.required_item and showdown_id(target.required_item) != showdown_id(
+            option.required_item
+        ):
+            continue
+        legal.append(option)
+    return tuple(legal)
+
+
+def _opponent_mega_choice(
+    team_export: str, species_by_id: dict[str, SpeciesMetadata]
+) -> tuple[str, str] | None:
+    """Choose one deterministic Mega-capable opponent species and its required item."""
+    for raw_block in (item.strip() for item in team_export.strip().split("\n\n") if item.strip()):
+        species = _team_block_species(raw_block)
+        metadata = species_by_id.get(showdown_id(species))
+        if metadata is None:
+            continue
+        options = _legal_mega_options(metadata, species_by_id)
+        if not options:
+            continue
+        mega = min(options, key=lambda option: option.id)
+        return species, mega.required_item
+    return None
 
 
 def _prepare_opponent_stage_team(
@@ -746,7 +817,7 @@ def _advance_evolutions(
         reached = (
             next_stage_level >= trigger.trigger_level
             if trigger.trigger_kind == "level" and trigger.trigger_level is not None
-            else next_stage_index >= NON_LEVEL_EVOLUTION_MILESTONE_STAGE_INDEX
+            else next_stage_level >= NON_LEVEL_EVOLUTION_FALLBACK_LEVEL
         )
         if not reached:
             updated_picks.append(pick)
@@ -837,7 +908,7 @@ def _mega_options(
                 mega_species=mega.species,
                 required_item=mega.required_item,
             )
-            for mega in current.mega_evolutions
+            for mega in _legal_mega_options(current, species_by_id)
         )
     return tuple(sorted(options, key=lambda option: (option.entry_id, option.mega_species_id)))
 
@@ -860,6 +931,16 @@ def _with_selected_item(team_export: str, species: str, item: str) -> str:
     if not matched:
         raise ValueError(f"Mega selection species is missing from the derived team: {species}")
     return "\n\n".join(rewritten)
+
+
+def _team_species_ids(team_export: str) -> set[str]:
+    """Return the species identities currently present in an exported team."""
+    species_ids: set[str] = set()
+    for block in (part.strip() for part in team_export.strip().split("\n\n") if part.strip()):
+        heading = block.splitlines()[0].split("@", 1)[0].strip()
+        match = re.search(r"\(([^()]+)\)\s*$", heading)
+        species_ids.add(showdown_id(match.group(1) if match else heading))
+    return species_ids
 
 
 def _with_level(team_export: str, level: int) -> str:
@@ -1143,7 +1224,7 @@ class ChallengeService:
                     mega_evolutions=species.mega_evolutions,
                     evolution_stage=evolution_stage(species),
                     draft_points=points,
-                    draft_rarity=rarity_for_points(points),
+                    draft_rarity=rarity_for_candidate(points, species.base_stat_total),
                 )
             )
         return tuple(sorted(candidates, key=lambda item: item.entry_id)), excluded
@@ -1327,6 +1408,7 @@ class ChallengeService:
         return self.view(
             run,
             latest_battle_summary=summary,
+            battle_overview=derive_battle_overview(run, tuple(archives)),
             pokemon_statistics=derive_pokemon_statistics(run, tuple(archives)),
         )
 
@@ -1393,6 +1475,7 @@ class ChallengeService:
         run: ChallengeRun,
         *,
         latest_battle_summary: ChallengeBattleSummary | None = None,
+        battle_overview: tuple[ChallengeBattleOverview, ...] = (),
         pokemon_statistics: tuple[ChallengePokemonStats, ...] = (),
     ) -> ChallengeRunView:
         stages = tuple(_public_stage(stage, run.difficulty) for stage in run.definition.stages)
@@ -1457,6 +1540,7 @@ class ChallengeService:
             stages=stages,
             current_stage=current,
             latest_battle_summary=latest_battle_summary,
+            battle_overview=battle_overview,
             pokemon_statistics=pokemon_statistics,
             continuation_options=tuple(
                 item for item in _definition_summaries() if item.id != run.definition.id
@@ -2182,17 +2266,27 @@ class ChallengeService:
             )
             opponent_team = _opponent_stage_team(stage, run.opponent_team_mode)
             opponent_team = _prepare_opponent_stage_team(opponent_team, species_by_id)
-            if run.mega_selection is not None and run.current_stage_index == len(
-                run.definition.stages
-            ) - 1:
+            if (
+                run.mega_selection is not None
+                and run.current_stage_index >= MEGA_UNLOCK_STAGE_INDEX
+            ):
+                selected_species = showdown_id(run.mega_selection.from_species)
+                available_species = _team_species_ids(available)
+            else:
+                selected_species = ""
+                available_species = set()
+            if selected_species and selected_species in available_species:
                 available = _with_selected_item(
                     available,
                     run.mega_selection.from_species,
                     run.mega_selection.required_item,
                 )
-                opponent_team = _with_selected_item(
-                    opponent_team, "Charizard", "Charizardite Y"
-                )
+            if run.current_stage_index >= MEGA_UNLOCK_STAGE_INDEX:
+                opponent_mega = _opponent_mega_choice(opponent_team, species_by_id)
+                if opponent_mega is not None:
+                    opponent_team = _with_selected_item(
+                        opponent_team, opponent_mega[0], opponent_mega[1]
+                    )
             player_validation = await self.battles.team_validator.validate(
                 _with_level(available, player_level), run.definition.format
             )
@@ -2355,17 +2449,20 @@ class ChallengeService:
                 )
             else:
                 picks, recent_evolutions = run.picks, ()
-            entering_final = won and next_index == len(run.definition.stages) - 1
-            if entering_final:
-                species_by_id = await self._species_by_id(run.definition.format)
-                mega_options = _mega_options(
-                    run.model_copy(update={"picks": picks}), species_by_id
-                )
-            else:
+            if next_index < MEGA_UNLOCK_STAGE_INDEX:
+                mega_options = ()
+                mega_selection = None
+            elif run.mega_selection is not None:
+                # The player chooses once after the eighth badge. The selected stone remains
+                # on that one team member for every later battle; Showdown still limits the
+                # actual Mega action to one per side and battle.
                 mega_options = run.mega_options
-            requires_mega_selection = bool(
-                entering_final and mega_options and run.mega_selection is None
-            )
+                mega_selection = run.mega_selection
+            else:
+                species_by_id = await self._species_by_id(run.definition.format)
+                mega_options = _mega_options(run.model_copy(update={"picks": picks}), species_by_id)
+                mega_selection = None
+            requires_mega_selection = bool(mega_options) and mega_selection is None
             auto_advance_at = (
                 datetime.now(UTC) + timedelta(seconds=AUTO_ADVANCE_DELAYS[run.battle_experience])
                 if won
@@ -2391,6 +2488,7 @@ class ChallengeService:
                     "picks": picks,
                     "recent_evolutions": recent_evolutions,
                     "mega_options": mega_options,
+                    "mega_selection": mega_selection,
                     "completed_at": datetime.now(UTC) if completed else None,
                     "error": archive.error if outcome in {"failed", "interrupted"} else None,
                 }

@@ -19,23 +19,38 @@ class DraftRarity(StrEnum):
 
 RARITY_WEIGHTS: dict[DraftRarity, float] = {
     DraftRarity.COMMON: 1.0,
-    DraftRarity.UNCOMMON: 0.75,
-    DraftRarity.RARE: 0.5,
-    DraftRarity.SUPER_RARE: 0.28,
-    DraftRarity.ULTRA_RARE: 0.12,
+    DraftRarity.UNCOMMON: 0.55,
+    DraftRarity.RARE: 0.22,
+    DraftRarity.SUPER_RARE: 0.07,
+    DraftRarity.ULTRA_RARE: 0.015,
 }
 
 
 def rarity_for_points(points: int) -> DraftRarity:
-    if points <= 4:
+    if points <= 3:
         return DraftRarity.COMMON
-    if points <= 8:
+    if points <= 6:
         return DraftRarity.UNCOMMON
-    if points <= 12:
+    if points <= 10:
         return DraftRarity.RARE
-    if points <= 16:
+    if points <= 15:
         return DraftRarity.SUPER_RARE
     return DraftRarity.ULTRA_RARE
+
+
+def rarity_for_candidate(points: int, base_stat_total: int | None) -> DraftRarity:
+    """Apply a hard scarcity floor to legendary-tier stat lines.
+
+    Draft points measure competitive value, not legendary status. A high-BST legendary could
+    therefore otherwise land in a merely rare bucket. The floor keeps 570+ BST species scarce
+    even when the upstream points snapshot underrates them.
+    """
+    rarity = rarity_for_points(points)
+    if base_stat_total is not None and base_stat_total >= 600:
+        return DraftRarity.ULTRA_RARE
+    if base_stat_total is not None and base_stat_total >= 570:
+        return max((rarity, DraftRarity.SUPER_RARE), key=lambda item: list(DraftRarity).index(item))
+    return rarity
 
 
 class DraftPointsSnapshot(BaseModel):

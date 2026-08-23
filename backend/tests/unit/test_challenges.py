@@ -26,6 +26,7 @@ from koalabattle.challenges.models import (
     ChallengeRun,
     ChallengeSource,
     ChallengeStage,
+    ChallengeStageResult,
     ChallengeStatus,
     ContinueChallengeRun,
     CreateChallengeRun,
@@ -60,6 +61,7 @@ from koalabattle.challenges.service import (
     _with_unique_duplicate_nicknames,
     _with_zero_ev_confirmation,
     _without_downed,
+    derive_battle_overview,
     derive_battle_summary,
     derive_pokemon_statistics,
     redact_challenge_match,
@@ -861,6 +863,51 @@ def test_battle_summary_uses_only_participants_and_authoritative_faints() -> Non
     assert summary.opponent_participants == ("Geodude",)
     assert summary.player_fainted == ("Pikachu",)
     assert summary.opponent_fainted == ("Geodude",)
+
+
+def test_battle_overview_joins_stage_results_to_replay_participants() -> None:
+    run = _run(status=ChallengeStatus.COMPLETED)
+    match_id = uuid4()
+    archive = _won_archive(run, match_id, "stage-one").model_copy(
+        update={
+            "events": (
+                BattleEvent(
+                    match_id=match_id,
+                    sequence=1,
+                    turn=0,
+                    event_type="pokemon_switched",
+                    payload={"actor": "p1a: Sparky", "details": "Pikachu, L50"},
+                ),
+                BattleEvent(
+                    match_id=match_id,
+                    sequence=2,
+                    turn=0,
+                    event_type="pokemon_switched",
+                    payload={"actor": "p2a: Rocky", "details": "Geodude, L12"},
+                ),
+            )
+        }
+    )
+    result = ChallengeStageResult(
+        stage_id="stage-one",
+        stage_index=0,
+        match_id=match_id,
+        status="won",
+        winner="p1",
+        turns=archive.turns,
+        duration_seconds=3,
+        started_at=archive.created_at,
+        completed_at=archive.updated_at,
+    )
+
+    overview = derive_battle_overview(
+        run.model_copy(update={"stage_results": (result,)}), (archive,)
+    )
+
+    assert len(overview) == 1
+    assert overview[0].attempt == 1
+    assert overview[0].player_participants == ("Pikachu",)
+    assert overview[0].opponent_participants == ("Geodude",)
 
 
 def test_pokemon_statistics_aggregate_damage_participation_and_ko_events() -> None:

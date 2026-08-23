@@ -291,7 +291,7 @@ export function challengeStatusLabel(status: ChallengeStatus): string {
     battle_queued: 'Battle queued',
     battling: 'Battle in progress',
     stage_result: 'Stage result',
-    mega_selection: 'Final power-up',
+    mega_selection: 'Mega unlocked',
     completed: 'Draft run complete',
     failed: 'Draft run failed',
     cancelled: 'Draft run cancelled',

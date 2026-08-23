@@ -11,7 +11,7 @@
   "mechanics_assumptions": [
     "Canonical story-mode species and order are preserved in Original teams mode",
     "The pinned Gen 9 NatDex Draft validator supplies legal modern move and ability details",
-    "Regional campaign levels are normalized to the shared 25-to-100 progression"
+    "Regional campaign levels are normalized to the shared 10-to-100 progression"
   ],
   "source": {
     "game": "Pokémon Sinnoh story campaign",
@@ -41,7 +41,7 @@
       "name": "Roark",
       "title": "Oreburgh Gym Leader",
       "theme": "rock",
-      "level": 25,
+      "level": 10,
       "specialty": "Rock",
       "visual_accent": "#7bf0a2",
       "full_heal_before": true,

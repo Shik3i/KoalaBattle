@@ -199,7 +199,7 @@ test('campaign position is one-based and capped at the final battle', () => {
 
 test('status and duration labels are user-facing', () => {
   assert.equal(challengeStatusLabel('team_review'), 'Team review');
-  assert.equal(challengeStatusLabel('mega_selection'), 'Final power-up');
+  assert.equal(challengeStatusLabel('mega_selection'), 'Mega unlocked');
   assert.equal(challengeStatusLabel('completed'), 'Draft run complete');
   assert.equal(formatDuration(0), '0s');
   assert.equal(formatDuration(3670), '1h 1m');
