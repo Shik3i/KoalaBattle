@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import json
 import re
+from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal
@@ -943,24 +944,32 @@ def _team_species_ids(team_export: str) -> set[str]:
     return species_ids
 
 
-def _with_level(team_export: str, level: int) -> str:
+def _with_level(
+    team_export: str,
+    level: int,
+    minimum_levels: Mapping[str, int] | None = None,
+) -> str:
     blocks = [block.strip() for block in team_export.strip().split("\n\n") if block.strip()]
     normalized: list[str] = []
     for block in blocks:
         lines = block.splitlines()
+        heading = lines[0].split("@", 1)[0].strip()
+        species_match = re.search(r"\(([^()]+)\)\s*$", heading)
+        species_id = showdown_id(species_match.group(1) if species_match else heading)
+        effective_level = max(level, (minimum_levels or {}).get(species_id, 1))
         level_indexes = [index for index, line in enumerate(lines) if line.startswith("Level:")]
         if level_indexes:
-            lines[level_indexes[0]] = f"Level: {level}"
+            lines[level_indexes[0]] = f"Level: {effective_level}"
             for index in reversed(level_indexes[1:]):
                 lines.pop(index)
         else:
-            lines.insert(1, f"Level: {level}")
+            lines.insert(1, f"Level: {effective_level}")
         ev_index = next(
             (index for index, line in enumerate(lines) if line.startswith("EVs:")), None
         )
         if ev_index is None:
             lines.insert(2, "EVs: 1 HP")
-        elif level < 100:
+        elif effective_level < 100:
             # Showdown requires an intentional-level marker below the format maximum.
             # One otherwise unused EV is its canonical marker and cannot change a stat.
             parts = lines[ev_index].removeprefix("EVs:").strip().split(" / ")
@@ -2266,6 +2275,9 @@ class ChallengeService:
             )
             opponent_team = _opponent_stage_team(stage, run.opponent_team_mode)
             opponent_team = _prepare_opponent_stage_team(opponent_team, species_by_id)
+            minimum_levels = {
+                showdown_id(species.id): species.minimum_level for species in species_by_id.values()
+            }
             if (
                 run.mega_selection is not None
                 and run.current_stage_index >= MEGA_UNLOCK_STAGE_INDEX
@@ -2288,10 +2300,12 @@ class ChallengeService:
                         opponent_team, opponent_mega[0], opponent_mega[1]
                     )
             player_validation = await self.battles.team_validator.validate(
-                _with_level(available, player_level), run.definition.format
+                _with_level(available, player_level, minimum_levels), run.definition.format
             )
             opponent_validation = await self.battles.team_validator.validate(
-                _with_unique_duplicate_nicknames(_with_level(opponent_team, opponent_level)),
+                _with_unique_duplicate_nicknames(
+                    _with_level(opponent_team, opponent_level, minimum_levels)
+                ),
                 run.definition.format,
             )
             if not player_validation.valid:

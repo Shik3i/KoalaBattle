@@ -30,6 +30,9 @@ class SpeciesMetadata(BaseModel):
     base_species_id: str
     national_dex_number: int = Field(ge=1)
     introduction_generation: int = Field(ge=1, le=9)
+    # Lowest level at which the pinned Showdown set can be validated.  This captures both
+    # evolution-level rules and event-origin restrictions that are not visible in the move list.
+    minimum_level: int = Field(default=1, ge=1, le=100)
     types: tuple[str, ...] = Field(min_length=1, max_length=2)
     base_stat_total: int | None = Field(default=None, ge=1, le=2000)
     base_stats: PokemonBaseStats | None = None

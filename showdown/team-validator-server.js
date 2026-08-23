@@ -507,6 +507,7 @@ function speciesCatalog(formatId) {
         base_species_id: Dex.toID(entry.baseSpecies || entry.name),
         national_dex_number: Number(entry.num),
         introduction_generation: Number(entry.gen),
+        minimum_level: competitiveSet ? setLevel : CAMPAIGN_MIN_LEVEL,
         types: entry.types || [],
         base_stat_total: Object.values(entry.baseStats || {}).reduce((total, value) => total + Number(value || 0), 0) || null,
         base_stats: entry.baseStats ? {

@@ -75,13 +75,18 @@ async def test_every_regional_campaign_team_is_legal_after_dex_enrichment() -> N
         species_by_id = {
             showdown_id(entry.id): entry for entry in await catalog.entries(definition.format)
         }
+        minimum_levels = {
+            showdown_id(entry.id): entry.minimum_level for entry in species_by_id.values()
+        }
         for stage in definition.stages:
             for mode in ("original", "filled"):
                 team = _prepare_opponent_stage_team(
                     _opponent_stage_team(stage, mode), species_by_id
                 )
                 result = await validator.validate(
-                    _with_unique_duplicate_nicknames(_with_level(team, stage.level)),
+                    _with_unique_duplicate_nicknames(
+                        _with_level(team, stage.level, minimum_levels)
+                    ),
                     definition.format,
                 )
                 if not result.valid:
