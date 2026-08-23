@@ -174,6 +174,9 @@ def test_quick_start_waits_for_routes_but_not_the_full_run_history() -> None:
     assert "void loadDefinitions();" in page
     assert "disabled={quickStarting || routesLoading}" in page
     assert "disabled={quickStarting || historyLoading}" not in page
+    assert "definitions.length ? definitions : await loadDefinitions()" in page
+    assert "routesError = caught instanceof Error" in page
+    assert "historyError = caught instanceof Error" in page
 
 
 def test_battle_heading_prioritizes_the_opponent_and_title() -> None:

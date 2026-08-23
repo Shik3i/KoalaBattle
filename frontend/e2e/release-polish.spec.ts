@@ -82,6 +82,42 @@ test('Draft Quick Start skips setup with Fast Auto, Normal and Fast Watch', asyn
   expect(view.run.draft_pool.candidates.every((candidate) => candidate.evolution_stage === 0)).toBeTruthy();
 });
 
+test('Draft Quick Start retries a failed campaign-route request before creating', async ({ page }) => {
+  let definitionAttempts = 0;
+  let selectedDefinition = '';
+  const fakeRunId = '00000000-0000-4000-8000-000000000001';
+
+  await page.route(`${apiBase}/api/challenges/definitions`, async (route) => {
+    definitionAttempts += 1;
+    if (definitionAttempts === 1) {
+      await route.fulfill({ status: 503, contentType: 'application/json', body: '{"detail":"temporary"}' });
+      return;
+    }
+    await route.continue();
+  });
+  await page.route(`${apiBase}/api/challenges`, async (route) => {
+    if (route.request().method() !== 'POST') {
+      await route.continue();
+      return;
+    }
+    selectedDefinition = String(route.request().postDataJSON().definition_id || '');
+    await route.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: JSON.stringify({ run: { id: fakeRunId, current_offer: null } })
+    });
+  });
+
+  await page.goto('/challenges');
+  const quickStart = page.getByRole('button', { name: /Quick Start:/ });
+  await expect(quickStart).toBeEnabled();
+  await quickStart.click();
+
+  await expect(page).toHaveURL(`/challenges/${fakeRunId}`);
+  expect(definitionAttempts).toBe(2);
+  expect(selectedDefinition).toMatch(/^(kanto|johto|hoenn|sinnoh|unova|kalos|alola|galar|paldea)-/);
+});
+
 test('Custom Draft persists normal pool and filled opponent team choices', async ({ page, request }) => {
   await page.goto('/challenges/new');
 

@@ -10,6 +10,7 @@
   let historyLoading = true;
   let routesLoading = true;
   let historyError = '';
+  let routesError = '';
   let quickStarting = false;
   let quickStartError = '';
 
@@ -30,12 +31,16 @@
     }
   }
 
-  async function loadDefinitions() {
+  async function loadDefinitions(): Promise<ChallengeDefinitionSummary[]> {
     routesLoading = true;
     try {
-      definitions = await api<ChallengeDefinitionSummary[]>('/api/challenges/definitions');
+      const available = await api<ChallengeDefinitionSummary[]>('/api/challenges/definitions');
+      definitions = available;
+      routesError = available.length ? '' : 'No Draft campaign route is available.';
+      return available;
     } catch (caught) {
-      historyError = caught instanceof Error ? caught.message : String(caught);
+      routesError = caught instanceof Error ? caught.message : String(caught);
+      return [];
     } finally {
       routesLoading = false;
     }
@@ -55,8 +60,9 @@
     quickStartError = '';
     try {
       const seed = Math.floor(Date.now() / 1000);
-      const selected = standardChallengeDefinition(definitions, seed);
-      if (!selected) throw new Error('No Draft campaign route is available.');
+      const available = definitions.length ? definitions : await loadDefinitions();
+      const selected = standardChallengeDefinition(available, seed);
+      if (!selected) throw new Error(routesError || 'No Draft campaign route is available.');
       const view = await api<ChallengeRunView>('/api/challenges', {
         method: 'POST',
         body: JSON.stringify(
