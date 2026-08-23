@@ -20,7 +20,6 @@ from koalabattle.challenges.domain import (
 from koalabattle.challenges.models import (
     DIFFICULTY_LEVEL_MODIFIERS,
     BattleControllerSnapshot,
-    ChallengeBattleSummary,
     ChallengeDefinition,
     ChallengeDifficulty,
     ChallengeRun,
@@ -55,15 +54,14 @@ from koalabattle.challenges.service import (
     _automatic_stage_team,
     _eligible_draft_candidates,
     _even_duo_opponent_team,
-    _knocked_out_entry_ids,
     _opponent_stage_team,
     _resolve_draft_action,
     _scaled_stage_level,
+    _team_blocks,
     _team_scaffold,
     _with_level,
     _with_unique_duplicate_nicknames,
     _with_zero_ev_confirmation,
-    _without_downed,
     derive_battle_overview,
     derive_battle_summary,
     derive_pokemon_statistics,
@@ -340,13 +338,14 @@ def _run(
     )
 
 
-def _picked_run(*, abilities_supported: bool = True) -> ChallengeRun:
+def _picked_run(*, abilities_supported: bool = True, roster_size: int = 3) -> ChallengeRun:
     candidates = tuple(
         _candidate(index, abilities=() if not abilities_supported else None)
-        for index in range(1, 4)
+        for index in range(1, roster_size + 1)
     )
     run = _run(
         candidates=candidates,
+        rules=DraftRules(roster_size=roster_size, rerolls=2, choice_count=3),
         status=ChallengeStatus.TEAM_REVIEW,
         abilities_supported=abilities_supported,
     )
@@ -1993,117 +1992,40 @@ async def _attach_match(
     return stored, match.id
 
 
-def test_downed_pokemon_are_left_out_of_the_derived_stage_team() -> None:
-    run = _picked_run()
-    export = "\n\n".join(
-        f"{pick.candidate.species} @ Leftovers\nEVs: 4 HP\n- Tackle" for pick in run.picks
-    )
-    first = run.picks[0].candidate
-
-    # Nothing down: the export is returned untouched.
-    assert _without_downed(export, run) == export
-
-    knocked = run.model_copy(update={"downed_entry_ids": (first.entry_id,)})
-    reduced = _without_downed(export, knocked)
-    assert first.species not in reduced
-    assert len(reduced.split("\n\n")) == len(run.picks) - 1
-
-    # A wipe must never produce an empty team; the export is kept whole instead.
-    everyone = run.model_copy(
-        update={"downed_entry_ids": tuple(pick.candidate.entry_id for pick in run.picks)}
-    )
-    assert _without_downed(export, everyone) == export
-
-
-def test_fainted_species_map_back_onto_drafted_entries() -> None:
-    run = _picked_run()
-    first, second = run.picks[0].candidate, run.picks[1].candidate
-    summary = ChallengeBattleSummary(
-        match_id=uuid4(),
-        player_fainted=(first.species, "Not On This Team"),
-        opponent_fainted=(second.species,),
-    )
-
-    assert _knocked_out_entry_ids(run, summary) == (first.entry_id,)
-
-
 @pytest.mark.asyncio
-async def test_a_won_gauntlet_stage_carries_casualties_and_a_gym_heals(tmp_path: Path) -> None:
-    """The Elite Four is one sitting; every Gym Leader starts from a full roster."""
-    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'gauntlet.db'}")
+async def test_stage_launch_restores_legacy_downed_entries_and_matches_opponent_size(
+    tmp_path: Path,
+) -> None:
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'equal-stage-teams.db'}")
     await database.create_schema()
     repository = ChallengeRepository(database)
-    base = _picked_run()
-    gauntlet = base.definition.stages[0].model_copy(
-        update={"id": "stage-two", "name": "Second", "full_heal_before": False}
-    )
-    healed = base.definition.stages[0].model_copy(
-        update={"id": "stage-three", "name": "Third", "full_heal_before": True}
-    )
+    base = _picked_run(roster_size=6)
+    opponent_team = "\n\n".join(f"Mon {index}\n- Tackle" for index in range(94, 100))
+    stage = base.definition.stages[0].model_copy(update={"opponent_team": opponent_team})
     run = base.model_copy(
         update={
-            "battle_controller": BattleControllerSnapshot(agent_type=AgentType.HUMAN),
-            "definition": base.definition.model_copy(
-                update={"stages": (*base.definition.stages, gauntlet, healed)}
-            ),
-        }
-    )
-    await repository.create(run)
-    battles = _Battles((), BattleRepository(database))
-    service = ChallengeService(
-        repository, ShowdownSpeciesCatalog("http://127.0.0.1:9"), cast(Any, battles)
-    )
-    stored, match_id = await _attach_match(battles, repository, run, "stage-one")
-    archive = _won_archive(stored, match_id, "stage-one")
-
-    await service.on_match_terminal(match_id, archive)
-    advanced = await service.require(run.id)
-
-    # Stage two does not heal, so whatever fainted stays out.
-    assert advanced.current_stage_index == 1
-    assert advanced.definition.stages[1].full_heal_before is False
-    carried = advanced.downed_entry_ids
-
-    # Winning into a stage that heals clears the list again.
-    stored, second_match = await _attach_match(battles, repository, advanced, "stage-two")
-    await service.on_match_terminal(second_match, _won_archive(stored, second_match, "stage-two"))
-    healed_run = await service.require(run.id)
-    assert healed_run.current_stage_index == 2
-    assert healed_run.downed_entry_ids == ()
-    assert isinstance(carried, tuple)
-    await database.close()
-
-
-@pytest.mark.asyncio
-async def test_a_lost_stage_never_carries_casualties_into_the_retry(tmp_path: Path) -> None:
-    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'gauntlet-loss.db'}")
-    await database.create_schema()
-    repository = ChallengeRepository(database)
-    base = _picked_run()
-    gauntlet = base.definition.stages[0].model_copy(
-        update={"id": "stage-two", "name": "Second", "full_heal_before": False}
-    )
-    run = base.model_copy(
-        update={
-            "battle_controller": BattleControllerSnapshot(agent_type=AgentType.HUMAN),
-            "definition": base.definition.model_copy(
-                update={"stages": (*base.definition.stages, gauntlet)}
-            ),
+            "definition": base.definition.model_copy(update={"stages": (stage,)}),
             "downed_entry_ids": (base.picks[0].candidate.entry_id,),
         }
     )
     await repository.create(run)
-    battles = _Battles((), BattleRepository(database))
+    structured = tuple(
+        {"species": f"Mon {index}", "ability": f"Ability {index} A", "evs": {"hp": 1}}
+        for index in range(1, 7)
+    )
+    battles = _Battles(structured, BattleRepository(database))
     service = ChallengeService(
         repository, ShowdownSpeciesCatalog("http://127.0.0.1:9"), cast(Any, battles)
     )
-    stored, match_id = await _attach_match(battles, repository, run, "stage-one")
-    lost = _won_archive(stored, match_id, "stage-one").model_copy(update={"winner": Side.P2})
+    export = "\n\n".join(f"Mon {index}\nAbility: Wrong\n- Tackle" for index in range(1, 7))
+    finalized = await service.finalize_team(run.id, export, run.revision)
+    battles.team_validator.submissions.clear()
 
-    await service.on_match_terminal(match_id, lost)
-    retried = await service.require(run.id)
+    launched, _ = await service.launch_stage(run.id, finalized.revision)
 
-    assert retried.stage_results[-1].status == "lost"
-    assert retried.current_stage_index == 0
-    assert retried.downed_entry_ids == ()
+    player_text, opponent_text = battles.team_validator.submissions[:2]
+    assert len(_team_blocks(player_text)) == 6
+    assert len(_team_blocks(opponent_text)) == 6
+    assert "Mon 1" in player_text
+    assert launched.downed_entry_ids == ()
     await database.close()

@@ -903,43 +903,6 @@ def _apply_selected_abilities(team_export: str, run: ChallengeRun) -> str:
     return "\n\n".join(normalized)
 
 
-def _without_downed(team_export: str, run: ChallengeRun) -> str:
-    """Leave out Pokemon knocked out earlier in the current gauntlet section.
-
-    Like the level and the difficulty modifier this only touches the *derived* stage
-    export; the drafted roster snapshot is never rewritten. The last Pokemon is never
-    removed, because a team of zero cannot be sent into a battle.
-    """
-    if not run.downed_entry_ids:
-        return team_export
-    downed = {
-        showdown_id(pick.candidate.species)
-        for pick in run.picks
-        if pick.candidate.entry_id in set(run.downed_entry_ids)
-    }
-    if not downed:
-        return team_export
-    blocks = [item.strip() for item in team_export.strip().split("\n\n") if item.strip()]
-    kept: list[str] = []
-    for block in blocks:
-        heading = block.splitlines()[0].split("@", 1)[0].strip()
-        match = re.search(r"\(([^()]+)\)\s*$", heading)
-        species = showdown_id(match.group(1) if match else heading)
-        if species not in downed:
-            kept.append(block)
-    return "\n\n".join(kept) if kept else team_export
-
-
-def _knocked_out_entry_ids(run: ChallengeRun, summary: ChallengeBattleSummary) -> tuple[str, ...]:
-    """Map the species that fainted on the player's side back onto drafted entries."""
-    fainted = {showdown_id(species) for species in summary.player_fainted}
-    return tuple(
-        pick.candidate.entry_id
-        for pick in run.picks
-        if showdown_id(pick.candidate.species) in fainted
-    )
-
-
 def _with_zero_ev_confirmation(team_export: str) -> str:
     """Add Showdown's stat-neutral marker without changing saved Training Camp EVs."""
     blocks = [block.strip() for block in team_export.strip().split("\n\n") if block.strip()]
@@ -2514,9 +2477,10 @@ class ChallengeService:
             if source is None:
                 raise ValueError("finalized source team snapshot is missing")
             stage = run.definition.stages[run.current_stage_index]
-            # Arriving at a stage that heals wipes the gauntlet's casualty list first, so
-            # the derived team below is built from the roster the player actually has.
-            if stage.full_heal_before and run.downed_entry_ids:
+            # V2 Quick Draft battles always start from the complete drafted roster. Older
+            # saves can still carry the retired gauntlet casualty field, so clear it before
+            # selecting exactly as many Pokemon as the opponent brings.
+            if run.downed_entry_ids:
                 run = await self.repository.save(
                     run.model_copy(update={"downed_entry_ids": ()}),
                     expected_revision=run.revision,
@@ -2536,9 +2500,7 @@ class ChallengeService:
             player_level = stage.level
             opponent_level = opponent_stage_level(stage.level, run.difficulty)
             species_by_id = await self._species_by_id(run.definition.format)
-            available = _with_evolutions(
-                _without_downed(source.normalized_export, run), run, species_by_id
-            )
+            available = _with_evolutions(source.normalized_export, run, species_by_id)
             opponent_team = _opponent_stage_team(stage, run.opponent_team_mode)
             opponent_team = _prepare_opponent_stage_team(opponent_team, species_by_id)
             if run.battle_mode == "doubles":
@@ -2713,26 +2675,11 @@ class ChallengeService:
             won = outcome == "won"
             next_index = stage_index + 1 if won else stage_index
             completed = won and next_index == len(run.definition.stages)
-            # Casualties carry into the next stage only while the run stays inside a
-            # gauntlet section. Any result that is not a win resets them, so a retry is
-            # never fought a Pokemon short and the run cannot spiral into an unwinnable state.
             next_stage = (
                 run.definition.stages[next_index]
                 if next_index < len(run.definition.stages)
                 else None
             )
-            if not won or next_stage is None or next_stage.full_heal_before:
-                downed_entry_ids: tuple[str, ...] = ()
-            else:
-                carried = set(run.downed_entry_ids)
-                carried.update(_knocked_out_entry_ids(run, derive_battle_summary(archive)))
-                survivors = [
-                    pick.candidate.entry_id
-                    for pick in run.picks
-                    if pick.candidate.entry_id not in carried
-                ]
-                # Never carry a wipe forward: something has to be able to enter the arena.
-                downed_entry_ids = tuple(sorted(carried)) if survivors else ()
             # Evolution is a state transition between stages, never mid-battle: it is
             # resolved here, exactly where the next stage is already being entered, and at
             # most once per pick per win.
@@ -2778,7 +2725,7 @@ class ChallengeService:
                     "active_match_id": None,
                     "stage_results": (*run.stage_results, result),
                     "auto_advance_at": auto_advance_at,
-                    "downed_entry_ids": downed_entry_ids,
+                    "downed_entry_ids": (),
                     "picks": picks,
                     "recent_evolutions": recent_evolutions,
                     "mega_options": mega_options,

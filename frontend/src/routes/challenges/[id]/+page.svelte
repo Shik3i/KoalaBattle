@@ -113,7 +113,6 @@
   }
 
   $: run = view?.run;
-  $: downed = new Set(run?.downed_entry_ids || []);
   /** Current (post-evolution) species/types per pick, keyed by entry id — always prefer this
    *  over `pick.candidate` once the run has left drafting; evolution never changes candidate. */
   $: currentByEntryId = new Map((view?.current_roster || []).map((item) => [item.entry_id, item]));
@@ -688,7 +687,6 @@
       <span class="eyebrow">Battle {run.current_stage_index + 1} / {view.stages.length}{#if view.current_stage.specialty} · {view.current_stage.specialty} specialist{/if}</span>
       <h2>{view.current_stage.name}</h2>
       <p><b>Lv {view.current_stage.level}</b>{#if view.current_stage.opponent_level && view.current_stage.opponent_level !== view.current_stage.level} · opponent Lv {view.current_stage.opponent_level} ({difficultyLabel(run.difficulty)}){/if} · {view.current_stage.title}</p>
-      {#if view.current_stage.full_heal_before === false && downed.size}<p class="gauntlet-note"><i class="ph ph-warning" aria-hidden="true"></i>Elite Four gauntlet: {downed.size} Pokémon stayed down. You go in with {run.picks.length - downed.size} of {run.picks.length}.</p>{/if}
       {#if latestResult && latestResult.stage_id === view.current_stage.id && latestResult.status !== 'won'}<p class="retry-note">{outcomeTitle(latestResult.status)} recorded. Retrying creates a new match and keeps the previous replay.</p>{/if}
     </div>
     <div class="stage-action">
@@ -900,7 +898,7 @@
 
 {#if run.picks.length && run.status !== 'drafting'}
   <!-- The locked roster is reference, not a dashboard: one slim sprite strip. -->
-  <section class="roster-strip" aria-label="Drafted roster">{#each run.picks as pick}{@const out = downed.has(pick.candidate.entry_id)}{@const current = currentByEntryId.get(pick.candidate.entry_id)}{@const species = current?.species || pick.candidate.species}<span class:downed={out} title={out ? `${species} is out for the rest of this gauntlet` : `${species} · ${(current?.types || pick.candidate.types).join('/')}${current?.evolved ? ` · evolved from ${pick.candidate.species}` : ''}`}><PokemonSprite {species} size="small" decorative /><b>{species}</b>{#if current?.evolved}<i class="ph ph-sparkle evolved-mark" aria-hidden="true"></i>{/if}{#if out}<i class="ph ph-x" aria-hidden="true"></i>{/if}</span>{/each}</section>
+  <section class="roster-strip" aria-label="Drafted roster">{#each run.picks as pick}{@const current = currentByEntryId.get(pick.candidate.entry_id)}{@const species = current?.species || pick.candidate.species}<span title={`${species} · ${(current?.types || pick.candidate.types).join('/')}${current?.evolved ? ` · evolved from ${pick.candidate.species}` : ''}`}><PokemonSprite {species} size="small" decorative /><b>{species}</b>{#if current?.evolved}<i class="ph ph-sparkle evolved-mark" aria-hidden="true"></i>{/if}</span>{/each}</section>
 {/if}
 
 {#if run.draft_history.length}

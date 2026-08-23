@@ -472,8 +472,8 @@ class ChallengeRun(FrozenModel):
     stage_results: tuple[ChallengeStageResult, ...] = ()
     auto_run_paused: bool = False
     auto_advance_at: datetime | None = None
-    # Drafted entries knocked out earlier in the current gauntlet section. Cleared by any
-    # stage that heals before it, and by any result that is not a win.
+    # Kept only so saved V2 runs with the retired cross-battle casualty rule deserialize.
+    # Current runs clear this before team selection and after every result.
     downed_entry_ids: tuple[str, ...] = ()
     # Evolutions applied at the most recent stage transition only, overwritten (not
     # appended) every transition. The browser shows this once, the same reload-safe way it

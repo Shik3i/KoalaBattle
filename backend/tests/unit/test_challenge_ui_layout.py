@@ -357,12 +357,10 @@ def test_training_rewards_are_gone_from_the_run_screen() -> None:
         assert removed not in source, removed
 
 
-def test_the_gauntlet_shows_who_is_still_down() -> None:
-    """A Pokemon missing from the next Elite Four battle has to be visible, not silent."""
+def test_the_roster_never_marks_pokemon_as_out_across_battles() -> None:
     source = CHALLENGE_PAGE.read_text(encoding="utf-8")
     markup = _markup(CHALLENGE_PAGE)
 
-    assert "downed_entry_ids" in source
-    assert "class:downed={out}" in markup
-    assert "full_heal_before === false" in markup
-    assert "gauntlet-note" in markup
+    assert "downed_entry_ids" not in source
+    assert "class:downed" not in markup
+    assert "stayed down" not in markup
