@@ -531,7 +531,7 @@
     --r-ink:#f4fbf6;--r-dim:#93a89b;--r-line:rgba(140,255,186,.16);--r-accent:#78ffa9;
     --r-p1:#5fe39a;--r-p2:#c98cff;--r-panel:rgba(6,12,10,.88);
     --r-hp-high:#55d775;--r-hp-mid:#efbd3e;--r-hp-low:#eb5b55;
-    position:relative;isolation:isolate;display:grid;grid-template-rows:auto 1fr auto;
+    position:relative;isolation:isolate;display:grid;grid-template-rows:1fr auto;
     container-type:size;width:100%;aspect-ratio:16/9;min-height:480px;overflow:hidden;
     border:1px solid var(--r-line);border-radius:14px;background:#050a08;color:var(--r-ink);
     box-shadow:0 30px 90px rgba(0,0,0,.42);font-family:var(--display)

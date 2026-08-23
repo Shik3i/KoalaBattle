@@ -303,6 +303,7 @@ def test_the_team_roster_bar_is_below_the_arena_and_contains_only_teams() -> Non
     broadcast = _markup(RENDERER_BROADCAST)
 
     assert renderer.index("<RendererBroadcast") > renderer.index("<RendererCommentary")
+    assert "grid-template-rows:1fr auto" in RENDERER.read_text(encoding="utf-8")
     assert 'aria-label="Battle team rosters"' in broadcast
     assert broadcast.count('class="team-strip"') == 2
     for duplicate in ("player-name", "agent-state", "header-center", "KOALABATTLE"):
