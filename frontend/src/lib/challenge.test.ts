@@ -39,6 +39,9 @@ test('one-click Draft uses the visible standard settings and complete saved rule
   assert.equal(payload.opponent_team_mode, 'original');
   assert.equal(payload.draft_rules.choice_count, 3);
   assert.equal(payload.draft_rules.roster_size, 6);
+  assert.equal(payload.draft_rules.rerolls, 0);
+  assert.equal(payload.draft_rules.type_rerolls, 1);
+  assert.equal(payload.draft_rules.generation_rerolls, 1);
   assert.equal(payload.draft_rules.draft_pool_mode, 'base-forms-only');
   assert.notEqual(payload.battle_controller.configuration, payload.opponent_controller.configuration);
 });

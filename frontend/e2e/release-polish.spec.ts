@@ -47,10 +47,11 @@ async function createDraft(request: APIRequestContext, seed = 20260822) {
 test('Draft Quick Start skips setup with Fast Auto, Normal and Fast Watch', async ({ page, request }) => {
   await page.goto('/challenges');
 
-  const quickStart = page.getByRole('button', { name: 'Quick Start: Fast Auto, Normal difficulty, Fast Watch, base forms only, original teams' });
+  const quickStart = page.getByRole('button', { name: /Quick Start: Fast Auto, Normal difficulty, Fast Watch, base forms only, original teams, Pokémon rerolls off, Type 1, Generation 1/ });
   await expect(quickStart).toBeVisible();
   await expect(quickStart).toContainText('Fast Auto · Normal · Fast Watch');
   await expect(quickStart).toContainText('Base forms · Original teams');
+  await expect(quickStart).toContainText('Pokémon rerolls off · Type 1× · Gen 1×');
   await quickStart.click();
   await expect(page).toHaveURL(/\/challenges\/[0-9a-f-]+$/);
 
@@ -67,7 +68,7 @@ test('Draft Quick Start skips setup with Fast Auto, Normal and Fast Watch', asyn
       difficulty: string;
       opponent_team_mode: string;
       draft_pool: { candidates: Array<{ evolution_stage: number }> };
-      definition: { draft_rules: { choice_count: number; roster_size: number; draft_pool_mode: string } };
+      definition: { draft_rules: { choice_count: number; roster_size: number; rerolls: number; type_rerolls: number; generation_rerolls: number; draft_pool_mode: string } };
     };
   };
   expect(view.run.battle_controller.agent_type).toBe('tactical-auto');
@@ -75,7 +76,7 @@ test('Draft Quick Start skips setup with Fast Auto, Normal and Fast Watch', asyn
   expect(view.run.battle_experience).toBe('fast-watch');
   expect(view.run.difficulty).toBe('normal');
   expect(view.run.opponent_team_mode).toBe('original');
-  expect(view.run.definition.draft_rules).toMatchObject({ choice_count: 3, roster_size: 6, draft_pool_mode: 'base-forms-only' });
+  expect(view.run.definition.draft_rules).toMatchObject({ choice_count: 3, roster_size: 6, rerolls: 0, type_rerolls: 1, generation_rerolls: 1, draft_pool_mode: 'base-forms-only' });
   expect(view.unseen_candidate_count).toBeGreaterThan(100);
   expect(view.run.draft_pool.candidates.length).toBeGreaterThan(0);
   expect(view.run.draft_pool.candidates.every((candidate) => candidate.evolution_stage === 0)).toBeTruthy();
@@ -92,6 +93,10 @@ test('Custom Draft persists normal pool and filled opponent team choices', async
   await expect(originalTeams).toHaveAttribute('aria-pressed', 'true');
   await allForms.click();
   await filledTeams.click();
+  await page.getByText('Advanced settings').click();
+  await page.getByLabel('Pokémon rerolls').fill('4');
+  await page.getByLabel('Type rerolls').fill('2');
+  await page.getByLabel('Generation rerolls').fill('3');
   await page.getByRole('button', { name: 'Start drafting' }).click();
   await expect(page).toHaveURL(/\/challenges\/[0-9a-f-]+$/);
 
@@ -101,11 +106,11 @@ test('Custom Draft persists normal pool and filled opponent team choices', async
   const view = await response.json() as {
     run: {
       opponent_team_mode: string;
-      definition: { draft_rules: { draft_pool_mode: string } };
+      definition: { draft_rules: { rerolls: number; type_rerolls: number; generation_rerolls: number; draft_pool_mode: string } };
     };
   };
   expect(view.run.opponent_team_mode).toBe('filled');
-  expect(view.run.definition.draft_rules.draft_pool_mode).toBe('all-forms');
+  expect(view.run.definition.draft_rules).toMatchObject({ rerolls: 4, type_rerolls: 2, generation_rerolls: 3, draft_pool_mode: 'all-forms' });
 });
 
 test('Custom Draft exposes every regional route and the shared multi-generation run', async ({ page }) => {

@@ -841,14 +841,16 @@
       <div class:pending-reveal={Boolean(rollReveal)} class="offer-grid">{#each run.current_offer.options as option, index}<button data-rarity={option.draft_rarity} title={`Draft Rarity · Smogon Draft Points: ${option.draft_points}.${option.evolution_stage ? ' Already-evolved form: deliberately much rarer.' : ''}`} style={`--reveal-index:${index}`} disabled={Boolean(loading) || Boolean(rollReveal)} aria-label={`Draft ${option.species}, ${rarityLabel(option.draft_rarity)}, ${option.draft_points} Smogon Draft Points${option.evolution_stage ? ', evolved form, rarer' : ''}`} aria-keyshortcuts={index < 9 ? String(index + 1) : undefined} on:click={() => pick(option.entry_id)}><span class="shortcut" aria-hidden="true">{index + 1}</span><span class="dex">#{String(option.national_dex_number).padStart(4, '0')} · Gen {option.introduction_generation}</span><span class="rarity-badge">{rarityLabel(option.draft_rarity)} · {option.draft_points} pts</span>{#if option.evolution_stage}<span class="evolution-rarity-badge">Evolved · rarer</span>{/if}<div class="offer-sprite"><PokemonSprite species={option.species} size="large" decorative /></div><h3>{option.species}</h3><p class="type-badges"><TypeBadges types={option.types} /></p><div class="card-foot">{#if option.base_stat_total}<small>BST <b>{option.base_stat_total}</b></small>{/if}<span>Choose <i class="ph ph-arrow-right" aria-hidden="true"></i></span></div>{#if loading === `pick:${option.entry_id}`}<em role="status"><i class="ph ph-spinner-gap" aria-hidden="true"></i> Locking pick…</em>{/if}</button>{/each}</div>
       <footer>
         {#if run.draft_controller.kind === 'human'}
+          {@const pokemonRerollEnabled = run.definition.draft_rules.rerolls > 0}
+          {@const rerollKinds = (pokemonRerollEnabled ? ['pokemon', 'type', 'generation'] : ['type', 'generation']) as RerollKind[]}
           {@const pokemonReason = rerollBlockedReason('pokemon', run, view, loading, rollReveal)}
           {@const typeReason = rerollBlockedReason('type', run, view, loading, rollReveal)}
           {@const generationReason = rerollBlockedReason('generation', run, view, loading, rollReveal)}
           <div class="reroll-actions">
-            <span class="reroll-control" class:unavailable={Boolean(pokemonReason)} data-tooltip={pokemonReason || undefined} title={pokemonReason || 'Keep Generation and Type; replace only these Pokémon'}>
-              <button class="button secondary" title={pokemonReason || 'Keep Generation and Type; replace only these Pokémon'} aria-disabled={Boolean(pokemonReason)} aria-describedby={pokemonReason ? 'reroll-pokemon-reason' : undefined} on:click={() => { if (!pokemonReason) void requestReroll('pokemon'); }}><i class="ph ph-arrows-clockwise" aria-hidden="true"></i><span><strong>{loading === 'reroll:pokemon' ? 'Rolling…' : 'Reroll Pokémon'}</strong><small>Keep Gen + Type</small></span><b>{run.rerolls_remaining}</b></button>
-              {#if pokemonReason}<span id="reroll-pokemon-reason" class="visually-hidden">{pokemonReason}</span>{/if}
-            </span>
+            {#if pokemonRerollEnabled}<span class="reroll-control" class:unavailable={Boolean(pokemonReason)} data-tooltip={pokemonReason || undefined} title={pokemonReason || 'Keep Generation and Type; replace only these Pokémon'}>
+                <button class="button secondary" title={pokemonReason || 'Keep Generation and Type; replace only these Pokémon'} aria-disabled={Boolean(pokemonReason)} aria-describedby={pokemonReason ? 'reroll-pokemon-reason' : undefined} on:click={() => { if (!pokemonReason) void requestReroll('pokemon'); }}><i class="ph ph-arrows-clockwise" aria-hidden="true"></i><span><strong>{loading === 'reroll:pokemon' ? 'Rolling…' : 'Reroll Pokémon'}</strong><small>Keep Gen + Type</small></span><b>{run.rerolls_remaining}</b></button>
+                {#if pokemonReason}<span id="reroll-pokemon-reason" class="visually-hidden">{pokemonReason}</span>{/if}
+              </span>{/if}
             <span class="reroll-control" class:unavailable={Boolean(typeReason)} data-tooltip={typeReason || undefined} title={typeReason || 'Keep Generation; change Type and Pokémon'}>
               <button class="button ghost" title={typeReason || 'Keep Generation; change Type and Pokémon'} aria-disabled={Boolean(typeReason)} aria-describedby={typeReason ? 'reroll-type-reason' : undefined} on:click={() => { if (!typeReason) void requestReroll('type'); }}><i class="ph ph-palette" aria-hidden="true"></i><span><strong>{loading === 'reroll:type' ? 'Rolling…' : 'Reroll Type'}</strong><small>Keep Generation</small></span><b>{run.type_rerolls_remaining}</b></button>
               {#if typeReason}<span id="reroll-type-reason" class="visually-hidden">{typeReason}</span>{/if}
@@ -858,7 +860,8 @@
               {#if generationReason}<span id="reroll-generation-reason" class="visually-hidden">{generationReason}</span>{/if}
             </span>
           </div>
-          {@const blocked = (['pokemon','type','generation'] as RerollKind[]).map((kind) => [kind, rerollBlockedReason(kind, run, view, loading, rollReveal)] as const).filter(([, reason]) => reason)}
+          {#if !pokemonRerollEnabled}<p class="reroll-policy" role="status"><i class="ph ph-info" aria-hidden="true"></i>Quick Start: Pokémon rerolls are disabled. Type and Generation can each be rerolled once.</p>{/if}
+          {@const blocked = rerollKinds.map((kind) => [kind, rerollBlockedReason(kind, run, view, loading, rollReveal)] as const).filter(([, reason]) => reason)}
           {#if blocked.length}<ul class="reroll-blocked" role="status">{#each blocked as [kind, reason]}<li><b>{kind === 'pokemon' ? 'Pokémon' : kind === 'type' ? 'Type' : 'Generation'} reroll</b>{reason}</li>{/each}</ul>{/if}
         {:else if run.draft_controller.kind === 'agent'}
           <div class="agent-actions">{#if agentFailed}<button class="button" disabled={Boolean(loading) || Boolean(rollReveal)} on:click={agentDraft}><i class="ph ph-robot" aria-hidden="true"></i>{loading === 'agent' ? 'AI is choosing…' : 'Retry AI decision'}</button>{:else}<span class="agent-busy" role="status"><i class="ph ph-robot" aria-hidden="true"></i>{loading === 'agent' ? 'AI is choosing…' : 'AI is drafting…'}</span>{/if}<button class="button secondary" disabled={Boolean(loading) || Boolean(rollReveal)} on:click={takeOverDraft}>{loading === 'takeover' ? 'Taking over…' : 'Take over manually'}</button></div>
@@ -995,6 +998,8 @@
   details[open]>.disclosure-summary .disclosure-caret{transform:rotate(180deg)}
   .offer-grid button{min-height:clamp(270px,38vh,340px)}
   .reroll-actions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));width:100%}
+  .reroll-policy{display:flex;align-items:flex-start;gap:.35rem;grid-column:1/-1;margin:.35rem 0 0;color:var(--muted);font:.66rem/1.35 var(--display)}
+  .reroll-policy i{flex:none;color:var(--accent)}
   .reroll-actions .button{border-color:var(--border);background:var(--surface);color:var(--text)}
   @media(max-width:750px){.reroll-actions{grid-template-columns:1fr 1fr}.reroll-actions .reroll-control:first-child{grid-column:1/-1}}
   @media(max-width:600px){.offer-grid{display:flex;overflow-x:auto;overscroll-behavior-inline:contain;padding-bottom:.4rem;scroll-snap-type:x mandatory;scrollbar-width:thin}.offer-grid button{flex:0 0 auto;width:min(82vw,300px);min-width:min(82vw,300px);min-height:300px;scroll-snap-align:start}.reroll-actions{grid-template-columns:1fr}.reroll-actions .reroll-control:first-child{grid-column:auto}.reroll-control[data-tooltip]::after{right:auto;left:0}.disclosure-summary small{white-space:normal}}

@@ -5,6 +5,11 @@ export const STANDARD_CHALLENGE_SETTINGS = {
   battleExperience: 'fast-watch',
   difficulty: 'normal',
   choiceCount: 3,
+  // Quick Start keeps the draft focused: type and generation can each be
+  // rerolled once, while the offer itself cannot be rerolled.
+  pokemonRerolls: 0,
+  typeRerolls: 1,
+  generationRerolls: 1,
   draftPoolMode: 'base-forms-only',
   opponentTeamMode: 'original'
 } as const;
@@ -67,9 +72,9 @@ export function standardChallengePayload(
     opponent_team_mode: STANDARD_CHALLENGE_SETTINGS.opponentTeamMode,
     draft_rules: {
       roster_size: 6,
-      rerolls: 3,
-      type_rerolls: 1,
-      generation_rerolls: 1,
+      rerolls: STANDARD_CHALLENGE_SETTINGS.pokemonRerolls,
+      type_rerolls: STANDARD_CHALLENGE_SETTINGS.typeRerolls,
+      generation_rerolls: STANDARD_CHALLENGE_SETTINGS.generationRerolls,
       choice_count: STANDARD_CHALLENGE_SETTINGS.choiceCount,
       species_clause: true,
       draft_pool_mode: STANDARD_CHALLENGE_SETTINGS.draftPoolMode
