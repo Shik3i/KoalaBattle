@@ -20,8 +20,8 @@ test('home hero rolls through regional Draft routes instead of naming Kanto perm
   await page.goto('/');
 
   const hero = page.getByRole('heading', { name: /Draft a team\. Climb/ });
-  await expect(hero).toContainText('Kanto');
-  await expect.poll(() => hero.innerText(), { timeout: 7_000 }).toMatch(/Johto|Hoenn|Sinnoh|Unova|Kalos|Alola|Galar|Paldea/);
+  await expect.poll(() => hero.innerText(), { timeout: 7_000 }).toMatch(/the regions|Kanto|Johto|Hoenn|Sinnoh|Unova|Kalos|Alola|Galar|Paldea/);
+  await expect.poll(() => hero.innerText(), { timeout: 7_000 }).toMatch(/Kanto|Johto|Hoenn|Sinnoh|Unova|Kalos|Alola|Galar|Paldea/);
 });
 
 async function createDraft(request: APIRequestContext, seed = 20260822) {

@@ -70,6 +70,9 @@ class SpeciesCatalogSnapshot(BaseModel):
 
 
 class ShowdownSpeciesCatalog:
+    FETCH_ATTEMPTS = 3
+    FETCH_TIMEOUT_SECONDS = 5
+
     def __init__(self, base_url: str) -> None:
         self.base_url = base_url.rstrip("/")
         self._snapshots: dict[str, SpeciesCatalogSnapshot] = {}
@@ -83,12 +86,24 @@ class ShowdownSpeciesCatalog:
             f"{self.base_url}/dex-species?{urlencode({'format': format_id})}",
             headers={"Accept": "application/json"},
         )
-        try:
-            payload = await asyncio.to_thread(self._fetch, request)
-        except (HTTPError, URLError, TimeoutError, OSError) as error:
+        payload: object | None = None
+        last_error: Exception | None = None
+        for attempt in range(self.FETCH_ATTEMPTS):
+            try:
+                payload = await asyncio.to_thread(self._fetch, request)
+                break
+            except HTTPError as error:
+                raise RuntimeError(
+                    f"could not load species metadata from pinned Showdown: {error}"
+                ) from error
+            except (URLError, TimeoutError, OSError) as error:
+                last_error = error
+                if attempt + 1 < self.FETCH_ATTEMPTS:
+                    await asyncio.sleep(0.2 * (attempt + 1))
+        if last_error is not None:
             raise RuntimeError(
-                f"could not load species metadata from pinned Showdown: {error}"
-            ) from error
+                f"could not load species metadata from pinned Showdown: {last_error}"
+            ) from last_error
         if not isinstance(payload, dict) or not isinstance(payload.get("species"), list):
             raise RuntimeError("pinned Showdown returned an invalid species catalog")
         snapshot = SpeciesCatalogSnapshot.model_validate(
@@ -102,7 +117,7 @@ class ShowdownSpeciesCatalog:
 
     @staticmethod
     def _fetch(request: Request) -> object:
-        with urlopen(request, timeout=15) as response:  # noqa: S310
+        with urlopen(request, timeout=ShowdownSpeciesCatalog.FETCH_TIMEOUT_SECONDS) as response:  # noqa: S310
             return json.loads(response.read(8_000_000))
 
     def set_entries_for_test(
