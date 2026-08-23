@@ -281,27 +281,27 @@ def derive_pokemon_statistics(
                 )
                 aliases[actor] = species
                 active[actor[0]] = actor
-                entry_id = player_entry(payload.get("actor"), aliases)
-                if entry_id is not None:
-                    values[entry_id]["switch_ins"] += 1
-                    participants.add(entry_id)
+                event_entry_id = player_entry(payload.get("actor"), aliases)
+                if event_entry_id is not None:
+                    values[event_entry_id]["switch_ins"] += 1
+                    participants.add(event_entry_id)
                 parsed_hp = _hp_value(payload.get("hp"))
                 if parsed_hp is not None:
                     hp[actor] = parsed_hp
             elif event.event_type == "turn_started":
                 for actor in active.values():
-                    entry_id = player_entry(f"{actor[0]}a: {actor[1]}", aliases)
-                    if entry_id is not None:
-                        values[entry_id]["turns_active"] += 1
+                    event_entry_id = player_entry(f"{actor[0]}a: {actor[1]}", aliases)
+                    if event_entry_id is not None:
+                        values[event_entry_id]["turns_active"] += 1
             elif event.event_type == "move_used":
                 actor = actor_key(payload.get("actor"))
                 target = actor_key(payload.get("target"))
                 if actor is not None and target is not None:
                     move_sources[target] = actor
-                entry_id = player_entry(payload.get("actor"), aliases)
-                if entry_id is not None:
-                    values[entry_id]["moves_used"] += 1
-                    participants.add(entry_id)
+                event_entry_id = player_entry(payload.get("actor"), aliases)
+                if event_entry_id is not None:
+                    values[event_entry_id]["moves_used"] += 1
+                    participants.add(event_entry_id)
             elif event.event_type in {"damage", "healing"}:
                 target = actor_key(payload.get("target"))
                 current = _hp_value(payload.get("hp"))
