@@ -1,4 +1,4 @@
-import type { ChallengeDefinitionSummary, ChallengeStatus, DraftCandidate, EvSpread, PokemonBaseStats } from './types.ts';
+import type { ChallengeDefinitionSummary, ChallengeStatus, DraftCandidate, EvolutionTrigger, EvSpread, PokemonBaseStats } from './types.ts';
 
 export const STANDARD_CHALLENGE_SETTINGS = {
   battleType: 'tactical-auto',
@@ -107,6 +107,26 @@ export function evAllocationTotal(allocations: Record<string, EvSpread>): number
 
 export function draftChoiceIndexForKey(key: string): number | null {
   return /^[1-8]$/.test(key) ? Number(key) - 1 : null;
+}
+
+/** Find the first choice in a candidate's full evolution line, not only its next step. */
+export function draftEvolutionChoices(
+  candidate: Pick<DraftCandidate, 'showdown_id' | 'evolves_to'>,
+  pool: Array<Pick<DraftCandidate, 'showdown_id' | 'evolves_to'>>
+): EvolutionTrigger[] {
+  const byId = new Map(pool.map((species) => [species.showdown_id, species]));
+  const visited = new Set<string>();
+  let current = candidate;
+
+  while (current.evolves_to.length === 1) {
+    if (visited.has(current.showdown_id)) return [];
+    visited.add(current.showdown_id);
+    const next = byId.get(current.evolves_to[0].id);
+    if (!next) return [];
+    current = next;
+  }
+
+  return current.evolves_to.length > 1 ? current.evolves_to : [];
 }
 
 /**

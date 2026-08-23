@@ -7,6 +7,7 @@ import {
   challengeErrorMessage,
   challengeStatusLabel,
   draftChoiceIndexForKey,
+  draftEvolutionChoices,
   draftRollFrames,
   draftRollTransitionMode,
   DRAFT_POKEMON_ROLL_DURATION_MS,
@@ -134,6 +135,29 @@ test('draft shortcuts accept only visible one-based choice keys', () => {
   assert.equal(draftChoiceIndexForKey('8'), 7);
   assert.equal(draftChoiceIndexForKey('0'), null);
   assert.equal(draftChoiceIndexForKey('9'), null);
+});
+
+test('draft evolution choices follow a single-step prefix to Pichus future branch', () => {
+  const trigger = (id: string, name: string) => ({ id, name, trigger_level: null, trigger_kind: 'useItem' });
+  const pichu = { showdown_id: 'pichu', evolves_to: [trigger('pikachu', 'Pikachu')] };
+  const pikachu = {
+    showdown_id: 'pikachu',
+    evolves_to: [trigger('raichu', 'Raichu'), trigger('raichualola', 'Raichu-Alola')]
+  };
+
+  assert.deepEqual(
+    draftEvolutionChoices(pichu, [pichu, pikachu]).map((choice) => choice.id),
+    ['raichu', 'raichualola']
+  );
+});
+
+test('draft evolution choices stay empty for a deterministic evolution line', () => {
+  const trigger = (id: string, name: string) => ({ id, name, trigger_level: 20, trigger_kind: 'level' });
+  const first = { showdown_id: 'first', evolves_to: [trigger('second', 'Second')] };
+  const second = { showdown_id: 'second', evolves_to: [trigger('final', 'Final')] };
+  const final = { showdown_id: 'final', evolves_to: [] };
+
+  assert.deepEqual(draftEvolutionChoices(first, [first, second, final]), []);
 });
 
 test('draft roll animation distinguishes automatic, type, generation, and Pokemon rerolls', () => {

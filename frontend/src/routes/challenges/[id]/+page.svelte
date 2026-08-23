@@ -12,6 +12,7 @@
     difficultyLabel,
     DRAFT_REEL_FRAME_HEIGHT,
     draftChoiceIndexForKey,
+    draftEvolutionChoices,
     draftRollDuration,
     draftRollFrames,
     draftRollTransitionMode,
@@ -389,8 +390,9 @@
     if (!run?.current_offer) return;
     if (!evolutionChoice) {
       const option = run.current_offer.options.find((item) => item.entry_id === entryId);
-      if (option && option.evolves_to.length > 1) {
-        evolutionChoicePrompt = { entryId, species: option.species, options: option.evolves_to };
+      const choices = option ? draftEvolutionChoices(option, run.draft_pool.candidates) : [];
+      if (option && choices.length > 1) {
+        evolutionChoicePrompt = { entryId, species: option.species, options: choices };
         return;
       }
     }
