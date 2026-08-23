@@ -509,36 +509,6 @@
   }
 </script>
 
-<!--
-  Game screen first: one compact identity row, then the battle. Battle-view, OBS and
-  presentation controls stay one click away in the tools menu instead of pushing the
-  renderer below the fold.
--->
-<div class="live-head">
-  <div class="head-id">
-    <span class="eyebrow">{campaign ? `${campaign.definition_name} · Battle ${campaign.stage_index + 1}/${campaign.stage_count}` : 'Match control'} · {data.id.slice(0, 8)}</span>
-    <h1 title={battleHeading}>{battleHeading}</h1>
-  </div>
-  <div class="battle-context">
-    {#if campaign}<span class="campaign-rail" aria-label={`Battle ${campaign.stage_index + 1} of ${campaign.stage_count}`} style={`--stage-accent:${campaign.visual_accent}`}>{#each Array(campaign.stage_count) as _, index}<i class:done={index < campaign.stage_index} class:current={index === campaign.stage_index}></i>{/each}</span>
-    <span class="campaign-levels" title="Your level vs the stage level">Lv {campaign.player_level}{#if campaign.player_level !== campaign.opponent_level} vs {campaign.opponent_level}{/if}</span>{/if}
-    {#if match}{#if match.challenge_run_id}<a class="button secondary compact" href={`/challenges/${match.challenge_run_id}`}><i class="ph ph-map-trifold" aria-hidden="true"></i>Draft map</a>{/if}<span class={`status-pill ${match.status}`}>{match.status}</span>{/if}
-    <details bind:this={toolMenu} class="tool-menu">
-      <summary title="Battle view, OBS and streaming tools"><i class="ph ph-sliders-horizontal" aria-hidden="true"></i><span>Tools</span></summary>
-      <!-- Activating an item closes the menu; leaving it open hides the battle. -->
-      <div class="tool-menu-panel" on:click={() => toolMenu && (toolMenu.open = false)} role="none">
-        <span class="tool-menu-label">Battle view</span>
-        <a class="tool-menu-item" href={`/watch/${data.id}`} target="_blank" rel="noopener"><i class="ph ph-monitor-play" aria-hidden="true"></i>Open battle view</a>
-        <button type="button" class="tool-menu-item" on:click={() => copyText('watch', battleViewUrl)}><i class="ph ph-copy" aria-hidden="true"></i>{copied === 'watch' ? 'Copied' : 'Copy battle view URL'}</button>
-        <span class="tool-menu-label">Streaming / advanced</span>
-        <button type="button" class="tool-menu-item" on:click={() => copyText('obs', obsUrl)}><i class="ph ph-broadcast" aria-hidden="true"></i>{copied === 'obs' ? 'Copied' : 'Copy OBS URL'}</button>
-        <a class="tool-menu-item" href={obsUrl} target="_blank" rel="noopener"><i class="ph ph-arrow-square-out" aria-hidden="true"></i>Open OBS overlay</a>
-        <p class="tool-menu-note">The battle view is a clean full-screen battle with no controls. Both links carry the presentation settings below.</p>
-      </div>
-    </details>
-  </div>
-</div>
-
 <section class="preview">
   <BattleRenderer presentation={snapshot?.state || null} {config} campaign={match?.config.campaign || null} />
   <!-- Every control here edits the renderer above as you touch it, and the same settings
@@ -591,6 +561,37 @@
   </div>
   </details>
 </section>
+
+<!--
+  Identity row sits below the renderer/team bar now: the battle owns the top of the
+  screen, and the run's progress reads as a caption under it instead of pushing the
+  arena down. Battle-view, OBS and presentation controls stay one click away in the
+  tools menu.
+-->
+<div class="live-head">
+  <div class="head-id">
+    <span class="eyebrow">{campaign ? `${campaign.definition_name} · Battle ${campaign.stage_index + 1}/${campaign.stage_count}` : 'Match control'} · {data.id.slice(0, 8)}</span>
+    <h1 title={battleHeading}>{battleHeading}</h1>
+  </div>
+  <div class="battle-context">
+    {#if campaign}<span class="campaign-rail" aria-label={`Battle ${campaign.stage_index + 1} of ${campaign.stage_count}`} style={`--stage-accent:${campaign.visual_accent}`}>{#each Array(campaign.stage_count) as _, index}<i class:done={index < campaign.stage_index} class:current={index === campaign.stage_index}></i>{/each}</span>
+    <span class="campaign-levels" title="Your level vs the stage level">Lv {campaign.player_level}{#if campaign.player_level !== campaign.opponent_level} vs {campaign.opponent_level}{/if}</span>{/if}
+    {#if match}{#if match.challenge_run_id}<a class="button secondary compact" href={`/challenges/${match.challenge_run_id}`}><i class="ph ph-map-trifold" aria-hidden="true"></i>Draft map</a>{/if}<span class={`status-pill ${match.status}`}>{match.status}</span>{/if}
+    <details bind:this={toolMenu} class="tool-menu">
+      <summary title="Battle view, OBS and streaming tools"><i class="ph ph-sliders-horizontal" aria-hidden="true"></i><span>Tools</span></summary>
+      <!-- Activating an item closes the menu; leaving it open hides the battle. -->
+      <div class="tool-menu-panel" on:click={() => toolMenu && (toolMenu.open = false)} role="none">
+        <span class="tool-menu-label">Battle view</span>
+        <a class="tool-menu-item" href={`/watch/${data.id}`} target="_blank" rel="noopener"><i class="ph ph-monitor-play" aria-hidden="true"></i>Open battle view</a>
+        <button type="button" class="tool-menu-item" on:click={() => copyText('watch', battleViewUrl)}><i class="ph ph-copy" aria-hidden="true"></i>{copied === 'watch' ? 'Copied' : 'Copy battle view URL'}</button>
+        <span class="tool-menu-label">Streaming / advanced</span>
+        <button type="button" class="tool-menu-item" on:click={() => copyText('obs', obsUrl)}><i class="ph ph-broadcast" aria-hidden="true"></i>{copied === 'obs' ? 'Copied' : 'Copy OBS URL'}</button>
+        <a class="tool-menu-item" href={obsUrl} target="_blank" rel="noopener"><i class="ph ph-arrow-square-out" aria-hidden="true"></i>Open OBS overlay</a>
+        <p class="tool-menu-note">The battle view is a clean full-screen battle with no controls. Both links carry the presentation settings below.</p>
+      </div>
+    </details>
+  </div>
+</div>
 
 {#if match && humanSides.length && !pendingSides.some((side) => isHuman(side)) && !['completed','failed','cancelled','interrupted'].includes(match.status)}
   <section class="human-wait panel" role="status">
@@ -778,7 +779,7 @@
 
 <style>
   /* One compact identity row. Everything technical lives in the tools menu. */
-  .live-head{position:relative;z-index:40;display:flex;justify-content:space-between;align-items:center;gap:1rem;margin-bottom:.55rem}
+  .live-head{position:relative;z-index:40;display:flex;justify-content:space-between;align-items:center;gap:1rem;margin-top:.55rem;margin-bottom:.55rem}
   .head-id{min-width:0}
   .live-head .eyebrow{font-size:.58rem}
   .live-head h1{margin:.1rem 0 0;overflow:hidden;font-size:clamp(1.05rem,1.7vw,1.4rem);text-overflow:ellipsis;white-space:nowrap}

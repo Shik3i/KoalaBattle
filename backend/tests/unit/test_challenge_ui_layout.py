@@ -37,14 +37,16 @@ def _markup(path: Path) -> str:
     return source[source.index("</script>") : source.index("<style>")]
 
 
-def test_battle_renderer_is_the_first_block_under_the_identity_row() -> None:
+def test_battle_renderer_is_the_first_block_and_the_identity_row_follows_it() -> None:
     markup = _markup(BATTLE_PAGE)
 
-    head = markup.index('<div class="live-head">')
     preview = markup.index('<section class="preview">')
-    assert head < preview
-    # Nothing else may sit between the identity row and the renderer.
-    between = markup[markup.index("</div>", markup.index("</details>", head)) : preview]
+    head = markup.index('<div class="live-head">')
+    # The battle (and its team bar) owns the top of the screen; the run's identity/
+    # progress reads as a caption underneath it, not a bar pushing the arena down.
+    assert preview < head
+    # Nothing else may sit between the renderer and the identity row.
+    between = markup[markup.index("</section>", preview) + len("</section>") : head]
     assert "<section" not in between, between
     assert "panel" not in between, between
 
