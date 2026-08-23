@@ -690,8 +690,8 @@
   .combatant-far{top:15%;right:27%;width:min(30%,340px)}
   .combatant-near{bottom:4%;left:8%;width:min(38%,440px)}
   .doubles-layout .combatant{width:min(27%,310px)}
-  .doubles-layout .combatant-far.field-slot-0{right:32%}
-  .doubles-layout .combatant-far.field-slot-1{right:10%}
+  .doubles-layout .combatant-far.field-slot-0{right:54%}
+  .doubles-layout .combatant-far.field-slot-1{right:32%}
   .doubles-layout .combatant-near.field-slot-0{left:7%}
   .doubles-layout .combatant-near.field-slot-1{left:30%}
   .platform{position:absolute;bottom:0;left:50%;width:88%;aspect-ratio:3.4/1;transform:translate(-50%,36%);pointer-events:none}
