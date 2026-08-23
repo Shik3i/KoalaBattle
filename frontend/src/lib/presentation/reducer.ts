@@ -23,9 +23,12 @@ export function createPresentationState(match: PresentationMatch): BattlePresent
   const player = (side: Side): PlayerPresentationState => {
     const config = match.config.players.find((item) => item.side === side);
     const provider = [config?.provider, config?.model].filter(Boolean).join(' · ');
+    const displayName = match.config.campaign && side === 'p1'
+      ? side.toUpperCase()
+      : config?.display_name || side.toUpperCase();
     return {
       side,
-      displayName: config?.display_name || side.toUpperCase(),
+      displayName,
       providerLabel: provider || (config?.agent_type === 'manual' ? 'Manual agent' : 'Random agent'),
       agentStatus: 'waiting',
       motion: 'idle',

@@ -41,9 +41,11 @@
   <!-- The end card is the payoff: who won, who carried it, and what every Pokemon did. -->
   <div class:deterministic class="winner-banner" role="status" data-side={presentation.winner || ''} style={accent ? `--stage-accent:${accent}` : undefined}>
     <small>{campaign ? `${campaign.definition_name} · Battle ${campaign.stage_index + 1}/${campaign.stage_count}` : 'BATTLE COMPLETE'}</small>
-    <strong>{presentation.winnerName || presentation.battle?.result?.winner_name || 'DRAW'}</strong>
+    {#if !(campaign && presentation.winner === 'p1')}
+      <strong>{presentation.winnerName || presentation.battle?.result?.winner_name || 'DRAW'}</strong>
+    {/if}
     {#if presentation.winner}
-      <span class="winner-meta"><b class="winner-side">{presentation.winner.toUpperCase()}</b><em>{presentation.players[presentation.winner].providerLabel}</em>{#if champion}<i class="winner-score">{champion.team.filter((member) => !member.fainted).length}/{champion.team.length} standing</i>{/if}</span>
+      <span class="winner-meta"><b class="winner-side">{presentation.winner.toUpperCase()}</b>{#if !campaign}<em>{presentation.players[presentation.winner].providerLabel}</em>{/if}{#if champion}<i class="winner-score">{champion.team.filter((member) => !member.fainted).length}/{champion.team.length} standing</i>{/if}</span>
       {#if mvp}<span class="winner-mvp"><b>MVP</b><em>{mvp.name}</em><i>{mvp.knockouts} KO{mvp.knockouts === 1 ? '' : 's'} · {mvp.damageDealt}% HP dealt</i></span>{/if}
       {#if champion?.team.length}<span class="winner-team">{#each champion.team as member (member.id || member.species)}<i class:fainted={member.fainted} title={member.name}>{#if !failedAssets.has(member.species)}<img src={spriteUrl(member.species)} alt={member.name} on:error={() => fail(member.species)} />{:else}<b>{member.name.slice(0, 1)}</b>{/if}</i>{/each}</span>{/if}
     {:else}<span class="winner-meta"><em>No winner recorded</em></span>{/if}

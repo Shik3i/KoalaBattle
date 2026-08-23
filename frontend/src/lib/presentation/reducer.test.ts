@@ -147,6 +147,34 @@ test('switches expose one strict outgoing-to-incoming transition and clear it on
   assert.equal(settled.battle?.player.active?.name, 'Raichu');
 });
 
+test('campaign presentation uses the P1 slot instead of the Draft run name', () => {
+  const campaignMatch = {
+    ...match,
+    config: {
+      ...match.config,
+      campaign: {
+        definition_name: 'Kanto Gym Gauntlet',
+        stage_id: 'brock',
+        stage_index: 0,
+        stage_count: 8,
+        stage_name: 'Brock',
+        stage_title: 'Rock Gym Leader',
+        specialty: 'Rock',
+        trainer_asset_id: null,
+        visual_accent: '#b08a68',
+        difficulty: 'normal' as const,
+        player_level: 5,
+        opponent_level: 5
+      }
+    }
+  };
+
+  const state = createPresentationState(campaignMatch);
+
+  assert.equal(state.players.p1.displayName, 'P1');
+  assert.equal(state.players.p2.displayName, 'Beta');
+});
+
 test('a fainted active Pokemon remains fainted after lifecycle noise and is never a switch-out ghost', () => {
   const pikachu = {
     id: 'p1: Pikachu', name: 'Pikachu', species: 'pikachu', hp_fraction: 0.2, status: null,

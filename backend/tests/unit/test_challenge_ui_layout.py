@@ -289,6 +289,14 @@ def test_the_end_card_is_the_recap_and_nothing_paints_over_it() -> None:
     assert layer(".winner-banner") > layer(".director-card")
 
 
+def test_the_campaign_result_uses_only_the_player_slot_for_p1() -> None:
+    markup = _markup(RENDERER_CARDS)
+
+    assert "!(campaign && presentation.winner === 'p1')" in markup
+    provider = "{presentation.players[presentation.winner].providerLabel}"
+    assert f"{{#if !campaign}}<em>{provider}</em>{{/if}}" in markup
+
+
 def test_the_campaign_intro_shows_the_trainer_and_both_levels() -> None:
     markup = _markup(RENDERER_CARDS)
 
