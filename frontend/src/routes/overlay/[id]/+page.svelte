@@ -8,11 +8,10 @@
   import { PresentationTimeline } from '$lib/presentation/timeline';
   import {
     defaultRendererConfig,
-    type AgentPresentationStatus,
     type RendererConfig,
     type TimelineSnapshot
   } from '$lib/presentation/types';
-  import type { AgentRequest, BattleEvent, MatchArchive, Side } from '$lib/types';
+  import type { BattleEvent, MatchArchive } from '$lib/types';
   import type { ProductionPlaybackState } from '$lib/production/audio-engine';
 
   export let data: { id: string };
@@ -23,7 +22,6 @@
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   let stopped = false;
   let error = '';
-  let agentStatus: Partial<Record<Side, AgentPresentationStatus>> = {};
   let match: MatchArchive | null = null;
   let productionClockActive = false;
   let speaking: ProductionPlaybackState['speaking'] = [];
@@ -32,7 +30,6 @@
     kind: string;
     match?: MatchArchive;
     event?: BattleEvent;
-    request?: AgentRequest;
     error?: string;
     config?: Partial<RendererConfig>;
   }
@@ -110,13 +107,6 @@
       match = match ? { ...match, events: [...match.events, message.event] } : match;
       timeline?.append(message.event);
     }
-    if (message.kind === 'agent_waiting' && message.request) {
-      agentStatus = { ...agentStatus, [message.request.side]: 'thinking' };
-    }
-    if (message.kind === 'manual_response_accepted') {
-      agentStatus = { ...agentStatus, p1: 'executing', p2: 'executing' };
-    }
-    if (message.kind === 'match_completed') agentStatus = { p1: 'finished', p2: 'finished' };
     if (message.kind === 'match_failed') error = message.error || 'Battle failed.';
     // The control tab tunes settings live; this is the same OBS source it's describing when it
     // says the preview and the source share settings, so it has to actually hear the update.
@@ -140,7 +130,7 @@
 </script>
 
 <svelte:head><title>KoalaBattle OBS Overlay</title></svelte:head>
-<BattleRenderer presentation={snapshot?.state || null} {config} overlay {agentStatus} {speaking} campaign={match?.config.campaign || null} />
+<BattleRenderer presentation={snapshot?.state || null} {config} overlay {speaking} campaign={match?.config.campaign || null} />
 <ProductionConsole
   matchId={data.id}
   compact

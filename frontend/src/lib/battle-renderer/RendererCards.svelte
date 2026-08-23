@@ -59,7 +59,7 @@
             <section class:champion={presentation.winner === side} data-side={side}>
               <header><b>{presentation.players[side].displayName}</b><span>{rows.length} used · {rows.filter((row) => row.fainted).length} down</span></header>
               <ol>
-                {#each rows as row (row.species)}
+                {#each rows as row (row.id)}
                   <li class:fainted={row.fainted}>
                     <span class="recap-mon">{#if !failedAssets.has(row.species)}<img src={spriteUrl(row.species)} alt="" on:error={() => fail(row.species)} />{:else}<b>{row.name.slice(0, 1)}</b>{/if}</span>
                     <b>{row.name}</b>

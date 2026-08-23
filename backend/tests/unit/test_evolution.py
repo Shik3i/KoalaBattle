@@ -28,6 +28,7 @@ from koalabattle.challenges.repository import ChallengeRepository
 from koalabattle.challenges.service import (
     ChallengeService,
     _advance_evolutions,
+    _automatic_mega_selection,
     _current_species_id,
     _definition,
     _evolution_branches,
@@ -139,6 +140,50 @@ def test_a_branch_with_a_choice_resolves_past_it() -> None:
     )
 
 
+def test_hidden_intermediate_branches_expose_final_forms_and_resolve_the_full_path() -> None:
+    species_by_id = {
+        "starter": _species(
+            "starter",
+            "Starter",
+            evolves_to=(
+                EvolutionTrigger(
+                    id="middlebranch", name="Middle", trigger_level=17, trigger_kind="level"
+                ),
+            ),
+        ),
+        "middlebranch": _species(
+            "middlebranch",
+            "Middle",
+            evolves_to=(
+                EvolutionTrigger(
+                    id="regionalfinal",
+                    name="Regional Final",
+                    trigger_level=36,
+                    trigger_kind="level",
+                ),
+                EvolutionTrigger(
+                    id="standardfinal",
+                    name="Standard Final",
+                    trigger_level=36,
+                    trigger_kind="level",
+                ),
+            ),
+        ),
+        "regionalfinal": _species("regionalfinal", "Regional Final"),
+        "standardfinal": _species("standardfinal", "Standard Final"),
+    }
+
+    assert {choice.id for choice in _evolution_branches("starter", species_by_id)} == {
+        "regionalfinal",
+        "standardfinal",
+    }
+    assert _resolve_evolution_path("starter", "regionalfinal", species_by_id) == (
+        "starter",
+        "middlebranch",
+        "regionalfinal",
+    )
+
+
 def test_an_invalid_choice_is_ignored_and_the_path_still_stops_at_the_branch() -> None:
     assert _resolve_evolution_path("brancher", "final", SPECIES_BY_ID) == ("brancher",)
 
@@ -204,6 +249,100 @@ def test_mega_options_exclude_forms_marked_unavailable_by_the_format() -> None:
     )
 
     assert options == ()
+
+
+def _automatic_mega_fixture(
+    *, alpha_types: tuple[str, ...], beta_types: tuple[str, ...], alpha_bst: int, beta_bst: int
+) -> tuple[_FakeRun, dict[str, SpeciesMetadata]]:
+    alpha_pick = _pick("alpha-entry", "Alpha", "alpha", ("alpha",))
+    beta_pick = _pick("beta-entry", "Beta", "beta", ("beta",))
+    alpha = _species("alpha", "Alpha").model_copy(
+        update={
+            "mega_evolutions": (
+                MegaEvolutionOption(
+                    id="alphamega", species="Alpha-Mega", required_item="Alpha Stone"
+                ),
+            )
+        }
+    )
+    beta = _species("beta", "Beta").model_copy(
+        update={
+            "mega_evolutions": (
+                MegaEvolutionOption(id="betamega", species="Beta-Mega", required_item="Beta Stone"),
+            )
+        }
+    )
+    species_by_id = {
+        "alpha": alpha,
+        "beta": beta,
+        "alphamega": _species("alphamega", "Alpha-Mega").model_copy(
+            update={
+                "is_mega": True,
+                "required_item": "Alpha Stone",
+                "types": alpha_types,
+                "base_stat_total": alpha_bst,
+            }
+        ),
+        "betamega": _species("betamega", "Beta-Mega").model_copy(
+            update={
+                "is_mega": True,
+                "required_item": "Beta Stone",
+                "types": beta_types,
+                "base_stat_total": beta_bst,
+            }
+        ),
+        "grassmon": _species("grassmon", "Grassmon").model_copy(update={"types": ("grass",)}),
+        "normalmon": _species("normalmon", "Normalmon"),
+    }
+    return _FakeRun((alpha_pick, beta_pick), current_stage_index=8), species_by_id
+
+
+def test_automatic_mega_prefers_matchup_and_synergy_before_bst() -> None:
+    run, species_by_id = _automatic_mega_fixture(
+        alpha_types=("fire",), beta_types=("normal",), alpha_bst=500, beta_bst=900
+    )
+
+    selected = _automatic_mega_selection(
+        cast(ChallengeRun, run),
+        "Alpha\n- Tackle\n\nBeta\n- Tackle",
+        "Grassmon\n- Tackle",
+        species_by_id,
+    )
+
+    assert selected is not None
+    assert selected.mega_species_id == "alphamega"
+
+
+def test_automatic_mega_uses_higher_bst_when_matchup_is_tied() -> None:
+    run, species_by_id = _automatic_mega_fixture(
+        alpha_types=("normal",), beta_types=("normal",), alpha_bst=600, beta_bst=700
+    )
+
+    selected = _automatic_mega_selection(
+        cast(ChallengeRun, run),
+        "Alpha\n- Tackle\n\nBeta\n- Tackle",
+        "Normalmon\n- Tackle",
+        species_by_id,
+    )
+
+    assert selected is not None
+    assert selected.mega_species_id == "betamega"
+
+
+def test_automatic_mega_uses_draft_order_when_matchup_and_bst_are_tied() -> None:
+    run, species_by_id = _automatic_mega_fixture(
+        alpha_types=("normal",), beta_types=("normal",), alpha_bst=700, beta_bst=700
+    )
+
+    selected = _automatic_mega_selection(
+        cast(ChallengeRun, run),
+        "Alpha\n- Tackle\n\nBeta\n- Tackle",
+        "Normalmon\n- Tackle",
+        species_by_id,
+    )
+
+    assert selected is not None
+    assert selected.mega_species_id == "alphamega"
 
 
 def test_selected_mega_stone_replaces_only_the_exact_species_item() -> None:
@@ -412,8 +551,9 @@ def test_with_evolutions_replaces_ivs_with_the_hidden_power_target_set() -> None
 class _FakeRun:
     """The tiny slice of ChallengeRun the pure evolution helpers actually read."""
 
-    def __init__(self, picks: tuple[DraftPick, ...]) -> None:
+    def __init__(self, picks: tuple[DraftPick, ...], current_stage_index: int = 0) -> None:
         self.picks = picks
+        self.current_stage_index = current_stage_index
 
 
 def _branch_candidate() -> DraftCandidate:
@@ -522,6 +662,47 @@ async def test_a_human_pick_of_a_branching_species_requires_a_valid_choice(
         evolution_choice="branchb",
     )
     assert picked.picks[0].evolution_path == ("brancher", "branchb")
+
+
+@pytest.mark.asyncio
+async def test_a_single_stage_pick_does_not_fetch_the_species_catalog(
+    tmp_path: Path,
+) -> None:
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'single-stage.db'}")
+    await database.create_schema()
+    repository = ChallengeRepository(database)
+    run = _branching_run()
+    assert run.current_offer is not None
+    manaphy = _branch_candidate().model_copy(
+        update={
+            "entry_id": "manaphy",
+            "species": "Manaphy",
+            "showdown_id": "manaphy",
+            "base_species_id": "manaphy",
+            "evolves_to": (),
+            "evolution_choices": (),
+        }
+    )
+    run = run.model_copy(
+        update={
+            "draft_pool": run.draft_pool.model_copy(
+                update={"candidates": (manaphy, _decoy_candidate())}
+            ),
+            "current_offer": run.current_offer.model_copy(update={"options": (manaphy,)}),
+        }
+    )
+    await repository.create(run)
+    # Nothing listens here. Before the fix every pick fetched the catalog and failed.
+    service = ChallengeService(
+        repository, ShowdownSpeciesCatalog("http://127.0.0.1:9"), cast(Any, None)
+    )
+
+    picked = await service.pick(
+        run.id, manaphy.entry_id, run.current_offer.fingerprint, run.revision
+    )
+
+    assert picked.picks[0].candidate.species == "Manaphy"
+    assert picked.picks[0].evolution_path == ("manaphy",)
 
 
 @pytest.mark.asyncio

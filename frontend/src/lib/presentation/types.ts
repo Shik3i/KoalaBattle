@@ -167,6 +167,7 @@ export interface SwitchTransitionPresentationState {
  */
 export interface RecapEntry {
   side: Side;
+  id: string;
   species: string;
   name: string;
   damageDealt: number;

@@ -530,3 +530,28 @@ test('a Pokemon that only switches in still appears in the recap', () => {
   assert.equal(entry.knockouts, 0);
   assert.equal(entry.fainted, false);
 });
+
+test('the recap keeps duplicate opponent species as separate Pokemon', () => {
+  const first = {
+    id: 'p2: Gengar', name: 'Gengar', species: 'gengar', hp_fraction: 1, status: null,
+    types: ['ghost', 'poison'], moves: [], active: true, fainted: false
+  };
+  const second = { ...first, id: 'p2: Gengar 2', active: false };
+  const seeded = reducePresentation(createPresentationState(match), event(1, 'state_snapshot', {
+    state: {
+      ...battle,
+      opponent: { ...battle.opponent, active: first, team: [first, second] }
+    }
+  }));
+  const firstEntered = reducePresentation(seeded, event(2, 'pokemon_switched', {
+    actor: 'p2a: Gengar', hp: '100/100'
+  }));
+  const switched = reducePresentation(firstEntered, event(3, 'pokemon_switched', {
+    actor: 'p2a: Gengar 2', hp: '100/100'
+  }));
+
+  assert.deepEqual(
+    switched.recap.filter((entry) => entry.side === 'p2').map((entry) => entry.id),
+    ['p2: Gengar', 'p2: Gengar 2']
+  );
+});

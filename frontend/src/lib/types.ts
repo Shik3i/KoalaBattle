@@ -423,6 +423,8 @@ export interface DraftCandidate {
   /** Species this one can evolve into. More than one entry means a branch: the future path
    *  is chosen once, at draft time, and applies for the rest of the run. */
   evolves_to: EvolutionTrigger[];
+  /** Final destinations for every branching evolution path reachable from this pick. */
+  evolution_choices: EvolutionTrigger[];
   mega_evolutions: Array<{ id: string; species: string; required_item: string }>;
   evolution_stage: number;
   draft_points: number;

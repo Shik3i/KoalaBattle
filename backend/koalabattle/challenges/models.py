@@ -287,6 +287,9 @@ class DraftCandidate(FrozenModel):
     required_item: str | None = Field(default=None, min_length=1, max_length=120)
     showdown_set: ShowdownCompetitiveSet | None = None
     evolves_to: tuple[EvolutionTrigger, ...] = ()
+    # Final destinations for every branching path reachable from this species. Stored on
+    # the candidate because public Draft views intentionally redact the rest of the catalog.
+    evolution_choices: tuple[EvolutionTrigger, ...] = ()
     mega_evolutions: tuple[MegaEvolutionOption, ...] = ()
     # Zero is a base form. Already-evolved forms stay legal Draft candidates, but are
     # deliberately much rarer because a drafted base form progresses during the campaign.

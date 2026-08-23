@@ -28,6 +28,40 @@ LOGGER = logging.getLogger(__name__)
 MAX_NO_PROGRESS_SUBMISSIONS = 3
 
 
+def _doubles_target_is_live(battle: DoubleBattle, target: int) -> bool:
+    """Reject explicit targets whose field slot is empty or already fainted."""
+    if target == 0:
+        return True
+    targets = {
+        -1: battle.active_pokemon[0],
+        -2: battle.active_pokemon[1],
+        1: battle.opponent_active_pokemon[0],
+        2: battle.opponent_active_pokemon[1],
+    }
+    pokemon = targets.get(target)
+    return pokemon is not None and not pokemon.fainted
+
+
+def _viable_doubles_order(battle: DoubleBattle, order: DoubleBattleOrder) -> bool:
+    return all(
+        _doubles_target_is_live(battle, choice.move_target)
+        for choice in (order.first_order, order.second_order)
+    )
+
+
+def _doubles_order_power(order: DoubleBattleOrder) -> int:
+    """Prefer strong attacks at opponents, never strong attacks at an ally by accident."""
+    total = 0
+    for choice in (order.first_order, order.second_order):
+        try:
+            power = getattr(choice.order, "base_power", 0)
+        except (KeyError, TypeError, ValueError):
+            power = 0
+        numeric_power = int(power) if isinstance(power, int | float) else 0
+        total += -10_000 if numeric_power > 0 and choice.move_target < 0 else numeric_power
+    return total
+
+
 class NoProgressBattleError(RuntimeError):
     """Raised when Showdown keeps rejecting the same local action without progress."""
 
@@ -240,7 +274,11 @@ class _KoalaPlayer(Player):
             )
             return ForfeitBattleOrder()
         if isinstance(battle, DoubleBattle):
-            orders = DoubleBattleOrder.join_orders(*battle.valid_orders)
+            orders = [
+                order
+                for order in DoubleBattleOrder.join_orders(*battle.valid_orders)
+                if _viable_doubles_order(battle, order)
+            ]
             if not self.context.config.allow_terastallization:
                 orders = [
                     order
@@ -250,17 +288,7 @@ class _KoalaPlayer(Player):
                 ]
             if not orders:
                 return self.choose_default_move()
-            def doubles_power(order: DoubleBattleOrder) -> int:
-                total = 0
-                for choice in (order.first_order, order.second_order):
-                    try:
-                        power = getattr(choice.order, "base_power", 0)
-                    except (KeyError, TypeError, ValueError):
-                        power = 0
-                    total += int(power) if isinstance(power, int | float) else 0
-                return total
-
-            selected_order = max(orders, key=doubles_power)
+            selected_order = max(orders, key=_doubles_order_power)
             self.decision_sequence += 1
             self.submission_guard.register_submission(selected_order.message)
             state = battle_state(

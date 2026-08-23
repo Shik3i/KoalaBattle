@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 from poke_env.battle import Pokemon
+from poke_env.player.battle_order import DoubleBattleOrder, SingleBattleOrder
 
 from koalabattle.engines.showdown.engine import (
     DecisionSubmissionGuard,
     NoProgressBattleError,
+    _doubles_order_power,
+    _viable_doubles_order,
     reconcile_duplicate_request_identities,
 )
 
@@ -55,6 +60,40 @@ def test_authoritative_next_request_clears_forced_switch_retry_state() -> None:
     assert guard.pending_action is None
     assert guard.rejected_actions == set()
     assert guard.submission_counts == {}
+
+
+def test_doubles_orders_cannot_target_a_fainted_field_slot() -> None:
+    alive = SimpleNamespace(fainted=False)
+    fainted = SimpleNamespace(fainted=True)
+    battle = SimpleNamespace(
+        active_pokemon=[alive, fainted], opponent_active_pokemon=[alive, fainted]
+    )
+    shadow_ball = SimpleNamespace(base_power=80)
+    invalid_ally = DoubleBattleOrder(
+        first_order=SingleBattleOrder(shadow_ball, move_target=-2)
+    )
+    invalid_opponent = DoubleBattleOrder(
+        first_order=SingleBattleOrder(shadow_ball, move_target=2)
+    )
+    valid_opponent = DoubleBattleOrder(
+        first_order=SingleBattleOrder(shadow_ball, move_target=1)
+    )
+
+    assert not _viable_doubles_order(battle, invalid_ally)  # type: ignore[arg-type]
+    assert not _viable_doubles_order(battle, invalid_opponent)  # type: ignore[arg-type]
+    assert _viable_doubles_order(battle, valid_opponent)  # type: ignore[arg-type]
+
+
+def test_doubles_power_prefers_an_opponent_over_an_alive_ally() -> None:
+    shadow_ball = SimpleNamespace(base_power=80)
+    ally_target = DoubleBattleOrder(
+        first_order=SingleBattleOrder(shadow_ball, move_target=-2)
+    )
+    opponent_target = DoubleBattleOrder(
+        first_order=SingleBattleOrder(shadow_ball, move_target=1)
+    )
+
+    assert _doubles_order_power(opponent_target) > _doubles_order_power(ally_target)
 
 
 def test_duplicate_request_identities_get_distinct_pokemon_objects() -> None:

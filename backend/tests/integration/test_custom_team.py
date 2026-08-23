@@ -180,14 +180,14 @@ async def test_campaign_doubles_format_completes_a_real_two_active_match(tmp_pat
                 PlayerConfig(
                     side=Side.P1,
                     display_name="Duo Alpha",
-                    agent_type=AgentType.RANDOM,
+                    agent_type=AgentType.TACTICAL_AUTO,
                     team_source=TeamSource.PRESET,
                     team_snapshot_id=alpha.id,
                 ),
                 PlayerConfig(
                     side=Side.P2,
                     display_name="Duo Beta",
-                    agent_type=AgentType.RANDOM,
+                    agent_type=AgentType.TACTICAL_AUTO,
                     team_source=TeamSource.PRESET,
                     team_snapshot_id=beta.id,
                 ),

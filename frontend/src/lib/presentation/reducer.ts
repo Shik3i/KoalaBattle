@@ -96,23 +96,24 @@ function activeIdentity(
   battle: BattlePresentationState['battle'],
   side: Side | null,
   actor: unknown = null
-): { species: string; name: string } | null {
+): { id: string; species: string; name: string } | null {
   const active = activePokemon(battle, side, actor);
-  return active ? { species: active.species, name: active.name || active.species } : null;
+  return active ? { id: active.id, species: active.species, name: active.name || active.species } : null;
 }
 
 function withRecap(
   recap: RecapEntry[],
   side: Side,
-  identity: { species: string; name: string },
+  identity: { id: string; species: string; name: string },
   patch: Partial<Pick<RecapEntry, 'damageDealt' | 'damageTaken' | 'knockouts' | 'fainted'>>
 ): RecapEntry[] {
-  const index = recap.findIndex((item) => item.side === side && item.species === identity.species);
+  const index = recap.findIndex((item) => item.side === side && item.id === identity.id);
   if (index === -1) {
     return [
       ...recap,
       {
         side,
+        id: identity.id,
         species: identity.species,
         name: identity.name,
         damageDealt: patch.damageDealt || 0,

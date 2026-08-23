@@ -4,7 +4,6 @@
   import { moveEffectAssetUrl, resolveMoveEffect } from './move-effects';
   import {
     defaultRendererConfig,
-    type AgentPresentationStatus,
     type BattlePresentationState,
     type RendererConfig
   } from './presentation/types';
@@ -17,7 +16,6 @@
   export let presentation: BattlePresentationState | null = null;
   export let config: RendererConfig = defaultRendererConfig();
   export let overlay = false;
-  export let agentStatus: Partial<Record<Side, AgentPresentationStatus>> = {};
   export let deterministic = false;
   export let logicalElapsedMs = 0;
   export let visualProgress = 0;
@@ -314,8 +312,6 @@
     style={`--hp-duration:${hpDuration}ms;--sprite-native:${NATIVE_SPRITE_PX}px;--max-upscale:${MAX_UPSCALE};--hud-scale:${config.hudScale}`}
     aria-label="KoalaBattle production renderer"
   >
-    <RendererBroadcast {presentation} {config} {p1Side} {p2Side} {formatLabel} {agentStatus} {deterministic} />
-
     <div style={arenaStyle()} class:arena-shake={strongImpact && config.effects !== 'off' && !config.reducedMotion} class="stage">
       <!-- Original KoalaBattle arena: stadium bowl, crowd, lit floor plane. -->
       <div class="stage-sky" aria-hidden="true"></div>
@@ -521,6 +517,8 @@
       <RendererCommentary {presentation} {config} />
     </div>
 
+    <RendererBroadcast {config} {p1Side} {p2Side} {deterministic} />
+
     <RendererCards {presentation} {config} {formatLabel} {campaign} {deterministic} />
   </section>
 {:else}
@@ -636,8 +634,9 @@
   .doubles-layout .hp-plate{width:clamp(230px,29cqw,370px)}
   .doubles-layout .plate-far.field-slot-0{left:2%}
   .doubles-layout .plate-far.field-slot-1{left:31.5%}
-  .doubles-layout .plate-near.field-slot-0{right:2%}
-  .doubles-layout .plate-near.field-slot-1{right:31.5%}
+  /* Near-side sprites grow left-to-right; their HUD cards must follow that same slot order. */
+  .doubles-layout .plate-near.field-slot-0{right:31.5%}
+  .doubles-layout .plate-near.field-slot-1{right:2%}
 
   .gen5-box{position:relative;background:#202524;border:2px solid #36403e;border-radius:4px;padding:clamp(6px,.85cqw,9px) clamp(12px,1.4cqw,18px);box-shadow:inset 0 1px 1px rgba(255,255,255,.18),0 8px 20px rgba(0,0,0,.7)}
   .gen5-far-box{clip-path:polygon(0 0,calc(100% - 24px) 0,100% 100%,0 100%)}

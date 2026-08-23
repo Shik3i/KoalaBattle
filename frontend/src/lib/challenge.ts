@@ -33,11 +33,24 @@ export function standardChallengeDefinition(
   definitions: ChallengeDefinitionSummary[],
   seed: number
 ): ChallengeDefinitionSummary | null {
-  const regional = definitions
-    .filter((definition) => definition.campaign_kind === 'regional')
-    .sort((left, right) => left.generation - right.generation || left.id.localeCompare(right.id));
+  const regional = definitions.filter((definition) => definition.campaign_kind === 'regional');
   if (!regional.length) return definitions.find((definition) => definition.campaign_kind === 'multi-generation') || null;
-  return regional[Math.abs(seed) % regional.length];
+
+  // Pick the region first. This keeps every region equally likely even if one region
+  // gains multiple route variants in the future.
+  const byRegion = new Map<string, ChallengeDefinitionSummary[]>();
+  for (const definition of regional) {
+    const key = definition.region.trim().toLocaleLowerCase();
+    byRegion.set(key, [...(byRegion.get(key) || []), definition]);
+  }
+  const regions = [...byRegion.entries()].sort(([leftKey, left], [rightKey, right]) =>
+    Math.min(...left.map((route) => route.generation)) - Math.min(...right.map((route) => route.generation))
+    || leftKey.localeCompare(rightKey)
+  );
+  const normalizedSeed = Number.isFinite(seed) ? Math.abs(Math.trunc(seed)) : 0;
+  const regionRoutes = regions[normalizedSeed % regions.length][1]
+    .sort((left, right) => left.generation - right.generation || left.id.localeCompare(right.id));
+  return regionRoutes[Math.floor(normalizedSeed / regions.length) % regionRoutes.length];
 }
 
 export function standardChallengePayload(
@@ -128,9 +141,10 @@ export function campaignOpponentHeading(campaign: CampaignBadge): string {
 
 /** Find the first choice in a candidate's full evolution line, not only its next step. */
 export function draftEvolutionChoices(
-  candidate: Pick<DraftCandidate, 'showdown_id' | 'evolves_to'>,
+  candidate: Pick<DraftCandidate, 'showdown_id' | 'evolves_to'> & Partial<Pick<DraftCandidate, 'evolution_choices'>>,
   pool: Array<Pick<DraftCandidate, 'showdown_id' | 'evolves_to'>>
 ): EvolutionTrigger[] {
+  if (candidate.evolution_choices?.length) return candidate.evolution_choices;
   const byId = new Map(pool.map((species) => [species.showdown_id, species]));
   const visited = new Set<string>();
   let current = candidate;

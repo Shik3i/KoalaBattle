@@ -62,6 +62,27 @@ test('standard route selection is regional and seed-stable instead of always Kan
   assert.notEqual(first?.id, 'all-generations-gauntlet');
 });
 
+test('quick Draft gives every region the same chance even with multiple route variants', () => {
+  const route = (id: string, region: string, generation: number): ChallengeDefinitionSummary => ({
+    id, name: id, campaign_kind: 'regional', generation, description: '', region,
+    stage_count: 1, stage_count_label: '1 stage', specialties: []
+  });
+  const definitions = [
+    route('kanto-a', 'Kanto', 1),
+    route('kanto-b', 'Kanto', 1),
+    route('johto', 'Johto', 2),
+    route('hoenn', 'Hoenn', 3)
+  ];
+  const counts = new Map<string, number>();
+
+  for (let seed = 0; seed < 300; seed += 1) {
+    const region = standardChallengeDefinition(definitions, seed)?.region || '';
+    counts.set(region, (counts.get(region) || 0) + 1);
+  }
+
+  assert.deepEqual(Object.fromEntries(counts), { Hoenn: 100, Johto: 100, Kanto: 100 });
+});
+
 test('empty EV spreads are independent zeroed records', () => {
   const first = emptyEvSpread();
   const second = emptyEvSpread();
@@ -149,6 +170,20 @@ test('draft evolution choices follow a single-step prefix to Pichus future branc
   assert.deepEqual(
     draftEvolutionChoices(pichu, [pichu, pikachu]).map((choice) => choice.id),
     ['raichu', 'raichualola']
+  );
+});
+
+test('persisted final evolution choices work when hidden catalog species are redacted', () => {
+  const trigger = (id: string, name: string) => ({ id, name, trigger_level: null, trigger_kind: 'branch' });
+  const rowlet = {
+    showdown_id: 'rowlet',
+    evolves_to: [trigger('dartrix', 'Dartrix')],
+    evolution_choices: [trigger('decidueye', 'Decidueye'), trigger('decidueyehisui', 'Decidueye-Hisui')]
+  };
+
+  assert.deepEqual(
+    draftEvolutionChoices(rowlet, [rowlet]).map((choice) => choice.id),
+    ['decidueye', 'decidueyehisui']
   );
 });
 

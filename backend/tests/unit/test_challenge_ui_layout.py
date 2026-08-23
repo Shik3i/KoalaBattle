@@ -17,6 +17,7 @@ NEW_RUN_PAGE = ROOT / "frontend/src/routes/challenges/new/+page.svelte"
 CHALLENGE_LIST_PAGE = ROOT / "frontend/src/routes/challenges/+page.svelte"
 CHALLENGE_HELPERS = ROOT / "frontend/src/lib/challenge.ts"
 RENDERER_CARDS = ROOT / "frontend/src/lib/battle-renderer/RendererCards.svelte"
+RENDERER_BROADCAST = ROOT / "frontend/src/lib/battle-renderer/RendererBroadcast.svelte"
 RENDERER_COMMENTARY = ROOT / "frontend/src/lib/battle-renderer/RendererCommentary.svelte"
 RENDERER = ROOT / "frontend/src/lib/BattleRenderer.svelte"
 POKEMON_SPRITE = ROOT / "frontend/src/lib/PokemonSprite.svelte"
@@ -295,6 +296,26 @@ def test_the_campaign_result_uses_only_the_player_slot_for_p1() -> None:
     assert "!(campaign && presentation.winner === 'p1')" in markup
     provider = "{presentation.players[presentation.winner].providerLabel}"
     assert f"{{#if !campaign}}<em>{provider}</em>{{/if}}" in markup
+
+
+def test_the_team_roster_bar_is_below_the_arena_and_contains_only_teams() -> None:
+    renderer = _markup(RENDERER)
+    broadcast = _markup(RENDERER_BROADCAST)
+
+    assert renderer.index("<RendererBroadcast") > renderer.index("<RendererCommentary")
+    assert 'aria-label="Battle team rosters"' in broadcast
+    assert broadcast.count('class="team-strip"') == 2
+    for duplicate in ("player-name", "agent-state", "header-center", "KOALABATTLE"):
+        assert duplicate not in broadcast
+
+
+def test_doubles_near_side_hud_follows_the_same_left_to_right_slot_order_as_sprites() -> None:
+    renderer = RENDERER.read_text(encoding="utf-8")
+
+    assert ".doubles-layout .plate-near.field-slot-0{right:31.5%}" in renderer
+    assert ".doubles-layout .plate-near.field-slot-1{right:2%}" in renderer
+    assert ".doubles-layout .combatant-near.field-slot-0{left:7%}" in renderer
+    assert ".doubles-layout .combatant-near.field-slot-1{left:30%}" in renderer
 
 
 def test_the_campaign_intro_shows_the_trainer_and_both_levels() -> None:

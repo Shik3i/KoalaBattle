@@ -14,11 +14,10 @@
   import { PresentationTimeline } from '$lib/presentation/timeline';
   import {
     defaultRendererConfig,
-    type AgentPresentationStatus,
     type RendererConfig,
     type TimelineSnapshot
   } from '$lib/presentation/types';
-  import type { AgentRequest, BattleEvent, MatchArchive, Side } from '$lib/types';
+  import type { BattleEvent, MatchArchive } from '$lib/types';
   import type { ProductionPlaybackState } from '$lib/production/audio-engine';
 
   export let data: { id: string };
@@ -26,14 +25,13 @@
   let snapshot: TimelineSnapshot | null = null;
   let config: RendererConfig = defaultRendererConfig({ layout: 'overlay-landscape' });
   let stopSocket: (() => void) | null = null;
-  let agentStatus: Partial<Record<Side, AgentPresentationStatus>> = {};
   let match: MatchArchive | null = null;
   let productionClockActive = false;
   let speaking: ProductionPlaybackState['speaking'] = [];
   let connection: 'connecting' | 'live' | 'reconnecting' = 'connecting';
 
   interface StreamMessage {
-    kind: string; match?: MatchArchive; event?: BattleEvent; request?: AgentRequest; error?: string;
+    kind: string; match?: MatchArchive; event?: BattleEvent; error?: string;
     config?: Partial<RendererConfig>;
   }
 
@@ -92,11 +90,6 @@
       match = match ? { ...match, events: [...match.events, message.event] } : match;
       timeline?.append(message.event);
     }
-    if (message.kind === 'agent_waiting' && message.request) {
-      agentStatus = { ...agentStatus, [message.request.side]: 'thinking' };
-    }
-    if (message.kind === 'agent_submitted') agentStatus = { ...agentStatus, p1: 'executing', p2: 'executing' };
-    if (message.kind === 'match_completed') agentStatus = { p1: 'finished', p2: 'finished' };
     // Mirrors the overlay route: the control tab tunes settings live over this same socket.
     if (message.kind === 'renderer_config' && message.config) {
       config = sanitizeRendererConfig({ ...config, ...message.config });
@@ -120,7 +113,7 @@
 <svelte:head><title>KoalaBattle · Battle view</title></svelte:head>
 
 <div class="battle-view">
-  <BattleRenderer presentation={snapshot?.state || null} {config} overlay {agentStatus} {speaking} campaign={match?.config.campaign || null} />
+  <BattleRenderer presentation={snapshot?.state || null} {config} overlay {speaking} campaign={match?.config.campaign || null} />
   <!-- Keeps narration audio available on the viewer tab; no battle controls are exposed. -->
   <ProductionConsole
     matchId={data.id}

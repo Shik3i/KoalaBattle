@@ -6,7 +6,7 @@
   import { loadRendererConfig, saveRendererConfig } from '$lib/presentation/config';
   import { PresentationTimeline } from '$lib/presentation/timeline';
   import { connectLiveSocket } from '$lib/presentation/live-socket';
-  import { defaultRendererConfig, HUD_SCALE_RANGE, type AgentPresentationStatus, type CommentaryMode, type EffectQuality, type MoveEffectSkin, type PlaybackSpeed, type RendererConfig, type RendererLayout, type RendererTheme, type TimelineSnapshot } from '$lib/presentation/types';
+  import { defaultRendererConfig, HUD_SCALE_RANGE, type CommentaryMode, type EffectQuality, type MoveEffectSkin, type PlaybackSpeed, type RendererConfig, type RendererLayout, type RendererTheme, type TimelineSnapshot } from '$lib/presentation/types';
   import type { AgentLifecycleState, AgentRequest, BattleAction, BattleEvent, ChallengeRunView, MatchArchive, Side } from '$lib/types';
   import { actionIndexForKey, actionPreview, isForcedSwitch, shortcutFor } from '$lib/manual-action';
   import { campaignOpponentHeading, challengeErrorMessage } from '$lib/challenge';
@@ -44,12 +44,6 @@
     }
     if (!toolMenu.contains(event.target as Node)) toolMenu.open = false;
   }
-
-  $: agentStatus = Object.fromEntries(Object.entries(lifecycle).map(([side, state]) => [
-    side, state === 'waiting' || state === 'thinking' || state === 'retrying' ? 'thinking'
-      : state === 'decided' ? 'decided' : state === 'executing' ? 'executing'
-      : state === 'finished' ? 'finished' : state === 'error' ? 'error' : 'idle'
-  ])) as Partial<Record<Side, AgentPresentationStatus>>;
 
   $: campaign = match?.config.campaign || null;
   $: battleHeading = campaign
@@ -542,7 +536,7 @@
 </div>
 
 <section class="preview">
-  <BattleRenderer presentation={snapshot?.state || null} {config} {agentStatus} campaign={match?.config.campaign || null} />
+  <BattleRenderer presentation={snapshot?.state || null} {config} campaign={match?.config.campaign || null} />
   <!-- Every control here edits the renderer above as you touch it, and the same settings
        drive the battle-view tab and the OBS source, so what you tune is what gets captured.
        Collapsed by default so the battle, not the mixing desk, owns the screen. -->

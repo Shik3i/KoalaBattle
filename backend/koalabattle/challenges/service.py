@@ -922,39 +922,59 @@ def _with_zero_ev_confirmation(team_export: str) -> str:
     return "\n\n".join(normalized)
 
 
+def _terminal_evolution_paths(
+    species_id: str,
+    species_by_id: dict[str, SpeciesMetadata],
+    seen: frozenset[str] = frozenset(),
+) -> tuple[tuple[str, ...], ...]:
+    """Enumerate every acyclic path to a final evolution in Showdown's pinned Dex."""
+    if species_id in seen:
+        return ()
+    current = species_by_id.get(species_id)
+    if current is None or not current.evolves_to:
+        return ((species_id,),)
+    paths: list[tuple[str, ...]] = []
+    for option in current.evolves_to:
+        child_paths = _terminal_evolution_paths(
+            option.id, species_by_id, seen | {species_id}
+        )
+        paths.extend((species_id, *path) for path in child_paths)
+    return tuple(paths) or ((species_id,),)
+
+
 def _evolution_branches(
     species_id: str, species_by_id: dict[str, SpeciesMetadata]
 ) -> tuple[EvolutionTrigger, ...]:
-    """The one branch point a drafted species' chain needs a choice for, if it has one.
-
-    Only the first branch matters: every real branching line in the current pool branches
-    exactly once, and a non-branching prefix is always walked automatically.
-    """
-    current = species_by_id.get(species_id)
-    while current is not None and len(current.evolves_to) == 1:
-        current = species_by_id.get(current.evolves_to[0].id)
-    if current is not None and len(current.evolves_to) > 1:
-        return current.evolves_to
-    return ()
+    """Return every distinct final evolution when the reachable line branches."""
+    paths = _terminal_evolution_paths(species_id, species_by_id)
+    terminal_ids = tuple(dict.fromkeys(path[-1] for path in paths))
+    if len(terminal_ids) <= 1:
+        return ()
+    choices: list[EvolutionTrigger] = []
+    for terminal_id in terminal_ids:
+        terminal = species_by_id.get(terminal_id)
+        choices.append(
+            EvolutionTrigger(
+                id=terminal_id,
+                name=terminal.name if terminal else terminal_id,
+                trigger_kind="branch",
+            )
+        )
+    return tuple(choices)
 
 
 def _resolve_evolution_path(
     species_id: str, choice: str | None, species_by_id: dict[str, SpeciesMetadata]
 ) -> tuple[str, ...]:
-    """Walk every determined step of one chosen evolution line from a drafted species."""
-    path = [species_id]
-    current = species_by_id.get(species_id)
-    while current is not None and current.evolves_to:
-        options = current.evolves_to
-        if len(options) == 1:
-            next_id = options[0].id
-        elif choice is not None and any(option.id == choice for option in options):
-            next_id = choice
-        else:
-            break
-        path.append(next_id)
-        current = species_by_id.get(next_id)
-    return tuple(path)
+    """Resolve the complete path to the chosen final evolution."""
+    paths = _terminal_evolution_paths(species_id, species_by_id)
+    if len(paths) == 1:
+        return paths[0]
+    if choice is not None:
+        selected = next((path for path in paths if path[-1] == choice), None)
+        if selected is not None:
+            return selected
+    return (species_id,)
 
 
 def _current_species_id(pick: DraftPick) -> str:
@@ -1092,6 +1112,49 @@ def _mega_options(
             for mega in _legal_mega_options(current, species_by_id)
         )
     return tuple(sorted(options, key=lambda option: (option.entry_id, option.mega_species_id)))
+
+
+def _automatic_mega_selection(
+    run: ChallengeRun,
+    team_export: str,
+    opponent_export: str,
+    species_by_id: dict[str, SpeciesMetadata],
+) -> ChallengeMegaSelection | None:
+    """Choose this stage's Mega by matchup, team synergy, BST, then Draft order."""
+    if run.current_stage_index < MEGA_UNLOCK_STAGE_INDEX:
+        return None
+    available = _team_species_ids(team_export)
+    options = [
+        option
+        for option in _mega_options(run, species_by_id)
+        if showdown_id(option.from_species) in available
+    ]
+    if not options:
+        return None
+    opponent_types = tuple(
+        _block_types(block, species_by_id) for block in _team_blocks(opponent_export)
+    )
+    teammate_types = {
+        showdown_id(_team_block_species(block)): _block_types(block, species_by_id)
+        for block in _team_blocks(team_export)
+    }
+    draft_order = {pick.candidate.entry_id: index for index, pick in enumerate(run.picks)}
+
+    def score(option: ChallengeMegaOption) -> tuple[int, int, int]:
+        mega = species_by_id.get(showdown_id(option.mega_species_id))
+        mega_types = mega.types if mega else ()
+        matchup_and_synergy = _matchup_score(mega_types, opponent_types) + sum(
+            _pair_synergy(mega_types, types)
+            for species_id, types in teammate_types.items()
+            if species_id != showdown_id(option.from_species)
+        )
+        return (
+            matchup_and_synergy,
+            mega.base_stat_total if mega and mega.base_stat_total else 0,
+            -draft_order.get(option.entry_id, len(run.picks)),
+        )
+
+    return ChallengeMegaSelection(**max(options, key=score).model_dump())
 
 
 def _with_selected_item(
@@ -1445,6 +1508,7 @@ class ChallengeService:
                     required_item=species.required_item,
                     showdown_set=species.showdown_set,
                     evolves_to=species.evolves_to,
+                    evolution_choices=_evolution_branches(species.id, species_by_id),
                     mega_evolutions=species.mega_evolutions,
                     evolution_stage=evolution_stage(species),
                     draft_points=points,
@@ -1541,6 +1605,25 @@ class ChallengeService:
             for summary in summaries:
                 run = await self.repository.get(summary.id)
                 if run is None:
+                    continue
+                if run.status is ChallengeStatus.MEGA_SELECTION:
+                    migrated = run.model_copy(
+                        update={
+                            "status": ChallengeStatus.STAGE_RESULT,
+                            "mega_options": (),
+                            "mega_selection": None,
+                            "auto_advance_at": (
+                                datetime.now(UTC)
+                                if self.auto_run_available(run) and not run.auto_run_paused
+                                else None
+                            ),
+                        }
+                    )
+                    run = await self.repository.save(
+                        migrated, expected_revision=run.revision
+                    )
+                    reconciled.append(run.id)
+                    self._schedule_auto_run(run)
                     continue
                 if run.status is ChallengeStatus.PREPARING:
                     prepared = await self._auto_prepare_team(run.id)
@@ -1851,7 +1934,6 @@ class ChallengeService:
     ) -> ChallengeRun:
         async with self.repository.lock(run_id):
             run = await self.require(run_id)
-            species_by_id = await self._species_by_id(run.definition.format)
             if run.revision != expected_revision:
                 raise ValueError(f"stale challenge revision: current {run.revision}")
             if run.status is not ChallengeStatus.DRAFTING or run.current_offer is None:
@@ -1868,7 +1950,14 @@ class ChallengeService:
                 raise ValueError("draft controller changed while this decision was in progress")
             if selected_by is None and controller is not DraftControllerKind.HUMAN:
                 raise ValueError("this draft is controlled by an agent or deterministic random")
-            branches = _evolution_branches(candidate.showdown_id, species_by_id)
+            species_by_id = (
+                await self._species_by_id(run.definition.format)
+                if candidate.evolves_to
+                else {}
+            )
+            branches = candidate.evolution_choices or _evolution_branches(
+                candidate.showdown_id, species_by_id
+            )
             if branches:
                 valid_ids = {option.id for option in branches}
                 if evolution_choice in valid_ids:
@@ -1886,8 +1975,12 @@ class ChallengeService:
                     resolved_choice = min(valid_ids)
             else:
                 resolved_choice = None
-            evolution_path = _resolve_evolution_path(
-                candidate.showdown_id, resolved_choice, species_by_id
+            evolution_path = (
+                _resolve_evolution_path(
+                    candidate.showdown_id, resolved_choice, species_by_id
+                )
+                if candidate.evolves_to
+                else (candidate.showdown_id,)
             )
             picks = (
                 *run.picks,
@@ -2523,20 +2616,14 @@ class ChallengeService:
             minimum_levels = {
                 showdown_id(species.id): species.minimum_level for species in species_by_id.values()
             }
-            if (
-                run.mega_selection is not None
-                and run.current_stage_index >= MEGA_UNLOCK_STAGE_INDEX
-            ):
-                selected_species = showdown_id(run.mega_selection.from_species)
-                available_species = _team_species_ids(available)
-            else:
-                selected_species = ""
-                available_species = set()
-            if selected_species and selected_species in available_species:
+            mega_selection = _automatic_mega_selection(
+                run, available, opponent_team, species_by_id
+            )
+            if mega_selection is not None:
                 available = _with_selected_item(
                     available,
-                    run.mega_selection.from_species,
-                    run.mega_selection.required_item,
+                    mega_selection.from_species,
+                    mega_selection.required_item,
                 )
             player_validation = await self.battles.team_validator.validate(
                 _with_level(available, player_level, minimum_levels), battle_format
@@ -2690,27 +2777,16 @@ class ChallengeService:
                 )
             else:
                 picks, recent_evolutions = run.picks, ()
-            if next_index < MEGA_UNLOCK_STAGE_INDEX:
-                mega_options = ()
-                mega_selection = None
-            elif run.mega_selection is not None:
-                # The player chooses once after the eighth badge. The selected stone remains
-                # on that one team member for every later battle; Showdown still limits the
-                # actual Mega action to one per side and battle.
-                mega_options = run.mega_options
-                mega_selection = run.mega_selection
-            else:
-                species_by_id = await self._species_by_id(run.definition.format)
-                mega_options = _mega_options(run.model_copy(update={"picks": picks}), species_by_id)
-                mega_selection = None
-            requires_mega_selection = bool(mega_options) and mega_selection is None
+            # Mega Stones are selected afresh for every late-campaign matchup. Persisted
+            # manual options remain readable on old saves but never pause a current run.
+            mega_options: tuple[ChallengeMegaOption, ...] = ()
+            mega_selection = None
             auto_advance_at = (
                 datetime.now(UTC) + timedelta(seconds=AUTO_ADVANCE_DELAYS[run.battle_experience])
                 if won
                 and not completed
                 and self.auto_run_available(run)
                 and not run.auto_run_paused
-                and not requires_mega_selection
                 and run.battle_experience not in PRESENTATION_GATED_EXPERIENCES
                 else None
             )
@@ -2718,8 +2794,6 @@ class ChallengeService:
                 update={
                     "status": ChallengeStatus.COMPLETED
                     if completed
-                    else ChallengeStatus.MEGA_SELECTION
-                    if requires_mega_selection
                     else ChallengeStatus.STAGE_RESULT,
                     "current_stage_index": next_index,
                     "active_match_id": None,
