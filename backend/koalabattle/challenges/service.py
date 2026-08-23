@@ -26,6 +26,8 @@ from koalabattle.core.models import (
     TeamSource,
 )
 from koalabattle.service import BattleService
+from koalabattle.teams.models import TeamValidationResult
+from koalabattle.teams.service import TeamValidator
 
 from .domain import (
     attach_offer,
@@ -65,6 +67,7 @@ from .models import (
     EvolutionTrigger,
     EvSpread,
     MegaEvolutionOption,
+    PokemonIvSpread,
     PublicChallengeStage,
     opponent_stage_level,
 )
@@ -468,21 +471,26 @@ def _legal_mega_options(
     return tuple(legal)
 
 
-def _opponent_mega_choice(
+def _opponent_mega_choices(
     team_export: str, species_by_id: dict[str, SpeciesMetadata]
-) -> tuple[str, str] | None:
-    """Choose one deterministic Mega-capable opponent species and its required item."""
+) -> tuple[tuple[str, str, int], ...]:
+    """List deterministic Mega candidates, including duplicate-species occurrences."""
+    occurrences: dict[str, int] = {}
+    choices: list[tuple[str, str, int]] = []
     for raw_block in (item.strip() for item in team_export.strip().split("\n\n") if item.strip()):
         species = _team_block_species(raw_block)
-        metadata = species_by_id.get(showdown_id(species))
+        species_id = showdown_id(species)
+        occurrence = occurrences.get(species_id, 0)
+        occurrences[species_id] = occurrence + 1
+        metadata = species_by_id.get(species_id)
         if metadata is None:
             continue
         options = _legal_mega_options(metadata, species_by_id)
-        if not options:
-            continue
-        mega = min(options, key=lambda option: option.id)
-        return species, mega.required_item
-    return None
+        choices.extend(
+            (species, mega.required_item, occurrence)
+            for mega in sorted(options, key=lambda option: option.id)
+        )
+    return tuple(choices)
 
 
 def _prepare_opponent_stage_team(
@@ -580,6 +588,19 @@ def _ev_line(spread: EvSpread) -> str | None:
     return f"EVs: {' / '.join(values)}" if values else None
 
 
+def _iv_line(spread: PokemonIvSpread) -> str | None:
+    names = (
+        ("HP", spread.hp),
+        ("Atk", spread.atk),
+        ("Def", spread.defense),
+        ("SpA", spread.spa),
+        ("SpD", spread.spd),
+        ("Spe", spread.spe),
+    )
+    values = [f"{value} {name}" for name, value in names if value != 31]
+    return f"IVs: {' / '.join(values)}" if values else None
+
+
 def _recommended_ev_spread(candidate: DraftCandidate) -> EvSpread:
     """Return the same deterministic first-choice preset shown by Training Camp."""
     if candidate.showdown_set is not None:
@@ -648,18 +669,9 @@ def _team_scaffold(run: ChallengeRun) -> str | None:
         ability = next((item for item in pick.candidate.abilities if item.id == selected), None)
         if ability is not None:
             lines.append(f"Ability: {ability.name}")
-        ivs = competitive_set.ivs
-        non_default_ivs = (
-            ("HP", ivs.hp),
-            ("Atk", ivs.atk),
-            ("Def", ivs.defense),
-            ("SpA", ivs.spa),
-            ("SpD", ivs.spd),
-            ("Spe", ivs.spe),
-        )
-        changed_ivs = [f"{value} {name}" for name, value in non_default_ivs if value != 31]
-        if changed_ivs:
-            lines.append(f"IVs: {' / '.join(changed_ivs)}")
+        iv_line = _iv_line(competitive_set.ivs)
+        if iv_line:
+            lines.append(iv_line)
         if competitive_set.tera_type:
             lines.append(f"Tera Type: {competitive_set.tera_type}")
         lines.extend(f"- {move}" for move in competitive_set.moves)
@@ -848,10 +860,12 @@ def _with_evolutions(
 ) -> str:
     """Rewrite each evolved pick's block to its current species.
 
-    Only species, ability, item, nature and moves come from the new form's own recommended
-    set (guaranteed legal at the campaign's lowest level); EVs and IVs are read straight from
-    the frozen block so a Training allocation survives evolution. A pick that has not
-    evolved from its drafted form is left untouched.
+    Every field coupled to move legality comes from the new form's own recommended set
+    (guaranteed legal at the campaign's lowest level). Only EVs are read from the frozen
+    block so a Training allocation survives evolution. In particular, IVs must move with
+    Hidden Power: retaining a prior form's IVs can change the move's derived type and make
+    the otherwise authoritative target set illegal. A pick that has not evolved from its
+    drafted form is left untouched.
     """
     evolved: dict[str, SpeciesMetadata] = {}
     for pick in run.picks:
@@ -876,7 +890,6 @@ def _with_evolutions(
         current_set = metadata.showdown_set
         assert current_set is not None
         ev_line = next((line for line in lines if line.startswith("EVs:")), None)
-        iv_line = next((line for line in lines if line.startswith("IVs:")), None)
         new_lines = [
             f"{metadata.name} @ {current_set.item}" if current_set.item else metadata.name,
             f"Ability: {current_set.ability}",
@@ -885,8 +898,11 @@ def _with_evolutions(
             new_lines.append(ev_line)
         if current_set.nature:
             new_lines.append(f"{current_set.nature} Nature")
+        iv_line = _iv_line(current_set.ivs)
         if iv_line is not None:
             new_lines.append(iv_line)
+        if current_set.tera_type:
+            new_lines.append(f"Tera Type: {current_set.tera_type}")
         new_lines.extend(f"- {move}" for move in current_set.moves)
         rewritten.append("\n".join(new_lines))
     return "\n\n".join(rewritten)
@@ -914,20 +930,25 @@ def _mega_options(
     return tuple(sorted(options, key=lambda option: (option.entry_id, option.mega_species_id)))
 
 
-def _with_selected_item(team_export: str, species: str, item: str) -> str:
+def _with_selected_item(
+    team_export: str, species: str, item: str, *, occurrence: int = 0
+) -> str:
     """Give one exact species its persisted Mega Stone without changing its set."""
     target = showdown_id(species)
     rewritten: list[str] = []
     matched = False
+    seen = 0
     for block in (part.strip() for part in team_export.strip().split("\n\n") if part.strip()):
         lines = block.splitlines()
         heading = lines[0].split("@", 1)[0].strip()
         match = re.search(r"\(([^()]+)\)\s*$", heading)
         species_id = showdown_id(match.group(1) if match else heading)
-        if species_id == target and not matched:
-            display = heading
-            lines[0] = f"{display} @ {item}"
-            matched = True
+        if species_id == target:
+            if seen == occurrence:
+                display = heading
+                lines[0] = f"{display} @ {item}"
+                matched = True
+            seen += 1
         rewritten.append("\n".join(lines))
     if not matched:
         raise ValueError(f"Mega selection species is missing from the derived team: {species}")
@@ -942,6 +963,37 @@ def _team_species_ids(team_export: str) -> set[str]:
         match = re.search(r"\(([^()]+)\)\s*$", heading)
         species_ids.add(showdown_id(match.group(1) if match else heading))
     return species_ids
+
+
+async def _validated_opponent_stage_team(
+    team_export: str,
+    species_by_id: dict[str, SpeciesMetadata],
+    minimum_levels: Mapping[str, int],
+    opponent_level: int,
+    format_id: str,
+    validator: TeamValidator,
+    *,
+    try_mega: bool,
+) -> tuple[str, TeamValidationResult]:
+    """Use the first validator-legal Mega candidate, or the unchanged legal team."""
+
+    async def validate(candidate: str) -> TeamValidationResult:
+        return await validator.validate(
+            _with_unique_duplicate_nicknames(
+                _with_level(candidate, opponent_level, minimum_levels)
+            ),
+            format_id,
+        )
+
+    if try_mega:
+        for species, item, occurrence in _opponent_mega_choices(team_export, species_by_id):
+            candidate = _with_selected_item(
+                team_export, species, item, occurrence=occurrence
+            )
+            result = await validate(candidate)
+            if result.valid:
+                return candidate, result
+    return team_export, await validate(team_export)
 
 
 def _with_level(
@@ -2293,20 +2345,17 @@ class ChallengeService:
                     run.mega_selection.from_species,
                     run.mega_selection.required_item,
                 )
-            if run.current_stage_index >= MEGA_UNLOCK_STAGE_INDEX:
-                opponent_mega = _opponent_mega_choice(opponent_team, species_by_id)
-                if opponent_mega is not None:
-                    opponent_team = _with_selected_item(
-                        opponent_team, opponent_mega[0], opponent_mega[1]
-                    )
             player_validation = await self.battles.team_validator.validate(
                 _with_level(available, player_level, minimum_levels), run.definition.format
             )
-            opponent_validation = await self.battles.team_validator.validate(
-                _with_unique_duplicate_nicknames(
-                    _with_level(opponent_team, opponent_level, minimum_levels)
-                ),
+            opponent_team, opponent_validation = await _validated_opponent_stage_team(
+                opponent_team,
+                species_by_id,
+                minimum_levels,
+                opponent_level,
                 run.definition.format,
+                self.battles.team_validator,
+                try_mega=run.current_stage_index >= MEGA_UNLOCK_STAGE_INDEX,
             )
             if not player_validation.valid:
                 raise ValueError(

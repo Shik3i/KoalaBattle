@@ -8,26 +8,36 @@
   let runs: ChallengeRunSummary[] = [];
   let definitions: ChallengeDefinitionSummary[] = [];
   let historyLoading = true;
+  let routesLoading = true;
   let historyError = '';
   let quickStarting = false;
   let quickStartError = '';
 
-  onMount(() => void loadHistory());
+  onMount(() => {
+    void loadHistory();
+    void loadDefinitions();
+  });
 
   async function loadHistory() {
     historyLoading = true;
     try {
-      const [savedRuns, availableDefinitions] = await Promise.all([
-        api<ChallengeRunSummary[]>('/api/challenges'),
-        api<ChallengeDefinitionSummary[]>('/api/challenges/definitions')
-      ]);
-      runs = savedRuns;
-      definitions = availableDefinitions;
+      runs = await api<ChallengeRunSummary[]>('/api/challenges');
       historyError = '';
     } catch (caught) {
       historyError = caught instanceof Error ? caught.message : String(caught);
     } finally {
       historyLoading = false;
+    }
+  }
+
+  async function loadDefinitions() {
+    routesLoading = true;
+    try {
+      definitions = await api<ChallengeDefinitionSummary[]>('/api/challenges/definitions');
+    } catch (caught) {
+      historyError = caught instanceof Error ? caught.message : String(caught);
+    } finally {
+      routesLoading = false;
     }
   }
 
@@ -71,9 +81,9 @@
     <p>Build one roster from disappearing offers, tune automatic recommended EVs, then clear a recorded campaign at fair, equal stage levels.</p>
   </div>
   <div class="challenge-actions">
-    <button class="button quick-start" type="button" disabled={quickStarting || historyLoading} aria-label="Quick Start: Fast Auto, Normal difficulty, Fast Watch, base forms only, original teams, Pokémon rerolls off, Type 1, Generation 1" on:click={quickStart}>
-      <i class={`ph ${quickStarting || historyLoading ? 'ph-spinner-gap spinner' : 'ph-lightning'}`} aria-hidden="true"></i>
-      <span><strong>{quickStarting ? 'Starting Draft…' : historyLoading ? 'Loading routes…' : 'Quick Start'}</strong><small>Fast Auto · Normal · Fast Watch</small><small>Base forms · Original teams</small><small>Pokémon rerolls off · Type 1× · Gen 1×</small></span>
+    <button class="button quick-start" type="button" disabled={quickStarting || routesLoading} aria-label="Quick Start: Fast Auto, Normal difficulty, Fast Watch, base forms only, original teams, Pokémon rerolls off, Type 1, Generation 1" on:click={quickStart}>
+      <i class={`ph ${quickStarting || routesLoading ? 'ph-spinner-gap spinner' : 'ph-lightning'}`} aria-hidden="true"></i>
+      <span><strong>{quickStarting ? 'Starting Draft…' : routesLoading ? 'Loading routes…' : 'Quick Start'}</strong><small>Fast Auto · Normal · Fast Watch</small><small>Base forms · Original teams</small><small>Pokémon rerolls off · Type 1× · Gen 1×</small></span>
     </button>
     <a class="button secondary" href="/challenges/new"><i class="ph ph-sliders-horizontal" aria-hidden="true"></i>Customize</a>
   </div>

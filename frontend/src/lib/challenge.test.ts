@@ -4,6 +4,7 @@ import type { ChallengeDefinitionSummary } from './types.ts';
 
 import {
   campaignBattleLabel,
+  campaignOpponentHeading,
   challengeErrorMessage,
   challengeStatusLabel,
   draftChoiceIndexForKey,
@@ -219,6 +220,18 @@ test('draft roll frames settle quickly on authoritative Roman generation and typ
 test('campaign position is one-based and capped at the final battle', () => {
   assert.equal(campaignBattleLabel(3, 13, 'Erika'), 'Battle 4 of 13 · Erika');
   assert.equal(campaignBattleLabel(13, 13, 'Champion Blue'), 'Battle 13 of 13 · Champion Blue');
+});
+
+test('campaign battle headings lead with the opponent and competitive title', () => {
+  const campaign = {
+    definition_name: 'Paldea Gym Gauntlet', stage_id: 'iono', stage_name: 'Iono',
+    stage_title: 'Levincia Gym Leader', specialty: 'Electric', trainer_asset_id: null,
+    visual_accent: '#fff', stage_index: 2, stage_count: 13, difficulty: 'normal' as const,
+    player_level: 30, opponent_level: 30
+  };
+
+  assert.equal(campaignOpponentHeading(campaign), 'Iono · Electric Gym Leader');
+  assert.equal(campaignOpponentHeading({ ...campaign, stage_name: 'Geeta', stage_title: 'Champion', specialty: 'Mixed' }), 'Geeta · Champion');
 });
 
 test('status and duration labels are user-facing', () => {

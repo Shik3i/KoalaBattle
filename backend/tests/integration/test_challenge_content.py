@@ -9,6 +9,7 @@ from koalabattle.challenges.service import (
     _definition,
     _opponent_stage_team,
     _prepare_opponent_stage_team,
+    _validated_opponent_stage_team,
     _with_level,
     _with_unique_duplicate_nicknames,
 )
@@ -46,6 +47,40 @@ async def test_every_kanto_gauntlet_team_is_legal_at_its_stage_level() -> None:
                 failures[f"{stage.id}/{mode}"] = result.errors
 
     assert failures == {}
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_agatha_mega_selection_skips_hypnosis_gengar() -> None:
+    _skip_unless_showdown()
+    definition = _definition("kanto-gym-gauntlet")
+    stage = next(item for item in definition.stages if item.id == "agatha")
+    validator = _validator()
+    catalog = ShowdownSpeciesCatalog(
+        os.getenv("KOALABATTLE_TEAM_VALIDATOR_URL", "http://127.0.0.1:8002")
+    )
+    species_by_id = {
+        showdown_id(entry.id): entry for entry in await catalog.entries(definition.format)
+    }
+    minimum_levels = {
+        showdown_id(entry.id): entry.minimum_level for entry in species_by_id.values()
+    }
+    team = _prepare_opponent_stage_team(stage.opponent_team, species_by_id)
+
+    selected, result = await _validated_opponent_stage_team(
+        team,
+        species_by_id,
+        minimum_levels,
+        stage.level,
+        definition.format,
+        validator,
+        try_mega=True,
+    )
+
+    gengar_blocks = [block for block in selected.split("\n\n") if block.startswith("Gengar")]
+    assert result.valid, result.errors
+    assert "@ Gengarite" not in gengar_blocks[0].splitlines()[0]
+    assert gengar_blocks[1].splitlines()[0] == "Gengar @ Gengarite"
 
 
 @pytest.mark.integration

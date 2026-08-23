@@ -606,8 +606,8 @@
   /* ── Authentic Gen 5 Pokemon HP Plates (Symmetrical & High Readability) ─── */
   .hp-plate{position:absolute;z-index:25;pointer-events:none;font-family:var(--display);filter:drop-shadow(0 8px 18px rgba(0,0,0,.75))}
   .hp-plate.switching{animation:hp-plate-switch .3s .14s ease-out both}
-  .plate-far{top:5%;left:3.5%;width:clamp(280px,34cqw,430px)}
-  .plate-near{bottom:6%;right:3.5%;width:clamp(280px,34cqw,430px)}
+  .plate-far{top:5%;left:3.5%;width:clamp(320px,39cqw,500px)}
+  .plate-near{bottom:6%;right:3.5%;width:clamp(320px,39cqw,500px)}
 
   .gen5-box{position:relative;background:#202524;border:2px solid #36403e;border-radius:4px;padding:clamp(6px,.85cqw,9px) clamp(12px,1.4cqw,18px);box-shadow:inset 0 1px 1px rgba(255,255,255,.18),0 8px 20px rgba(0,0,0,.7)}
   .gen5-far-box{clip-path:polygon(0 0,calc(100% - 24px) 0,100% 100%,0 100%)}

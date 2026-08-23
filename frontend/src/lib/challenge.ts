@@ -1,4 +1,4 @@
-import type { ChallengeDefinitionSummary, ChallengeStatus, DraftCandidate, EvolutionTrigger, EvSpread, PokemonBaseStats } from './types.ts';
+import type { CampaignBadge, ChallengeDefinitionSummary, ChallengeStatus, DraftCandidate, EvolutionTrigger, EvSpread, PokemonBaseStats } from './types.ts';
 
 export const STANDARD_CHALLENGE_SETTINGS = {
   battleType: 'tactical-auto',
@@ -107,6 +107,21 @@ export function evAllocationTotal(allocations: Record<string, EvSpread>): number
 
 export function draftChoiceIndexForKey(key: string): number | null {
   return /^[1-8]$/.test(key) ? Number(key) - 1 : null;
+}
+
+export function campaignOpponentHeading(campaign: CampaignBadge): string {
+  const title = campaign.stage_title;
+  const role = title.endsWith('Gym Leaders')
+    ? 'Gym Leaders'
+    : title.endsWith('Gym Leader')
+      ? 'Gym Leader'
+      : title.includes('Grand Trial')
+        ? 'Grand Trial'
+        : title;
+  const specialty = campaign.specialty && campaign.specialty !== 'Mixed' && !role.includes('Champion')
+    ? `${campaign.specialty} `
+    : '';
+  return `${campaign.stage_name} · ${specialty}${role}`;
 }
 
 /** Find the first choice in a candidate's full evolution line, not only its next step. */

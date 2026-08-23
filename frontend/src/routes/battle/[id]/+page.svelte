@@ -9,7 +9,7 @@
   import { defaultRendererConfig, HUD_SCALE_RANGE, type AgentPresentationStatus, type CommentaryMode, type EffectQuality, type MoveEffectSkin, type PlaybackSpeed, type RendererConfig, type RendererLayout, type RendererTheme, type TimelineSnapshot } from '$lib/presentation/types';
   import type { AgentLifecycleState, AgentRequest, BattleAction, BattleEvent, ChallengeRunView, MatchArchive, Side } from '$lib/types';
   import { actionIndexForKey, actionPreview, isForcedSwitch, shortcutFor } from '$lib/manual-action';
-  import { challengeErrorMessage } from '$lib/challenge';
+  import { campaignOpponentHeading, challengeErrorMessage } from '$lib/challenge';
 
   export let data: { id: string };
   let match: MatchArchive | null = null;
@@ -52,6 +52,11 @@
   ])) as Partial<Record<Side, AgentPresentationStatus>>;
 
   $: campaign = match?.config.campaign || null;
+  $: battleHeading = campaign
+    ? campaignOpponentHeading(campaign)
+    : match
+      ? (match.config.name || `${match.config.players[0].display_name} vs ${match.config.players[1].display_name}`)
+      : 'Loading battle…';
   $: pendingSides = (Object.keys(pending) as Side[]).filter((side) => pending[side]);
   $: humanSides = (['p1', 'p2'] as Side[]).filter((side) => isHuman(side));
   // The player who can actually act is preselected, so nobody has to hunt for the right tab.
@@ -514,7 +519,7 @@
 <div class="live-head">
   <div class="head-id">
     <span class="eyebrow">{campaign ? `${campaign.definition_name} · Battle ${campaign.stage_index + 1}/${campaign.stage_count}` : 'Match control'} · {data.id.slice(0, 8)}</span>
-    <h1 title={match ? (match.config.name || `${match.config.players[0].display_name} vs ${match.config.players[1].display_name}`) : undefined}>{match ? (match.config.name || `${match.config.players[0].display_name} vs ${match.config.players[1].display_name}`) : 'Loading battle…'}</h1>
+    <h1 title={battleHeading}>{battleHeading}</h1>
   </div>
   <div class="battle-context">
     {#if campaign}<span class="campaign-rail" aria-label={`Battle ${campaign.stage_index + 1} of ${campaign.stage_count}`} style={`--stage-accent:${campaign.visual_accent}`}>{#each Array(campaign.stage_count) as _, index}<i class:done={index < campaign.stage_index} class:current={index === campaign.stage_index}></i>{/each}</span>

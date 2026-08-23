@@ -32,13 +32,16 @@ from koalabattle.challenges.service import (
     _definition,
     _evolution_branches,
     _mega_options,
+    _opponent_mega_choices,
     _resolve_evolution_path,
+    _validated_opponent_stage_team,
     _with_evolutions,
     _with_selected_item,
 )
 from koalabattle.challenges.species import ShowdownSpeciesCatalog, SpeciesMetadata
 from koalabattle.core.models import AgentType
 from koalabattle.storage import Database
+from koalabattle.teams.models import TeamValidationResult
 
 # A tiny synthetic chain: Basic --level 30--> Middle --level 60--> Final, plus a
 # Branch mon that splits into BranchA/BranchB with no level of its own (an item trigger).
@@ -215,6 +218,56 @@ def test_selected_mega_stone_replaces_only_the_exact_species_item() -> None:
     assert "Blastoise @ Leftovers" in rewritten
 
 
+@pytest.mark.asyncio
+async def test_opponent_mega_skips_an_illegal_duplicate_and_uses_the_next_set() -> None:
+    gengar = _species("gengar", "Gengar").model_copy(
+        update={
+            "mega_evolutions": (
+                MegaEvolutionOption(
+                    id="gengarmega", species="Gengar-Mega", required_item="Gengarite"
+                ),
+            )
+        }
+    )
+    mega = _species("gengarmega", "Gengar-Mega").model_copy(
+        update={"is_mega": True, "required_item": "Gengarite"}
+    )
+    team = "Gengar\n- Hypnosis\n- Shadow Ball\n\nGengar\n- Toxic\n- Shadow Ball"
+
+    class SleepClauseValidator:
+        async def validate(self, team_text: str, format_id: str) -> TeamValidationResult:
+            first = team_text.split("\n\n", 1)[0]
+            valid = not ("@ Gengarite" in first and "- Hypnosis" in first)
+            return TeamValidationResult(
+                format=format_id,
+                valid=valid,
+                errors=()
+                if valid
+                else (
+                    "Gengar 1 (Gengar) has the combination of Hypnosis + Gengarite, "
+                    "which is banned by Sleep Clause Mod.",
+                ),
+                normalized_export=team_text if valid else None,
+                packed_team="packed" if valid else None,
+            )
+
+    choices = _opponent_mega_choices(team, {"gengar": gengar, "gengarmega": mega})
+    selected, validation = await _validated_opponent_stage_team(
+        team,
+        {"gengar": gengar, "gengarmega": mega},
+        {"gengar": 1},
+        60,
+        "gen9natdexdraft",
+        SleepClauseValidator(),
+        try_mega=True,
+    )
+
+    assert choices == (("Gengar", "Gengarite", 0), ("Gengar", "Gengarite", 1))
+    assert validation.valid
+    assert selected.split("\n\n")[0].splitlines()[0] == "Gengar"
+    assert selected.split("\n\n")[1].splitlines()[0] == "Gengar @ Gengarite"
+
+
 def _candidate(entry_id: str, species: str, showdown_id: str) -> DraftCandidate:
     return DraftCandidate(
         entry_id=entry_id,
@@ -320,6 +373,40 @@ def test_with_evolutions_rewrites_only_the_evolved_blocks_and_keeps_evs() -> Non
     assert "- Frenzy Plant" in blocks[0]
     # The un-evolved Pokemon's block is untouched, byte for byte.
     assert blocks[1] == export.split("\n\n")[1]
+
+
+def test_with_evolutions_replaces_ivs_with_the_hidden_power_target_set() -> None:
+    hidden_power_set = _set("Final", ("Hidden Power Rock",)).model_copy(
+        update={
+            "ivs": PokemonIvSpread(defense=30, spd=30, spe=30),
+            "tera_type": "Rock",
+        }
+    )
+    species_by_id = {
+        **SPECIES_BY_ID,
+        "final": SPECIES_BY_ID["final"].model_copy(
+            update={"showdown_set": hidden_power_set}
+        ),
+    }
+    export = (
+        "Basic\n"
+        "Ability: Overgrow\n"
+        "EVs: 252 SpA / 252 Spe / 4 SpD\n"
+        "Modest Nature\n"
+        "IVs: 0 Atk\n"
+        "- Tackle"
+    )
+    evolved_pick = _pick("mon1", "Basic", "basic", ("basic", "middle", "final")).model_copy(
+        update={"evolution_stage_index": 2}
+    )
+
+    result = _with_evolutions(export, _FakeRun((evolved_pick,)), species_by_id)
+
+    assert "EVs: 252 SpA / 252 Spe / 4 SpD" in result
+    assert "IVs: 30 Def / 30 SpD / 30 Spe" in result
+    assert "IVs: 0 Atk" not in result
+    assert "Tera Type: Rock" in result
+    assert "- Hidden Power Rock" in result
 
 
 class _FakeRun:

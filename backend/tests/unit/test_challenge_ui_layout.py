@@ -17,6 +17,7 @@ NEW_RUN_PAGE = ROOT / "frontend/src/routes/challenges/new/+page.svelte"
 CHALLENGE_LIST_PAGE = ROOT / "frontend/src/routes/challenges/+page.svelte"
 CHALLENGE_HELPERS = ROOT / "frontend/src/lib/challenge.ts"
 RENDERER_CARDS = ROOT / "frontend/src/lib/battle-renderer/RendererCards.svelte"
+RENDERER_COMMENTARY = ROOT / "frontend/src/lib/battle-renderer/RendererCommentary.svelte"
 RENDERER = ROOT / "frontend/src/lib/BattleRenderer.svelte"
 POKEMON_SPRITE = ROOT / "frontend/src/lib/PokemonSprite.svelte"
 LAYOUT = ROOT / "frontend/src/routes/+layout.svelte"
@@ -164,6 +165,38 @@ def test_draft_quick_start_uses_the_shared_visible_standard_contract() -> None:
     assert "battleType: 'tactical-auto'" in helpers
     assert "battleExperience: 'fast-watch'" in helpers
     assert "difficulty: 'normal'" in helpers
+
+
+def test_quick_start_waits_for_routes_but_not_the_full_run_history() -> None:
+    page = CHALLENGE_LIST_PAGE.read_text(encoding="utf-8")
+
+    assert "void loadHistory();" in page
+    assert "void loadDefinitions();" in page
+    assert "disabled={quickStarting || routesLoading}" in page
+    assert "disabled={quickStarting || historyLoading}" not in page
+
+
+def test_battle_heading_prioritizes_the_opponent_and_title() -> None:
+    source = BATTLE_PAGE.read_text(encoding="utf-8")
+
+    assert "campaignOpponentHeading(campaign)" in source
+    assert "<h1 title={battleHeading}>{battleHeading}</h1>" in source
+
+
+def test_battle_action_feed_uses_the_available_readable_space() -> None:
+    source = RENDERER_COMMENTARY.read_text(encoding="utf-8")
+
+    assert "width:clamp(300px,30cqw,440px)" in source
+    assert "max-height:58%" in source
+    assert "white-space:normal" in source
+    assert "text-overflow:ellipsis" not in source
+
+
+def test_both_pokemon_hp_plates_leave_room_for_names_and_types() -> None:
+    source = RENDERER.read_text(encoding="utf-8")
+
+    assert ".plate-far{top:5%;left:3.5%;width:clamp(320px,39cqw,500px)}" in source
+    assert ".plate-near{bottom:6%;right:3.5%;width:clamp(320px,39cqw,500px)}" in source
 
 
 def test_a_human_battler_cannot_pick_an_unattended_battle_experience() -> None:
