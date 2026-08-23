@@ -56,10 +56,10 @@ width. The current pinned catalog measured 1,216 validated draftable entries out
 The completed 2026-08-22 evolution, rarity, Mega Evolution, and release-polish pass passed Ruff,
 Mypy, 297 backend unit tests, all 18 real-Showdown integration tests, 105 frontend tests, 3 real
 Chromium Playwright flows, Svelte diagnostics with zero errors or warnings, and the production
-frontend build. The Kanto campaign's level curve changed to 25/30/35/40/45/50/55/60/68/76/84/92/100;
+frontend build. The Kanto campaign's level curve changed to 10/30/35/40/45/50/55/60/68/76/84/92/100;
 difficulty now only raises the opponent above that curve (`+0/+5/+10/+15`, capped at 100) instead
 of lowering the player, and every drafted species' recommended set is now built and validated at
-level 25 — a full sweep of all 1,216 draftable entries found zero illegal at their assigned level
+level 10 — a full sweep of all 1,216 draftable entries found zero illegal at their assigned level
 (previously up to 62 were illegal depending on difficulty). The primary navigation was reduced to
 Home/Battle/Draft with a utility menu for Dashboard/Tournaments/Teams/Settings. Draft candidates
 now use a locally pinned Smogon Draft Points snapshot and five deterministic weighted rarity

@@ -50,6 +50,7 @@ export function createPresentationState(match: PresentationMatch): BattlePresent
     currentMove: null,
     currentMoveProfile: null,
     currentMoveSide: null,
+    currentMoveActor: null,
     currentMovePhase: 'resolved',
     effect: 'none',
     effectSide: null,
@@ -151,6 +152,7 @@ export function reducePresentation(
   let currentMove = state.currentMove;
   let currentMoveProfile = state.currentMoveProfile;
   let currentMoveSide = state.currentMoveSide;
+  let currentMoveActor = state.currentMoveActor;
   let currentMovePhase: ActionPhase = state.currentMovePhase;
   let impacts = state.impacts;
   let switchTransitions = state.switchTransitions;
@@ -176,6 +178,7 @@ export function reducePresentation(
       currentMove = stringValue(payload.move);
       currentMoveProfile = moveVisualProfile(state, side, currentMove, payload);
       currentMoveSide = side;
+      currentMoveActor = activeIdentity(state.battle, side, payload.actor);
       currentMovePhase = 'executing';
       players = setMotion(players, side, 'attacking');
       players = setStatus(players, side, 'executing');
@@ -193,7 +196,9 @@ export function reducePresentation(
       // Hazards, weather, status and recoil have no attacker and stay uncredited.
       const attackerSide = targetSide ? OTHER_SIDE[targetSide] : null;
       if (dealt && attackerSide && currentMoveSide === attackerSide) {
-        const attacker = activeIdentity(state.battle, attackerSide);
+        // Use the specific slot that used the move, not the side's slot 0 — in doubles
+        // the mover may be the second active Pokemon.
+        const attacker = currentMoveActor || activeIdentity(state.battle, attackerSide);
         if (attacker) recap = withRecap(recap, attackerSide, attacker, { damageDealt: dealt });
       }
       battle = updateBattleActive(battle, targetSide, payload.target, { hp: payload.hp });
@@ -275,6 +280,7 @@ export function reducePresentation(
       currentMove = null;
       currentMoveProfile = null;
       currentMoveSide = null;
+      currentMoveActor = null;
       currentMovePhase = 'resolved';
       players = setMotion(players, side, 'switching-in');
       players = setCommentaryPhase(players, side, 'executing');
@@ -289,6 +295,7 @@ export function reducePresentation(
       currentMove = null;
       currentMoveProfile = null;
       currentMoveSide = null;
+      currentMoveActor = null;
       currentMovePhase = 'resolved';
       impacts = { p1: null, p2: null };
       break;
@@ -297,7 +304,12 @@ export function reducePresentation(
       const victim = activeIdentity(state.battle, targetSide, payload.target);
       if (targetSide && victim) recap = withRecap(recap, targetSide, victim, { fainted: true });
       const scorerSide = targetSide ? OTHER_SIDE[targetSide] : null;
-      const scorer = activeIdentity(state.battle, scorerSide);
+      // Same slot-identity fix as damage: only trust currentMoveActor when it's this
+      // side's move that just resolved, otherwise fall back to the side's active slot.
+      const scorer =
+        scorerSide && currentMoveSide === scorerSide && currentMoveActor
+          ? currentMoveActor
+          : activeIdentity(state.battle, scorerSide);
       if (scorerSide && scorer) recap = withRecap(recap, scorerSide, scorer, { knockouts: 1 });
       battle = updateBattleActive(
         battle,
@@ -392,6 +404,7 @@ export function reducePresentation(
     currentMove,
     currentMoveProfile,
     currentMoveSide,
+    currentMoveActor,
     currentMovePhase,
     effect,
     effectSide,
@@ -853,6 +866,11 @@ function addDetail(entry: ActionFeedEntry, detail: string, emphasis = entry.emph
   };
 }
 
+// The UI only ever renders the last 8 turn groups (RendererCommentary's
+// groupActionFeed). Cap well above that so state doesn't grow unbounded over
+// a long replay while still leaving generous scroll-back history.
+const ACTION_FEED_MAX_ENTRIES = 300;
+
 function appendActionFeed(feed: ActionFeedEntry[], entry: ActionFeedEntry): ActionFeedEntry[] {
   const previous = feed.at(-1);
   if (
@@ -864,7 +882,10 @@ function appendActionFeed(feed: ActionFeedEntry[], entry: ActionFeedEntry): Acti
   ) {
     return [...feed.slice(0, -1), { ...previous, updatedSequence: entry.updatedSequence }];
   }
-  return [...feed, entry];
+  const next = [...feed, entry];
+  return next.length > ACTION_FEED_MAX_ENTRIES
+    ? next.slice(next.length - ACTION_FEED_MAX_ENTRIES)
+    : next;
 }
 
 function updateLatestMove(

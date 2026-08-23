@@ -336,7 +336,14 @@ def derive_pokemon_statistics(
                 hp[target] = current
             elif event.event_type == "critical_hit":
                 target = actor_key(payload.get("target"))
-                source = damage_sources.get(target) if target else None
+                # Showdown emits `-crit` before `-damage` for the same hit, so
+                # `damage_sources[target]` still holds the *previous* hit's
+                # attacker at this point; `move_sources[target]` reflects the
+                # move that is about to resolve and is the correct source.
+                source = (
+                    (move_sources.get(target) if target else None)
+                    or (damage_sources.get(target) if target else None)
+                )
                 source_entry = (
                     player_entry(f"{source[0]}a: {source[1]}", aliases) if source else None
                 )
@@ -615,8 +622,14 @@ def _even_duo_opponent_team(
     existing = {showdown_id(_team_block_species(block)) for block in blocks}
     specialty = (stage.specialty or "").casefold()
     if specialty in {"", "mixed", "champion", "starter type"}:
-        first = species_by_id.get(showdown_id(_team_block_species(blocks[0])))
-        specialty = first.types[0].casefold() if first and first.types else ""
+        reference_species = _team_block_species(blocks[0])
+        first = species_by_id.get(showdown_id(reference_species))
+        if first is None:
+            raise ValueError(
+                f"cannot infer a Doubles filler specialty for {stage.name}: "
+                f"'{reference_species}' is not in the generation {generation} species catalog"
+            )
+        specialty = first.types[0].casefold() if first.types else ""
     eligible = [
         species
         for species in species_by_id.values()
@@ -966,14 +979,21 @@ def _evolution_branches(
 def _resolve_evolution_path(
     species_id: str, choice: str | None, species_by_id: dict[str, SpeciesMetadata]
 ) -> tuple[str, ...]:
-    """Resolve the complete path to the chosen final evolution."""
+    """Resolve the complete path to the chosen final evolution.
+
+    A choice is keyed by terminal species id only (that's all `EvolutionTrigger`
+    exposes to the player). If two distinct intermediate routes reconverge on the
+    same final species, the first discovered route is used deterministically —
+    the player was only ever offered a choice of final species, not of route, so
+    this loses no information they could have selected.
+    """
     paths = _terminal_evolution_paths(species_id, species_by_id)
     if len(paths) == 1:
         return paths[0]
     if choice is not None:
-        selected = next((path for path in paths if path[-1] == choice), None)
-        if selected is not None:
-            return selected
+        matching = [path for path in paths if path[-1] == choice]
+        if matching:
+            return matching[0]
     return (species_id,)
 
 
@@ -1552,7 +1572,9 @@ class ChallengeService:
                     mega_evolutions=species.mega_evolutions,
                     evolution_stage=evolution_stage(species),
                     draft_points=points,
-                    draft_rarity=rarity_for_candidate(points, species.base_stat_total),
+                    draft_rarity=rarity_for_candidate(
+                        points, species.base_stat_total, species.is_legendary
+                    ),
                 )
             )
         return tuple(sorted(candidates, key=lambda item: item.entry_id)), excluded

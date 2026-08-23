@@ -59,6 +59,16 @@ def test_legendary_tier_base_stats_have_a_scarcity_floor() -> None:
     assert rarity_for_candidate(3, 500) is DraftRarity.COMMON
 
 
+def test_is_legendary_floors_rarity_even_at_low_bst_and_points() -> None:
+    # Some Restricted Legendary / Sub-Legendary species (e.g. Kubfu, Cosmog) have a modest BST,
+    # so the points/BST calculation alone would otherwise rate them as common.
+    assert rarity_for_candidate(3, 300, is_legendary=False) is DraftRarity.COMMON
+    assert rarity_for_candidate(3, 300, is_legendary=True) is DraftRarity.SUPER_RARE
+    # The flag only floors the tier; it never demotes a species points/BST already rate higher.
+    assert rarity_for_candidate(16, 300, is_legendary=True) is DraftRarity.ULTRA_RARE
+    assert rarity_for_candidate(3, 600, is_legendary=True) is DraftRarity.ULTRA_RARE
+
+
 def test_ultra_rare_candidates_are_statistically_less_frequent_across_seeds() -> None:
     common = _candidate("common", DraftRarity.COMMON)
     ultra = _candidate("ultra", DraftRarity.ULTRA_RARE)

@@ -34,6 +34,10 @@ class Settings(BaseSettings):
         "http://127.0.0.1:3001",
     )
     log_level: str = "INFO"
+    #: Shared-secret bearer token for the HTTP/WS API. Unset (default) means auth is
+    #: disabled - local-dev-friendly, but see koalabattle.api.auth for the startup
+    #: warning this triggers. Set it to require `Authorization: Bearer <token>`.
+    api_token: str | None = None
     openai_api_key: str | None = Field(
         default=None,
         validation_alias=AliasChoices("KOALABATTLE_OPENAI_API_KEY", "OPENAI_API_KEY"),

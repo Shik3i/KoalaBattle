@@ -11,7 +11,7 @@ const CATALOG_SCHEMA_VERSION = '1.2';
 /**
  * The lowest level any campaign definition may assign to its first stage. Recommended sets
  * are built and validated at this level, not level 100: Showdown's move-legality check is
- * monotonic in level (a move learnable at level 25 stays learnable at every higher level), so
+ * monotonic in level (a move learnable at level 10 stays learnable at every higher level), so
  * a set that is real-Showdown-legal here is guaranteed legal for the rest of the campaign.
  */
 const CAMPAIGN_MIN_LEVEL = 10;
@@ -44,6 +44,14 @@ function hasRule(rules, name) {
 }
 
 /**
+ * Like hasRule, but for the raw (non-toID'd) tag-rule keys Showdown stores in a rule table,
+ * e.g. '+tag:past'. Dex.toID would strip the '+' and ':' and never match these.
+ */
+function hasRawRule(rules, key) {
+  return Boolean(rules && rules.has(key));
+}
+
+/**
  * Report which battle mechanics actually exist in a format. Generation availability is the
  * floor; the format's own rule table can still remove a mechanic (for example Dynamax Clause).
  */
@@ -51,7 +59,19 @@ function mechanics(format, generation) {
   const rules = ruleTable(format);
   // National Dex deliberately restores past mechanics while keeping the current-generation
   // mod. Generation alone therefore cannot describe whether a Mega Stone is actionable.
-  const megaEvolution = (generation >= 6 && generation <= 7) || hasRule(rules, 'NatDex Mod');
+  //
+  // This mirrors Showdown's own `canMegaEvo` gate (sim/dex-formats.ts, RuleTable#addFormat):
+  //   const canMegaEvo = (dex.gen >= 6 || ruleTable.has('+tag:future')) &&
+  //     (dex.gen <= 7 || ruleTable.has('+tag:past'));
+  // Checking for a rule literally named "NatDex Mod" is unreliable: "[Gen 9] NatDex Draft"
+  // (the base format gen9natdexdraft and gen9koalabattlecanonicalnatdexdraft[doubles] extend)
+  // never includes a rule named "NatDex Mod" at all — it adds '+Past' directly, which
+  // validateRule() resolves to the raw rule-table key '+tag:past'. Formats that DO include a
+  // rule literally named "NatDex Mod" (e.g. "[Gen 9 Champions] NatDex Draft") also end up with
+  // '+tag:past' in the table, since that rule's own sub-ruleset includes '+Past' too — so this
+  // single check covers both spellings correctly.
+  const megaEvolution = (generation >= 6 || hasRawRule(rules, '+tag:future')) &&
+    (generation <= 7 || hasRawRule(rules, '+tag:past'));
   return {
     items: generation >= 2,
     abilities: generation >= 3,

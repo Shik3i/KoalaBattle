@@ -124,6 +124,33 @@ test('follow mode accepts ordered live events without duplicate sequences', () =
   assert.equal(timeline.snapshot().state.eventSequence, 1);
 });
 
+test('a late event that arrives after its slot was already consumed is still incorporated', () => {
+  const clock = new FakeClock();
+  const timeline = new PresentationTimeline(match, [], clock, true);
+  timeline.play();
+  // sequence 2 (the move_used) never arrives yet — as if it were dropped by a
+  // queue overflow — so only 1 and 3 are appended and consumed first.
+  timeline.append(events[0]);
+  timeline.append(events[2]);
+  clock.runNext(); // clears the intro hold
+  clock.runNext(); // processes sequence 1
+  clock.runNext(); // processes sequence 3
+  assert.equal(timeline.snapshot().index, 2);
+  assert.equal(timeline.snapshot().eventCount, 2);
+
+  // A resync now fills the gap: sequence 2 arrives after its slot in the
+  // already-consumed range. A plain forward-only append would silently drop
+  // it from `state` since nextEvent()/schedule() never look backward.
+  timeline.append(events[1]);
+
+  assert.equal(timeline.snapshot().eventCount, 3);
+  assert.equal(timeline.snapshot().index, 3);
+  assert.ok(
+    timeline.snapshot().state.actionFeed.some((entry) => entry.headline === 'A used Move A'),
+    'the late-arriving move_used event must be reduced into state, not skipped'
+  );
+});
+
 test('follow mode accelerates when a fast match creates a large backlog', () => {
   const clock = new FakeClock();
   const backlog = Array.from({ length: 100 }, (_, index) => ({

@@ -205,6 +205,25 @@ def test_duo_odd_team_prefers_same_generation_legendary_specialist() -> None:
     assert "Zapdos" in completed
 
 
+def test_duo_odd_team_reports_missing_specialty_reference_species() -> None:
+    # Champion/Starter Type/Mixed/unset specialties infer a type from the
+    # opponent's first team member. If that species is missing from the
+    # catalog, this must fail with a diagnosable message pointing at the
+    # actual missing species rather than a generic "no eligible Pokemon"
+    # error that looks like an exhausted candidate pool.
+    stage = ChallengeStage(
+        id="champ",
+        name="Champion",
+        title="Champion",
+        theme="Mixed",
+        level=50,
+        specialty="Mixed",
+        opponent_team="Pikachu\n- Thunderbolt",
+    )
+    with pytest.raises(ValueError, match="Pikachu"):
+        _even_duo_opponent_team(stage.opponent_team, stage, 1, {})
+
+
 def test_automatic_stage_team_uses_exact_size_and_type_advantage() -> None:
     def metadata(identifier: str, name: str, types: tuple[str, ...]) -> SpeciesMetadata:
         candidate = _candidate(len(identifier), types=types)
@@ -474,6 +493,48 @@ async def test_pick_and_reroll_never_reoffer_consumed_species_and_survive_restar
     assert persisted.consumed_species_ids == picked.consumed_species_ids
     assert persisted.draft_history == picked.draft_history
     await reopened.close()
+
+
+@pytest.mark.asyncio
+async def test_draft_pool_is_stored_once_and_not_reembedded_on_every_save(
+    tmp_path: Path,
+) -> None:
+    from sqlalchemy import func, select
+
+    from koalabattle.models.orm import ChallengeRunRow, DraftPoolSnapshotRow
+
+    url = f"sqlite+aiosqlite:///{tmp_path / 'draft-pool.db'}"
+    database = Database(url)
+    await database.create_schema()
+    repository = ChallengeRepository(database)
+    run = attach_offer(_run())
+    await repository.create(run)
+    reroll_target = run.model_copy(update={"revision": run.revision})
+    await repository.save(reroll_target, expected_revision=run.revision)
+    await repository.save(
+        reroll_target.model_copy(update={"revision": run.revision + 1}),
+        expected_revision=run.revision + 1,
+    )
+
+    async with database.sessions() as session:
+        pool_rows = (
+            await session.execute(select(func.count()).select_from(DraftPoolSnapshotRow))
+        ).scalar_one()
+        # Three writes (create + two saves) against one immutable catalog_hash must
+        # only ever produce one stored pool row, not one per write.
+        assert pool_rows == 1
+
+        run_row = await session.get(ChallengeRunRow, str(run.id))
+        assert run_row is not None
+        stored_candidates = json.loads(run_row.state_json)["draft_pool"]["candidates"]
+        # The full candidate catalog must not be re-embedded in the per-run row.
+        assert stored_candidates == []
+
+    # But a normal load still sees the complete, correct draft pool.
+    reloaded = await repository.get(run.id)
+    assert reloaded is not None
+    assert reloaded.draft_pool.candidates == run.draft_pool.candidates
+    assert len(reloaded.draft_pool.candidates) > 0
 
 
 @pytest.mark.asyncio
@@ -1028,19 +1089,22 @@ def test_pokemon_statistics_aggregate_damage_participation_and_ko_events() -> No
                     event_type="move_used",
                     payload={"actor": "p1a: Mon 1", "move": "Tackle", "target": "p2a: Enemy"},
                 ),
+                # Real Showdown protocol emits `-crit` before `-damage` for the
+                # same hit; keep that ordering here so this test exercises the
+                # actual attribution path instead of a reordered fixture.
                 BattleEvent(
                     match_id=match_id,
                     sequence=5,
                     turn=1,
-                    event_type="damage",
-                    payload={"target": "p2a: Enemy", "hp": "50/100"},
+                    event_type="critical_hit",
+                    payload={"target": "p2a: Enemy"},
                 ),
                 BattleEvent(
                     match_id=match_id,
                     sequence=6,
                     turn=1,
-                    event_type="critical_hit",
-                    payload={"target": "p2a: Enemy"},
+                    event_type="damage",
+                    payload={"target": "p2a: Enemy", "hp": "50/100"},
                 ),
                 BattleEvent(
                     match_id=match_id,

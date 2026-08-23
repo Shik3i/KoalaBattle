@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import ipaddress
 from typing import Literal
+from urllib.parse import urlsplit
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -146,10 +148,46 @@ class RendererConfigInput(BaseModel):
         return float(value)
 
 
+def _validate_provider_base_url(value: str | None) -> str | None:
+    """Reject provider base URLs that can't be a legitimate API endpoint.
+
+    Loopback and LAN targets are intentionally allowed — running a local or
+    LAN-hosted OpenAI-compatible provider (LM Studio, Ollama, ...) is a
+    supported use case (see docs/RELEASE_READINESS.md). This only blocks
+    schemes that were never a real HTTP provider (file://, gopher://, ...)
+    and the cloud-metadata link-local range (169.254.0.0/16, incl. the AWS/
+    GCP/Azure/DO metadata IP 169.254.169.254), which is never a legitimate
+    LLM endpoint and is the single most common real-world SSRF target.
+    """
+    if value is None:
+        return value
+    stripped = value.strip()
+    if not stripped:
+        return value
+    parsed = urlsplit(stripped)
+    if parsed.scheme not in {"http", "https"}:
+        raise ValueError("base_url must use http or https")
+    hostname = parsed.hostname
+    if not hostname:
+        raise ValueError("base_url must include a host")
+    try:
+        address = ipaddress.ip_address(hostname)
+    except ValueError:
+        address = None
+    if address is not None and address.is_link_local:
+        raise ValueError("base_url may not target a link-local/metadata address")
+    return value
+
+
 class ProviderModelsInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     provider: ProviderKind
     base_url: str | None = Field(default=None, max_length=500)
+
+    @field_validator("base_url")
+    @classmethod
+    def validate_base_url(cls, value: str | None) -> str | None:
+        return _validate_provider_base_url(value)
 
 
 class ProviderConfigurationInput(BaseModel):
@@ -158,6 +196,11 @@ class ProviderConfigurationInput(BaseModel):
     api_key: str | None = Field(default=None, max_length=1_000)
     base_url: str | None = Field(default=None, max_length=500)
     clear: bool = False
+
+    @field_validator("base_url")
+    @classmethod
+    def validate_base_url(cls, value: str | None) -> str | None:
+        return _validate_provider_base_url(value)
 
 
 class StoredTemplateInput(BaseModel):

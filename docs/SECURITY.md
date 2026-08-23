@@ -54,9 +54,13 @@ base URL. Rotate any key that was pasted into a manual response because full aud
 intentionally preserves operator input.
 
 Provider keys entered in `/settings` cross only the private backend API and are persisted to the
-gitignored project `.env`. Docker mounts that one file read/write at `/runtime-config/.env`; other
-repository paths are not exposed through this persistence boundary. Saved values are never
-returned to the frontend, match archives, spectator payloads, logs, or the database.
+gitignored `data/provider-credentials.env` file. Docker mounts that one file read/write at
+`/runtime-config/provider-credentials.env` — the project `.env` itself is not mounted into the
+container at all (compose reads it only on the host, to interpolate the `environment:` block), so
+a container process can no longer rewrite database URLs, CORS origins, or other app configuration;
+only the dedicated credentials file is writable, and no other repository paths are exposed through
+this persistence boundary. Saved values are never returned to the frontend, match archives,
+spectator payloads, logs, or the database.
 
 ## Audio boundary
 

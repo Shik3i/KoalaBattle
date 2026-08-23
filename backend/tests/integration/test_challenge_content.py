@@ -89,7 +89,11 @@ async def test_agatha_mega_selection_skips_hypnosis_gengar() -> None:
 async def test_showdown_rejects_hypnosis_gengarite_but_accepts_hypnosis_gengar() -> None:
     _skip_unless_showdown()
     validator = _validator()
-    moves = "Ability: Cursed Body\n- Hypnosis\n- Shadow Ball\n- Sludge Bomb\n- Protect"
+    # An explicit EVs line is required: the `Obtainable` complex rule (now correctly
+    # scoped to just its `Misc` sub-rule, not the whole bundle) includes `EV Limit =
+    # Auto`, which flags an all-zero EV spread as "did you forget to EV it?" unless
+    # it's spelled out as deliberate.
+    moves = "EVs: 1 HP\nAbility: Cursed Body\n- Hypnosis\n- Shadow Ball\n- Sludge Bomb\n- Protect"
 
     mega = await validator.validate(
         f"Gengar @ Gengarite\n{moves}", "gen9koalabattlecanonicalnatdexdraft"

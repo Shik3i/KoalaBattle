@@ -4,6 +4,7 @@ import asyncio
 from pathlib import Path
 from stat import S_IMODE
 
+from fastapi import WebSocketDisconnect
 from fastapi.testclient import TestClient
 
 from koalabattle.agents import RandomAgent
@@ -251,6 +252,41 @@ def test_browser_provider_configuration_enables_deepseek_without_leaking_key(
             model="deepseek-v4-flash",
         )
         assert isinstance(service._provider_for(player), DeepSeekProvider)
+
+
+def test_provider_configuration_rejects_metadata_and_non_http_base_urls(
+    tmp_path: Path, match_config: MatchConfig
+) -> None:
+    settings = Settings(
+        _env_file=None,
+        database_url=f"sqlite+aiosqlite:///{tmp_path / 'runtime-provider-ssrf.db'}",
+    )
+    create_test_schema(settings.database_url)
+    with TestClient(create_app(settings)) as client:
+        # The cloud-metadata link-local range is never a legitimate provider
+        # endpoint and is the single most common real-world SSRF target.
+        metadata_response = client.post(
+            "/api/providers/configure",
+            json={
+                "provider": "openai-compatible",
+                "base_url": "http://169.254.169.254/latest/meta-data/",
+            },
+        )
+        assert metadata_response.status_code == 422, metadata_response.text
+
+        non_http_response = client.post(
+            "/api/providers/configure",
+            json={"provider": "openai-compatible", "base_url": "file:///etc/passwd"},
+        )
+        assert non_http_response.status_code == 422, non_http_response.text
+
+        # Loopback/LAN targets are the intentional local-provider use case and
+        # must keep working.
+        loopback_response = client.post(
+            "/api/providers/configure",
+            json={"provider": "openai-compatible", "base_url": "http://127.0.0.1:1234/v1"},
+        )
+        assert loopback_response.status_code == 200, loopback_response.text
 
 
 def test_provider_key_persists_in_gitignored_env_across_backend_restart(
@@ -542,3 +578,67 @@ def test_resume_re_enqueues_interrupted_match(tmp_path: Path) -> None:
 
         not_found = client.post("/api/matches/00000000-0000-0000-0000-000000000000/resume")
         assert not_found.status_code == 404
+
+
+def test_api_token_gates_mutating_and_sensitive_endpoints(tmp_path: Path) -> None:
+    database_url = f"sqlite+aiosqlite:///{tmp_path / 'auth.db'}"
+    create_test_schema(database_url)
+    match_payload = {
+        "player1": {"display_name": "P1", "agent_type": "random"},
+        "player2": {"display_name": "P2", "agent_type": "random"},
+    }
+
+    # (a) no KOALABATTLE_API_TOKEN configured: today's local-dev-friendly default is
+    # unchanged - unauthenticated requests to mutating and sensitive-read endpoints succeed.
+    open_settings = Settings(_env_file=None, database_url=database_url)
+    with TestClient(create_app(open_settings)) as client:
+        created = client.post("/api/matches", json=match_payload)
+        assert created.status_code == 202, created.text
+        match_id = created.json()["id"]
+        assert client.get(f"/api/matches/{match_id}").status_code == 200
+
+    # (b)/(c) with a token configured, unauthenticated requests are rejected and the
+    # correct bearer token succeeds.
+    protected_settings = Settings(
+        _env_file=None, database_url=database_url, api_token="s3cr3t-token"
+    )
+    with TestClient(create_app(protected_settings)) as client:
+        assert client.get("/healthz").status_code == 200  # public endpoint stays open
+
+        unauth_create = client.post("/api/matches", json=match_payload)
+        assert unauth_create.status_code == 401
+
+        wrong_token = client.post(
+            "/api/matches", json=match_payload, headers={"Authorization": "Bearer wrong"}
+        )
+        assert wrong_token.status_code == 401
+
+        authed_create = client.post(
+            "/api/matches",
+            json=match_payload,
+            headers={"Authorization": "Bearer s3cr3t-token"},
+        )
+        assert authed_create.status_code == 202, authed_create.text
+        match_id = authed_create.json()["id"]
+
+        unauth_read = client.get(f"/api/matches/{match_id}")
+        assert unauth_read.status_code == 401
+
+        authed_read = client.get(
+            f"/api/matches/{match_id}", headers={"Authorization": "Bearer s3cr3t-token"}
+        )
+        assert authed_read.status_code == 200
+
+        unauth_ws_close_code = None
+        try:
+            with client.websocket_connect(f"/api/matches/{match_id}/stream"):
+                pass
+        except WebSocketDisconnect as disconnect:
+            unauth_ws_close_code = disconnect.code
+        assert unauth_ws_close_code == 4401
+
+        with client.websocket_connect(
+            f"/api/matches/{match_id}/stream?token=s3cr3t-token"
+        ) as websocket:
+            snapshot = websocket.receive_json()
+            assert snapshot["kind"] == "snapshot"

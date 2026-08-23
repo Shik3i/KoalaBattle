@@ -94,6 +94,10 @@
     if (message.kind === 'renderer_config' && message.config) {
       config = sanitizeRendererConfig({ ...config, ...message.config });
     }
+    // The server sends this when its outgoing queue overflowed and had to drop this
+    // subscriber's backlog — the stream is now discontinuous. Refetch a fresh snapshot
+    // instead of trying to reason about events with a gap in their sequence.
+    if (message.kind === 'resync_required') void refresh();
   }
 
   function syncProductionPlayback(event: CustomEvent<ProductionPlaybackState>) {

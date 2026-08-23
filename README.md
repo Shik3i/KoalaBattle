@@ -66,11 +66,16 @@ Requirements: Docker with Compose v2.
 
 ```bash
 cp .env.example .env
+mkdir -p data && touch data/provider-credentials.env && chmod 600 data/provider-credentials.env
 docker compose up --build
 ```
 
 Open <http://localhost:3000>; API docs: <http://localhost:8001/docs>. If port 3000 is in
 use, set `KOALABATTLE_FRONTEND_PORT=3001` in `.env`.
+
+Published ports (3000, 8000, 8001, 8002) bind to `127.0.0.1` by default. To expose them on
+your LAN or all interfaces, set `KOALABATTLE_BIND_HOST=0.0.0.0` in `.env` (trusted networks
+only).
 
 The stack contains the SvelteKit UI, FastAPI backend, SQLite, free Edge neural speech with an
 `espeak-ng` offline fallback, a

@@ -282,7 +282,10 @@ def test_challenge_formats_relax_obtainability_for_the_exact_level_curve() -> No
         Path(__file__).resolve().parents[3] / "showdown/config/custom-formats.js"
     ).read_text()
 
-    assert format_config.count("'!Obtainable'") == 2
+    # Only the Misc sub-rule (event minimum levels, Hidden Power IVs, etc.) is
+    # relaxed. Negating the whole `Obtainable` umbrella would also disable
+    # move/ability/forme legality checking, which these formats still need.
+    assert format_config.count("'!Obtainable Misc'") == 2
     assert "KoalaBattle Canonical NatDex Draft Doubles" in format_config
     assert "'!Obtainable Abilities'" not in format_config
     assert "'!Obtainable Formes'" not in format_config

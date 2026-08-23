@@ -57,7 +57,7 @@ difficulty:
 
 | Stage | Trainer | Player level |
 | ---: | --- | ---: |
-| 1 | Brock | 25 |
+| 1 | Brock | 10 |
 | 2 | Misty | 30 |
 | 3 | Lt. Surge | 35 |
 | 4 | Erika | 40 |
@@ -75,12 +75,12 @@ difficulty:
 the next stage's level; there is no separate experience system to simulate. Levelling can also
 evolve a drafted Pokémon between stages — see [Evolution](#evolution).
 
-Recommended sets are validated at level 25, the campaign's lowest stage level, when the draft
+Recommended sets are validated at level 10, the campaign's lowest stage level, when the draft
 pool catalog is generated. Showdown's move-level legality is monotonic upward — any move a
-recommended set can legally know at level 25 it can still legally know at every higher level —
-so a set that is real-Showdown-legal at 25 is guaranteed legal for the rest of the campaign. This
+recommended set can legally know at level 10 it can still legally know at every higher level —
+so a set that is real-Showdown-legal at 10 is guaranteed legal for the rest of the campaign. This
 is enforced structurally: the fallback set builder validates each candidate move against the
-real pinned validator at level 25 as it assembles a set, so an illegal-for-level move can never
+real pinned validator at level 10 as it assembles a set, so an illegal-for-level move can never
 be chosen in the first place.
 
 ## Difficulty
@@ -105,7 +105,7 @@ The drafted roster snapshot is immutable. The stage team is derived at launch by
 the level (and current evolution stage; see below) on a copy of the validated export, exactly as
 the opponent team is. A hand-edited team_review export that carries a move illegal at the
 player's campaign level surfaces as a normal Showdown validation error rather than silently
-changing anyone's level — automatically prepared sets cannot hit this because of the level-25
+changing anyone's level — automatically prepared sets cannot hit this because of the level-10
 guarantee above.
 
 ## Evolution
@@ -119,11 +119,11 @@ data (`SpeciesMetadata.evolves_to`, exposed by `/dex-species`) — never guessed
 **Level-gated evolution** (`trigger_kind == "level"`) applies the moment the *next* stage's
 level meets the destination's real level-up requirement — checked against the upcoming
 stage's level exactly when the run is about to enter it, using the same win-transition that
-already advances `current_stage_index` and resolves gauntlet casualties. A Charmander drafted
-at level 25 stays Charmander through the Brock fight even though 25 already exceeds
-Charmeleon's level-16 requirement: the check only runs at the transition into the *next*
+already advances `current_stage_index` and resolves gauntlet casualties. A Weedle drafted
+at level 10 stays Weedle through the Brock fight even though 10 already exceeds
+Kakuna's level-7 requirement: the check only runs at the transition into the *next*
 stage, and only ever advances one step, even if the level jump would satisfy two thresholds at
-once. Charmander only becomes Charmeleon transitioning into the level-30 stage.
+once. Weedle only becomes Kakuna transitioning into the level-30 stage.
 
 **Every other trigger** (item, trade, friendship, a special condition, or any other kind
 Showdown reports) has no level of its own in the source games. The campaign maps every one of
@@ -261,18 +261,18 @@ targets remain metadata on their base species. Species Clause consumes the autho
 base-species identity, preventing alternate forms of the same species from returning later.
 
 Recommended sets have explicit provenance and are resolved in this order, each candidate always
-built and validated at level 25 (see [Campaign level curve](#campaign-level-curve)):
+built and validated at level 10 (see [Campaign level curve](#campaign-level-curve)):
 
 1. a four-move set from the pinned generation-specific Showdown Battle Factory data that validates
-   in the current Draft format at level 25;
+   in the current Draft format at level 10;
 2. a set produced deterministically by the pinned generation-specific Showdown Random Battle
-   generator and validated at level 25. Older generations' random-battle data has no real EV
+   generator and validated at level 10. Older generations' random-battle data has no real EV
    curation (a flat, evenly split spread at a neutral nature); when the generated set is
    uncurated in that sense, its nature and EVs are replaced with the same role read used by the
    third path below, keeping the generator's own move/item/ability choice; or
 3. a deterministic set assembled from the current format Dex's real learnset, abilities, required
    item, nature, IV, and EV data, with every growing moveset checked by the current-format
-   validator at level 25.
+   validator at level 10.
 
 The third path reads the species' own base stats to pick a role (physical/special attacker,
 physical/special wall) and derives a nature, a 252/252/4-style EV spread, and a default item

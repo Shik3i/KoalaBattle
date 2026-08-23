@@ -127,8 +127,25 @@ export class PresentationTimeline {
   append(event: BattleEvent): void {
     if (this.events.some((item) => item.sequence === event.sequence)) return;
     const wasAtEnd = this.index === this.events.length;
-    this.events.push(event);
-    this.events.sort((a, b) => a.sequence - b.sequence);
+    const insertionIndex = this.events.findIndex((item) => item.sequence > event.sequence);
+    const insertAt = insertionIndex === -1 ? this.events.length : insertionIndex;
+    this.events.splice(insertAt, 0, event);
+
+    if (insertAt < this.index) {
+      // The event landed inside the already-consumed range — e.g. a gap that was
+      // filled in by a resync after the client had moved past its sequence.
+      // `nextEvent()`/`schedule()` only ever advance forward from `index`, so a
+      // plain insert here would leave this event permanently unreduced into
+      // `state`. Rebuild from scratch so it's incorporated in the right order.
+      this.index += 1;
+      this.state = reduceEvents(createPresentationState(this.match), this.events, this.index);
+      this.introHoldComplete = this.index > 0;
+      this.resultHoldComplete = this.index >= this.events.length && this.state.finished;
+      this.emit();
+      if (this.playing && this.timer === null) this.schedule();
+      return;
+    }
+
     // Showdown may append final agent lifecycle records after battle_finished. Consume those
     // immediately without reopening or invalidating the result hold; otherwise eventCount
     // moves ahead of index and the Draft return waits forever.

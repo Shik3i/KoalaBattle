@@ -188,6 +188,9 @@ export interface BattlePresentationState {
   currentMove: string | null;
   currentMoveProfile: MoveVisualProfile | null;
   currentMoveSide: Side | null;
+  /** The specific active slot that used currentMove — required in doubles, where a side
+   *  can have two active Pokemon and slot 0 is not necessarily the mover. */
+  currentMoveActor: { id: string; species: string; name: string } | null;
   currentMovePhase: ActionPhase;
   effect: BattleEffect;
   effectSide: Side | null;

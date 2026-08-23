@@ -2,9 +2,12 @@
 
 KoalaBattle 0.11.0 supports five battle-decision provider shapes and one test-only provider.
 Credentials are backend environment variables; the API exposes only a boolean `configured`
-status. In Docker, `/settings` writes API keys through the backend into the gitignored project
-`.env` mounted at `/runtime-config/.env`. Values apply immediately and are reloaded after process,
-container, or image rebuilds. The browser removes legacy localStorage keys after migrating them.
+status. In Docker, `/settings` writes API keys through the backend into the gitignored
+`data/provider-credentials.env` file, mounted read/write at
+`/runtime-config/provider-credentials.env` — a dedicated file scoped to provider keys, separate
+from the project `.env` used for the rest of the app's configuration. Values apply immediately and
+are reloaded after process, container, or image rebuilds. The browser removes legacy localStorage
+keys after migrating them.
 
 | Provider | Backend variable | Default transport | Model discovery |
 | --- | --- | --- | --- |

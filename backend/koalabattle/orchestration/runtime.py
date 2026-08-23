@@ -87,8 +87,26 @@ class RealtimeHub:
             try:
                 queue.put_nowait(message)
             except asyncio.QueueFull:
-                # Overview and presentation clients must never block orchestration.
-                continue
+                # Overview and presentation clients must never block orchestration, so a
+                # slow subscriber's queue can overflow. Silently dropping just this message
+                # leaves a sequence gap the client has no way to detect (stuck endscreens,
+                # sprites reappearing, stale action feed text). Instead, discard this
+                # subscriber's whole backlog and replace it with one explicit resync
+                # signal: the client's job on receiving it is to refetch a fresh snapshot
+                # rather than try to reason about a now-discontinuous event stream.
+                RealtimeHub._force_resync(queue)
+
+    @staticmethod
+    def _force_resync(queue: asyncio.Queue[dict[str, object]]) -> None:
+        while not queue.empty():
+            try:
+                queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+        try:
+            queue.put_nowait({"kind": "resync_required"})
+        except asyncio.QueueFull:
+            pass
 
 
 class MatchEventSink(EngineEventSink):

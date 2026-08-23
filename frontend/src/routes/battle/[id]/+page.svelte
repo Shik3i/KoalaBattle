@@ -252,6 +252,10 @@
     if (message.kind === 'match_paused') { if (match) match.status = 'paused'; }
     if (message.kind === 'match_resumed') { if (match) match.status = Object.keys(pending).length ? 'waiting' : 'running'; }
     if (message.kind === 'match_failed') { if (match) match.status = 'failed'; error = message.error || 'Battle failed.'; }
+    // The server sends this when its outgoing queue overflowed and had to drop this
+    // subscriber's backlog — the stream is now discontinuous. Refetch a fresh snapshot
+    // instead of trying to reason about events with a gap in their sequence.
+    if (message.kind === 'resync_required') void refreshLiveState();
   }
   async function refreshMetadata(matchId = data.id, generation = connectionGeneration) {
     const archive = await getPresentationMatch(matchId);

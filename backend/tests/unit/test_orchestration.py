@@ -85,6 +85,23 @@ async def _wait_terminal(repository: BattleRepository, match_ids: list[UUID]) ->
 
 
 @pytest.mark.asyncio
+async def test_realtime_hub_signals_resync_instead_of_silently_dropping_on_overflow() -> None:
+    hub = RealtimeHub()
+    match_id = uuid4()
+    queue = hub.subscribe(match_id)
+
+    # Fill the queue past capacity so the next publish overflows it.
+    for index in range(queue.maxsize):
+        await hub.publish(match_id, {"kind": "battle_event", "sequence": index})
+    await hub.publish(match_id, {"kind": "battle_event", "sequence": queue.maxsize})
+
+    # A silent drop would leave a stale backlog with a gap in it, undetectable by the
+    # client. Instead the whole backlog must be replaced by one explicit resync signal.
+    assert queue.qsize() == 1
+    assert queue.get_nowait() == {"kind": "resync_required"}
+
+
+@pytest.mark.asyncio
 async def test_supervisor_runs_isolated_matches_with_global_limit(tmp_path) -> None:
     database = Database(f"sqlite+aiosqlite:///{tmp_path / 'orchestration.db'}")
     await database.create_schema()

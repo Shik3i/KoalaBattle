@@ -38,18 +38,24 @@ def rarity_for_points(points: int) -> DraftRarity:
     return DraftRarity.ULTRA_RARE
 
 
-def rarity_for_candidate(points: int, base_stat_total: int | None) -> DraftRarity:
-    """Apply a hard scarcity floor to legendary-tier stat lines.
+def rarity_for_candidate(
+    points: int, base_stat_total: int | None, is_legendary: bool = False
+) -> DraftRarity:
+    """Apply a hard scarcity floor to legendary-tier stat lines and tagged legendaries.
 
     Draft points measure competitive value, not legendary status. A high-BST legendary could
     therefore otherwise land in a merely rare bucket. The floor keeps 570+ BST species scarce
-    even when the upstream points snapshot underrates them.
+    even when the upstream points snapshot underrates them. Some Restricted Legendary and
+    Sub-Legendary species have a modest BST by design, so `is_legendary` applies the same floor
+    directly from the Dex tag, independent of stats or points.
     """
     rarity = rarity_for_points(points)
     if base_stat_total is not None and base_stat_total >= 600:
         return DraftRarity.ULTRA_RARE
     if base_stat_total is not None and base_stat_total >= 570:
-        return max((rarity, DraftRarity.SUPER_RARE), key=lambda item: list(DraftRarity).index(item))
+        rarity = max((rarity, DraftRarity.SUPER_RARE), key=lambda item: list(DraftRarity).index(item))
+    if is_legendary:
+        rarity = max((rarity, DraftRarity.SUPER_RARE), key=lambda item: list(DraftRarity).index(item))
     return rarity
 
 

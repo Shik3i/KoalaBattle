@@ -347,6 +347,22 @@ class TeamBuildAuditRow(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class DraftPoolSnapshotRow(Base):
+    """Content-addressed store for immutable draft pools.
+
+    A generated draft pool (up to ~1,200 candidates with stats/moves/sets) never
+    changes once built for a given `catalog_hash`. Storing it once here, keyed by
+    that hash, and referencing it from `ChallengeRunRow.state_json` instead of
+    re-embedding it, keeps every pick/reroll/stage-transition save small.
+    """
+
+    __tablename__ = "draft_pool_snapshots"
+
+    catalog_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    payload_json: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class ChallengeRunRow(Base):
     __tablename__ = "challenge_runs"
 

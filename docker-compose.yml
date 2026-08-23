@@ -7,7 +7,7 @@ services:
       args:
         SHOWDOWN_COMMIT: b22742debfdce6e640193384f5731b9030f9cb6e
     ports:
-      - "8000:8000"
+      - "${KOALABATTLE_BIND_HOST:-127.0.0.1}:8000:8000"
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8000').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 5s
@@ -19,7 +19,7 @@ services:
     image: koalabattle-showdown:local
     command: ["node", "team-validator-server.js"]
     ports:
-      - "8002:8002"
+      - "${KOALABATTLE_BIND_HOST:-127.0.0.1}:8002:8002"
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8002/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 5s
@@ -48,7 +48,7 @@ services:
       KOALABATTLE_ANTHROPIC_API_KEY: ${KOALABATTLE_ANTHROPIC_API_KEY:-}
       KOALABATTLE_DEEPSEEK_API_KEY: ${KOALABATTLE_DEEPSEEK_API_KEY:-}
       KOALABATTLE_OPENAI_COMPATIBLE_API_KEY: ${KOALABATTLE_OPENAI_COMPATIBLE_API_KEY:-}
-      KOALABATTLE_PROVIDER_CREDENTIALS_FILE: /runtime-config/.env
+      KOALABATTLE_PROVIDER_CREDENTIALS_FILE: /runtime-config/provider-credentials.env
       KOALABATTLE_ENABLE_FAKE_PROVIDER: ${KOALABATTLE_ENABLE_FAKE_PROVIDER:-false}
       KOALABATTLE_MAX_CONCURRENT_MATCHES: ${KOALABATTLE_MAX_CONCURRENT_MATCHES:-2}
       KOALABATTLE_PRICING_VERSION: ${KOALABATTLE_PRICING_VERSION:-unconfigured}
@@ -84,13 +84,13 @@ services:
       - ./data:/data
       - ./data/assets:/assets:ro
       - type: bind
-        source: ./.env
-        target: /runtime-config/.env
+        source: ./data/provider-credentials.env
+        target: /runtime-config/provider-credentials.env
         read_only: false
         bind:
           create_host_path: false
     ports:
-      - "8001:8001"
+      - "${KOALABATTLE_BIND_HOST:-127.0.0.1}:8001:8001"
     depends_on:
       showdown:
         condition: service_healthy
@@ -113,7 +113,7 @@ services:
       PUBLIC_RENDER_API_URL: http://backend:8001
       ORIGIN: http://localhost:${KOALABATTLE_FRONTEND_PORT:-3000}
     ports:
-      - "${KOALABATTLE_FRONTEND_PORT:-3000}:3000"
+      - "${KOALABATTLE_BIND_HOST:-127.0.0.1}:${KOALABATTLE_FRONTEND_PORT:-3000}:3000"
     depends_on:
       backend:
         condition: service_healthy

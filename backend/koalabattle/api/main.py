@@ -6,7 +6,15 @@ from contextlib import asynccontextmanager
 from typing import cast
 from uuid import UUID
 
-from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect, status
+from fastapi import (
+    Depends,
+    FastAPI,
+    HTTPException,
+    Request,
+    WebSocket,
+    WebSocketDisconnect,
+    status,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
@@ -114,6 +122,7 @@ from koalabattle.video import (
     VideoExportService,
 )
 
+from .auth import ApiTokenGuard
 from .schemas import (
     CreateMatchRequest,
     HumanDecisionInput,
@@ -132,6 +141,8 @@ LOGGER = logging.getLogger(__name__)
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     resolved = settings or get_settings()
+    guard = ApiTokenGuard(resolved)
+    require_auth = [Depends(guard)]
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -218,7 +229,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except KeyError as error:
             raise HTTPException(status_code=404, detail="production not found") from error
 
-    @app.post("/api/video/jobs", response_model=VideoExportJob, status_code=status.HTTP_201_CREATED)
+    @app.post(
+        "/api/video/jobs",
+        response_model=VideoExportJob,
+        status_code=status.HTTP_201_CREATED,
+        dependencies=require_auth,
+    )
     async def create_video_job(payload: CreateVideoExport, request: Request) -> VideoExportJob:
         try:
             return await _video(request).create(payload)
@@ -231,6 +247,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         "/api/video/jobs/batch",
         response_model=tuple[VideoExportJob, ...],
         status_code=status.HTTP_201_CREATED,
+        dependencies=require_auth,
     )
     async def create_video_batch(
         payload: tuple[CreateVideoExport, ...], request: Request
@@ -255,14 +272,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except KeyError as error:
             raise HTTPException(status_code=404, detail="video export job not found") from error
 
-    @app.post("/api/video/jobs/{job_id}/cancel", response_model=VideoExportJob)
+    @app.post(
+        "/api/video/jobs/{job_id}/cancel", response_model=VideoExportJob, dependencies=require_auth
+    )
     async def cancel_video_job(job_id: UUID, request: Request) -> VideoExportJob:
         try:
             return await _video(request).cancel(job_id)
         except KeyError as error:
             raise HTTPException(status_code=404, detail="video export job not found") from error
 
-    @app.post("/api/video/jobs/{job_id}/retry", response_model=VideoExportJob)
+    @app.post(
+        "/api/video/jobs/{job_id}/retry", response_model=VideoExportJob, dependencies=require_auth
+    )
     async def retry_video_job(job_id: UUID, request: Request) -> VideoExportJob:
         try:
             return await _video(request).retry(job_id)
@@ -305,7 +326,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def orchestrator_capabilities(request: Request) -> OrchestratorCapabilities:
         return _orchestrator(request).capabilities()
 
-    @app.post("/api/orchestrator/plan", response_model=OrchestratorPlan)
+    @app.post("/api/orchestrator/plan", response_model=OrchestratorPlan, dependencies=require_auth)
     async def orchestrator_plan(payload: OrchestratorRequest, request: Request) -> OrchestratorPlan:
         return _orchestrator(request).plan(payload)
 
@@ -313,6 +334,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         "/api/orchestrator/runs",
         response_model=OrchestratorRun,
         status_code=status.HTTP_202_ACCEPTED,
+        dependencies=require_auth,
     )
     async def create_orchestrator_run(
         payload: OrchestratorRequest, request: Request
@@ -345,7 +367,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except KeyError as error:
             raise HTTPException(status_code=404, detail="orchestrator run not found") from error
 
-    @app.post("/api/orchestrator/runs/{run_id}/cancel", response_model=OrchestratorRun)
+    @app.post(
+        "/api/orchestrator/runs/{run_id}/cancel",
+        response_model=OrchestratorRun,
+        dependencies=require_auth,
+    )
     async def cancel_orchestrator_run(run_id: UUID, request: Request) -> OrchestratorRun:
         try:
             return await _orchestrator(request).cancel(run_id)
@@ -398,12 +424,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def production_personas() -> dict[str, tuple[VoicePersona, ...]]:
         return {"personas": persona_profiles()}
 
-    @app.post("/api/production/voices", response_model=VoicePreset)
+    @app.post("/api/production/voices", response_model=VoicePreset, dependencies=require_auth)
     async def save_production_voice(payload: VoicePreset, request: Request) -> VoicePreset:
         await _production(request).repository.upsert_voice(payload)
         return payload
 
-    @app.post("/api/production/voices/reference", response_model=VoicePreset)
+    @app.post(
+        "/api/production/voices/reference", response_model=VoicePreset, dependencies=require_auth
+    )
     async def upload_production_voice_reference(
         payload: VoiceReferenceUpload, request: Request
     ) -> VoicePreset:
@@ -416,14 +444,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def production_voice_pools(request: Request) -> tuple[VoicePool, ...]:
         return await _production(request).voice_pools()
 
-    @app.post("/api/production/voice-pools", response_model=VoicePool)
+    @app.post("/api/production/voice-pools", response_model=VoicePool, dependencies=require_auth)
     async def save_production_voice_pool(payload: VoicePool, request: Request) -> VoicePool:
         try:
             return await _production(request).save_voice_pool(payload)
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
 
-    @app.post("/api/production/voices/preview")
+    @app.post("/api/production/voices/preview", dependencies=require_auth)
     async def preview_production_voice(
         payload: VoicePreviewRequest, request: Request
     ) -> dict[str, object]:
@@ -453,6 +481,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         "/api/matches/{match_id}/productions",
         response_model=ProductionTimeline,
         status_code=status.HTTP_201_CREATED,
+        dependencies=require_auth,
     )
     async def create_match_production(
         match_id: UUID, payload: CreateProduction, request: Request
@@ -471,7 +500,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except KeyError as error:
             raise HTTPException(status_code=404, detail="production not found") from error
 
-    @app.post("/api/productions/{production_id}/update", response_model=ProductionTimeline)
+    @app.post(
+        "/api/productions/{production_id}/update",
+        response_model=ProductionTimeline,
+        dependencies=require_auth,
+    )
     async def update_production(
         production_id: UUID, payload: UpdateProduction, request: Request
     ) -> ProductionTimeline:
@@ -485,6 +518,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         "/api/productions/{production_id}/duplicate",
         response_model=ProductionTimeline,
         status_code=status.HTTP_201_CREATED,
+        dependencies=require_auth,
     )
     async def duplicate_production(
         production_id: UUID, payload: DuplicateProduction, request: Request
@@ -496,7 +530,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
 
-    @app.post("/api/productions/{production_id}/delete")
+    @app.post("/api/productions/{production_id}/delete", dependencies=require_auth)
     async def delete_production(production_id: UUID, request: Request) -> dict[str, bool]:
         """Delete one production. The match and its history are untouched."""
         return {"deleted": await _production(request).delete(production_id)}
@@ -509,6 +543,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         "/api/production/styles",
         response_model=StylePreset,
         status_code=status.HTTP_201_CREATED,
+        dependencies=require_auth,
     )
     async def save_production_style(payload: SaveStylePreset, request: Request) -> StylePreset:
         try:
@@ -516,7 +551,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
 
-    @app.post("/api/production/styles/{preset_id}/delete")
+    @app.post("/api/production/styles/{preset_id}/delete", dependencies=require_auth)
     async def delete_production_style(preset_id: str, request: Request) -> dict[str, bool]:
         try:
             return {"deleted": await _production(request).delete_style_preset(preset_id)}
@@ -531,6 +566,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         "/api/branding/assets",
         response_model=BrandAsset,
         status_code=status.HTTP_201_CREATED,
+        dependencies=require_auth,
     )
     async def upload_branding_asset(payload: UploadBrandAsset, request: Request) -> BrandAsset:
         try:
@@ -547,7 +583,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="brand asset not found")
         return FileResponse(path, media_type=asset.media_type)
 
-    @app.post("/api/branding/assets/{asset_id}/delete")
+    @app.post("/api/branding/assets/{asset_id}/delete", dependencies=require_auth)
     async def delete_branding_asset(
         asset_id: str, request: Request, force: bool = False
     ) -> dict[str, bool]:
@@ -562,14 +598,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 ),
             ) from error
 
-    @app.post("/api/productions/{production_id}/rebuild", response_model=ProductionTimeline)
+    @app.post(
+        "/api/productions/{production_id}/rebuild",
+        response_model=ProductionTimeline,
+        dependencies=require_auth,
+    )
     async def rebuild_production(production_id: UUID, request: Request) -> ProductionTimeline:
         try:
             return await _production(request).rebuild(production_id)
         except KeyError as error:
             raise HTTPException(status_code=404, detail="production or match not found") from error
 
-    @app.post("/api/productions/{production_id}/prepare", response_model=ProductionTimeline)
+    @app.post(
+        "/api/productions/{production_id}/prepare",
+        response_model=ProductionTimeline,
+        dependencies=require_auth,
+    )
     async def prepare_production(
         production_id: UUID, payload: PrepareSpeechRequest, request: Request
     ) -> ProductionTimeline:
@@ -578,7 +622,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except KeyError as error:
             raise HTTPException(status_code=404, detail="production not found") from error
 
-    @app.post("/api/productions/{production_id}/director", response_model=ProductionTimeline)
+    @app.post(
+        "/api/productions/{production_id}/director",
+        response_model=ProductionTimeline,
+        dependencies=require_auth,
+    )
     async def direct_production(
         production_id: UUID, payload: DirectorCommand, request: Request
     ) -> ProductionTimeline:
@@ -597,7 +645,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="audio not found or corrupt")
         return FileResponse(path, media_type="audio/wav", filename=f"{cache_key}.wav")
 
-    @app.post("/api/matches", response_model=MatchArchive, status_code=status.HTTP_202_ACCEPTED)
+    @app.post(
+        "/api/matches",
+        response_model=MatchArchive,
+        status_code=status.HTTP_202_ACCEPTED,
+        dependencies=require_auth,
+    )
     async def create_match(payload: CreateMatchRequest, request: Request) -> MatchArchive:
         try:
             return await _service(request).create_match(payload.to_config())
@@ -608,6 +661,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         "/api/matches/{match_id}/rematch",
         response_model=MatchArchive,
         status_code=status.HTTP_202_ACCEPTED,
+        dependencies=require_auth,
     )
     async def rematch_match(match_id: UUID, request: Request) -> MatchArchive:
         """A runtime session that died with its process (backend restart, crash) has nothing
@@ -626,6 +680,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         "/api/matches/{match_id}/resume",
         response_model=MatchArchive,
         status_code=status.HTTP_202_ACCEPTED,
+        dependencies=require_auth,
     )
     async def resume_match(match_id: UUID, request: Request) -> MatchArchive:
         """Resumes an interrupted or failed match by re-enqueueing it into the supervisor."""
@@ -655,7 +710,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             search=search,
         )
 
-    @app.get("/api/matches/{match_id}", response_model=MatchArchive)
+    @app.get("/api/matches/{match_id}", response_model=MatchArchive, dependencies=require_auth)
     async def get_match(match_id: UUID, request: Request) -> MatchArchive:
         archive = await _repository(request).get_match(match_id)
         if archive is None:
@@ -676,7 +731,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="match not found")
         return presentation_archive(archive)
 
-    @app.post("/api/matches/{match_id}/pause", status_code=status.HTTP_202_ACCEPTED)
+    @app.post(
+        "/api/matches/{match_id}/pause",
+        status_code=status.HTTP_202_ACCEPTED,
+        dependencies=require_auth,
+    )
     async def pause_match(match_id: UUID, request: Request) -> dict[str, str]:
         try:
             await _service(request).pause_match(match_id)
@@ -686,7 +745,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=409, detail=str(error)) from error
         return {"status": "paused"}
 
-    @app.post("/api/matches/{match_id}/cancel", status_code=status.HTTP_202_ACCEPTED)
+    @app.post(
+        "/api/matches/{match_id}/cancel",
+        status_code=status.HTTP_202_ACCEPTED,
+        dependencies=require_auth,
+    )
     async def cancel_match(match_id: UUID, request: Request) -> dict[str, str]:
         try:
             await _service(request).cancel_match(match_id)
@@ -696,7 +759,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=409, detail=str(error)) from error
         return {"status": "cancelled"}
 
-    @app.post("/api/matches/{match_id}/renderer-config", status_code=status.HTTP_202_ACCEPTED)
+    @app.post(
+        "/api/matches/{match_id}/renderer-config",
+        status_code=status.HTTP_202_ACCEPTED,
+        dependencies=require_auth,
+    )
     async def broadcast_renderer_config(
         match_id: UUID, payload: RendererConfigInput, request: Request
     ) -> dict[str, str]:
@@ -714,7 +781,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         pending = await _service(request).pending_for_match(match_id)
         return {"requests": [item.model_dump(mode="json") for item in pending]}
 
-    @app.post("/api/decisions/{request_id}", status_code=status.HTTP_202_ACCEPTED)
+    @app.post(
+        "/api/decisions/{request_id}",
+        status_code=status.HTTP_202_ACCEPTED,
+        dependencies=require_auth,
+    )
     async def submit_decision(
         request_id: UUID, payload: ManualDecisionInput, request: Request
     ) -> dict[str, str]:
@@ -726,7 +797,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=422, detail=str(error)) from error
         return {"status": "accepted"}
 
-    @app.post("/api/human-decisions/{request_id}", status_code=status.HTTP_202_ACCEPTED)
+    @app.post(
+        "/api/human-decisions/{request_id}",
+        status_code=status.HTTP_202_ACCEPTED,
+        dependencies=require_auth,
+    )
     async def submit_human_decision(
         request_id: UUID, payload: HumanDecisionInput, request: Request
     ) -> dict[str, str]:
@@ -738,7 +813,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=422, detail=str(error)) from error
         return {"status": "accepted"}
 
-    @app.post("/api/decisions/{request_id}/validate")
+    @app.post("/api/decisions/{request_id}/validate", dependencies=require_auth)
     async def validate_decision(
         request_id: UUID, payload: ManualDecisionInput, request: Request
     ) -> dict[str, object]:
@@ -771,6 +846,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         "/api/challenges",
         response_model=ChallengeRunView,
         status_code=status.HTTP_201_CREATED,
+        dependencies=require_auth,
     )
     async def create_challenge(payload: CreateChallengeRun, request: Request) -> ChallengeRunView:
         try:
@@ -791,6 +867,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         "/api/challenges/{run_id}/continue",
         response_model=ChallengeRunView,
         status_code=status.HTTP_201_CREATED,
+        dependencies=require_auth,
     )
     async def continue_challenge(
         run_id: UUID, payload: ContinueChallengeRun, request: Request
@@ -804,7 +881,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except ValueError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
 
-    @app.post("/api/challenges/{run_id}/draft/pick", response_model=ChallengeRunView)
+    @app.post(
+        "/api/challenges/{run_id}/draft/pick",
+        response_model=ChallengeRunView,
+        dependencies=require_auth,
+    )
     async def challenge_draft_pick(
         run_id: UUID, payload: DraftPickInput, request: Request
     ) -> ChallengeRunView:
@@ -822,7 +903,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except ValueError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
 
-    @app.post("/api/challenges/{run_id}/draft/reroll", response_model=ChallengeRunView)
+    @app.post(
+        "/api/challenges/{run_id}/draft/reroll",
+        response_model=ChallengeRunView,
+        dependencies=require_auth,
+    )
     async def challenge_draft_reroll(
         run_id: UUID, payload: DraftRerollInput, request: Request
     ) -> ChallengeRunView:
@@ -839,7 +924,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except ValueError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
 
-    @app.post("/api/challenges/{run_id}/draft/agent", response_model=ChallengeRunView)
+    @app.post(
+        "/api/challenges/{run_id}/draft/agent",
+        response_model=ChallengeRunView,
+        dependencies=require_auth,
+    )
     async def challenge_agent_draft(
         run_id: UUID, payload: RevisionInput, request: Request
     ) -> ChallengeRunView:
@@ -855,21 +944,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             LOGGER.warning("Challenge draft agent failed: %s", detail)
             raise HTTPException(status_code=502, detail=detail) from error
 
-    @app.post("/api/challenges/{run_id}/draft/takeover", response_model=ChallengeRunView)
+    @app.post(
+        "/api/challenges/{run_id}/draft/takeover",
+        response_model=ChallengeRunView,
+        dependencies=require_auth,
+    )
     async def challenge_draft_takeover(
         run_id: UUID, payload: RevisionInput, request: Request
     ) -> ChallengeRunView:
         try:
-            run = await _challenges(request).take_over_draft(
-                run_id, payload.expected_revision
-            )
+            run = await _challenges(request).take_over_draft(run_id, payload.expected_revision)
             return _challenges(request).view(run)
         except KeyError as error:
             raise HTTPException(status_code=404, detail="challenge not found") from error
         except ValueError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
 
-    @app.post("/api/challenges/{run_id}/training", response_model=ChallengeRunView)
+    @app.post(
+        "/api/challenges/{run_id}/training",
+        response_model=ChallengeRunView,
+        dependencies=require_auth,
+    )
     async def challenge_training(
         run_id: UUID, payload: TrainingInput, request: Request
     ) -> ChallengeRunView:
@@ -883,7 +978,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except ValueError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
 
-    @app.post("/api/challenges/{run_id}/team", response_model=ChallengeRunView)
+    @app.post(
+        "/api/challenges/{run_id}/team", response_model=ChallengeRunView, dependencies=require_auth
+    )
     async def challenge_finalize_team(
         run_id: UUID, payload: FinalizeTeamInput, request: Request
     ) -> ChallengeRunView:
@@ -897,21 +994,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
 
-    @app.post("/api/challenges/{run_id}/team/advanced", response_model=ChallengeRunView)
+    @app.post(
+        "/api/challenges/{run_id}/team/advanced",
+        response_model=ChallengeRunView,
+        dependencies=require_auth,
+    )
     async def challenge_open_team_editor(
         run_id: UUID, payload: RevisionInput, request: Request
     ) -> ChallengeRunView:
         try:
-            run = await _challenges(request).open_team_editor(
-                run_id, payload.expected_revision
-            )
+            run = await _challenges(request).open_team_editor(run_id, payload.expected_revision)
             return _challenges(request).view(run)
         except KeyError as error:
             raise HTTPException(status_code=404, detail="challenge not found") from error
         except ValueError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
 
-    @app.post("/api/challenges/{run_id}/team/abilities", response_model=ChallengeRunView)
+    @app.post(
+        "/api/challenges/{run_id}/team/abilities",
+        response_model=ChallengeRunView,
+        dependencies=require_auth,
+    )
     async def challenge_team_abilities(
         run_id: UUID, payload: TeamAbilityInput, request: Request
     ) -> ChallengeRunView:
@@ -925,7 +1028,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
 
-    @app.post("/api/challenges/{run_id}/launch")
+    @app.post("/api/challenges/{run_id}/launch", dependencies=require_auth)
     async def challenge_launch(
         run_id: UUID, payload: RevisionInput, request: Request
     ) -> dict[str, object]:
@@ -940,7 +1043,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
 
-    @app.post("/api/challenges/{run_id}/mega-selection", response_model=ChallengeRunView)
+    @app.post(
+        "/api/challenges/{run_id}/mega-selection",
+        response_model=ChallengeRunView,
+        dependencies=require_auth,
+    )
     async def challenge_mega_selection(
         run_id: UUID, payload: MegaSelectionInput, request: Request
     ) -> ChallengeRunView:
@@ -957,22 +1064,24 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except ValueError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
 
-    @app.post("/api/challenges/{run_id}/auto/advance")
+    @app.post("/api/challenges/{run_id}/auto/advance", dependencies=require_auth)
     async def challenge_auto_advance(run_id: UUID, request: Request) -> dict[str, object]:
         try:
             run, match = await _challenges(request).auto_advance(run_id)
             return {
                 "run": _challenges(request).view(run).model_dump(mode="json"),
-                "match": (
-                    redact_challenge_match(match).model_dump(mode="json") if match else None
-                ),
+                "match": (redact_challenge_match(match).model_dump(mode="json") if match else None),
             }
         except KeyError as error:
             raise HTTPException(status_code=404, detail="challenge not found") from error
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
 
-    @app.post("/api/challenges/{run_id}/auto/pause", response_model=ChallengeRunView)
+    @app.post(
+        "/api/challenges/{run_id}/auto/pause",
+        response_model=ChallengeRunView,
+        dependencies=require_auth,
+    )
     async def challenge_pause_auto_run(
         run_id: UUID, payload: RevisionInput, request: Request
     ) -> ChallengeRunView:
@@ -984,7 +1093,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except ValueError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
 
-    @app.post("/api/challenges/{run_id}/auto/continue")
+    @app.post("/api/challenges/{run_id}/auto/continue", dependencies=require_auth)
     async def challenge_continue_auto_run(
         run_id: UUID, payload: RevisionInput, request: Request
     ) -> dict[str, object]:
@@ -994,16 +1103,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             )
             return {
                 "run": _challenges(request).view(run).model_dump(mode="json"),
-                "match": (
-                    redact_challenge_match(match).model_dump(mode="json") if match else None
-                ),
+                "match": (redact_challenge_match(match).model_dump(mode="json") if match else None),
             }
         except KeyError as error:
             raise HTTPException(status_code=404, detail="challenge not found") from error
         except ValueError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
 
-    @app.post("/api/challenges/{run_id}/delete")
+    @app.post("/api/challenges/{run_id}/delete", dependencies=require_auth)
     async def challenge_delete(
         run_id: UUID, payload: RevisionInput, request: Request
     ) -> dict[str, bool]:
@@ -1015,7 +1122,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except ValueError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
 
-    @app.post("/api/challenges/{run_id}/cancel", response_model=ChallengeRunView)
+    @app.post(
+        "/api/challenges/{run_id}/cancel",
+        response_model=ChallengeRunView,
+        dependencies=require_auth,
+    )
     async def challenge_cancel(
         run_id: UUID, payload: RevisionInput, request: Request
     ) -> ChallengeRunView:
@@ -1047,7 +1158,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     ) -> tuple[FormatDescriptor, ...]:
         return _service(request).formats.search(q, limit=min(max(limit, 1), 200))
 
-    @app.post("/api/formats/refresh", response_model=FormatCatalog)
+    @app.post("/api/formats/refresh", response_model=FormatCatalog, dependencies=require_auth)
     async def refresh_formats(request: Request) -> FormatCatalog:
         return await _service(request).formats.refresh()
 
@@ -1062,7 +1173,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def providers(request: Request) -> dict[str, object]:
         return {"providers": _service(request).provider_status()}
 
-    @app.post("/api/providers/configure")
+    @app.post("/api/providers/configure", dependencies=require_auth)
     async def configure_provider(
         payload: ProviderConfigurationInput, request: Request
     ) -> dict[str, object]:
@@ -1073,7 +1184,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
 
-    @app.post("/api/providers/models")
+    @app.post("/api/providers/models", dependencies=require_auth)
     async def provider_models(payload: ProviderModelsInput, request: Request) -> dict[str, object]:
         try:
             models = await _service(request).list_provider_models(
@@ -1087,7 +1198,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=502, detail=detail) from error
         return {"models": [model.model_dump(mode="json") for model in models]}
 
-    @app.post("/api/teams/prompt")
+    @app.post("/api/teams/prompt", dependencies=require_auth)
     async def render_team_building_prompt(
         payload: TeamPromptRequest, request: Request
     ) -> dict[str, object]:
@@ -1121,7 +1232,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ),
         }
 
-    @app.post("/api/teams/validate")
+    @app.post("/api/teams/validate", dependencies=require_auth)
     async def validate_team(payload: TeamValidationInput, request: Request) -> dict[str, object]:
         try:
             validation, snapshot = await _service(request).validate_team(
@@ -1153,7 +1264,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="team snapshot not found")
         return snapshot
 
-    @app.post("/api/teams/build")
+    @app.post("/api/teams/build", dependencies=require_auth)
     async def build_team(payload: TeamBuildRequest, request: Request) -> dict[str, object]:
         try:
             audit, snapshot = await _service(request).build_team(payload)
@@ -1175,7 +1286,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def admin_overview(request: Request) -> dict[str, object]:
         return await _service(request).admin_overview()
 
-    @app.post("/api/admin/prompts/render")
+    @app.post("/api/admin/prompts/render", dependencies=require_auth)
     async def render_historical_prompt(
         payload: PromptRenderInput, request: Request
     ) -> dict[str, object]:
@@ -1229,6 +1340,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         "/api/tournaments",
         response_model=TournamentArchive,
         status_code=status.HTTP_201_CREATED,
+        dependencies=require_auth,
     )
     async def create_tournament(payload: CreateTournament, request: Request) -> TournamentArchive:
         try:
@@ -1252,7 +1364,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="tournament not found")
         return presentation_tournament(archive)
 
-    @app.post("/api/tournaments/{tournament_id}/start", status_code=status.HTTP_202_ACCEPTED)
+    @app.post(
+        "/api/tournaments/{tournament_id}/start",
+        status_code=status.HTTP_202_ACCEPTED,
+        dependencies=require_auth,
+    )
     async def start_tournament(tournament_id: UUID, request: Request) -> TournamentArchive:
         try:
             return await _service(request).start_tournament(tournament_id)
@@ -1261,7 +1377,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except ValueError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
 
-    @app.post("/api/tournaments/{tournament_id}/pause", status_code=status.HTTP_202_ACCEPTED)
+    @app.post(
+        "/api/tournaments/{tournament_id}/pause",
+        status_code=status.HTTP_202_ACCEPTED,
+        dependencies=require_auth,
+    )
     async def pause_tournament(tournament_id: UUID, request: Request) -> dict[str, str]:
         try:
             await _service(request).pause_tournament(tournament_id)
@@ -1271,7 +1391,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=409, detail=str(error)) from error
         return {"status": "paused"}
 
-    @app.post("/api/tournaments/{tournament_id}/resume", status_code=status.HTTP_202_ACCEPTED)
+    @app.post(
+        "/api/tournaments/{tournament_id}/resume",
+        status_code=status.HTTP_202_ACCEPTED,
+        dependencies=require_auth,
+    )
     async def resume_tournament(tournament_id: UUID, request: Request) -> dict[str, str]:
         try:
             await _service(request).resume_tournament(tournament_id)
@@ -1281,7 +1405,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=409, detail=str(error)) from error
         return {"status": "running"}
 
-    @app.post("/api/tournaments/{tournament_id}/cancel", status_code=status.HTTP_202_ACCEPTED)
+    @app.post(
+        "/api/tournaments/{tournament_id}/cancel",
+        status_code=status.HTTP_202_ACCEPTED,
+        dependencies=require_auth,
+    )
     async def cancel_tournament(tournament_id: UUID, request: Request) -> dict[str, str]:
         try:
             await _service(request).cancel_tournament(tournament_id)
@@ -1291,7 +1419,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=409, detail=str(error)) from error
         return {"status": "cancelled"}
 
-    @app.post("/api/tournament-series/{series_id}/start", status_code=status.HTTP_202_ACCEPTED)
+    @app.post(
+        "/api/tournament-series/{series_id}/start",
+        status_code=status.HTTP_202_ACCEPTED,
+        dependencies=require_auth,
+    )
     async def start_series(series_id: UUID, request: Request) -> MatchArchive:
         try:
             return await _service(request).schedule_series(series_id)
@@ -1305,7 +1437,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return await _tournaments(request).list_templates()
 
     @app.post(
-        "/api/match-templates", response_model=StoredTemplate, status_code=status.HTTP_201_CREATED
+        "/api/match-templates",
+        response_model=StoredTemplate,
+        status_code=status.HTTP_201_CREATED,
+        dependencies=require_auth,
     )
     async def create_match_template(
         payload: StoredTemplateInput, request: Request
@@ -1326,6 +1461,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         "/api/tournament-presets",
         response_model=StoredTournamentPreset,
         status_code=status.HTTP_201_CREATED,
+        dependencies=require_auth,
     )
     async def create_tournament_preset(
         payload: StoredPresetInput, request: Request
@@ -1336,7 +1472,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def asset_status(request: Request) -> AssetScanReport:
         return _assets(request).scan()
 
-    @app.post("/api/assets/rescan", response_model=AssetScanReport)
+    @app.post("/api/assets/rescan", response_model=AssetScanReport, dependencies=require_auth)
     async def rescan_assets(request: Request) -> AssetScanReport:
         return _assets(request).scan()
 
@@ -1396,6 +1532,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.websocket("/api/matches/{match_id}/stream")
     async def stream_match(websocket: WebSocket, match_id: UUID) -> None:
+        if not guard.check_websocket(websocket):
+            await websocket.close(code=4401, reason="unauthorized")
+            return
         service: BattleService = websocket.app.state.service
         repository: BattleRepository = websocket.app.state.repository
         archive = await repository.get_match(match_id)
@@ -1419,6 +1558,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.websocket("/api/admin/stream")
     async def stream_admin(websocket: WebSocket) -> None:
+        if not guard.check_websocket(websocket):
+            await websocket.close(code=4401, reason="unauthorized")
+            return
         service: BattleService = websocket.app.state.service
         await websocket.accept()
         await websocket.send_json(
@@ -1435,6 +1577,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.websocket("/api/tournaments/{tournament_id}/stream")
     async def stream_tournament(websocket: WebSocket, tournament_id: UUID) -> None:
+        if not guard.check_websocket(websocket):
+            await websocket.close(code=4401, reason="unauthorized")
+            return
         service: BattleService = websocket.app.state.service
         tournaments: TournamentRepository = websocket.app.state.tournaments
         archive = await tournaments.get(tournament_id)

@@ -473,6 +473,52 @@ test('Doubles keeps both field slots active and targets damage at the correct pa
   assert.equal(state.battle?.opponent.team.find((pokemon) => pokemon.name === 'Snorlax')?.hp_fraction, 0.25);
 });
 
+test('Doubles credits damage and knockouts to the specific slot that attacked, not slot 0', () => {
+  const pikachu = {
+    id: 'p1a: Pikachu', name: 'Pikachu', species: 'Pikachu', hp_fraction: 1,
+    status: null, types: ['Electric'], active: true, fainted: false
+  };
+  const raichu = {
+    id: 'p1b: Raichu', name: 'Raichu', species: 'Raichu', hp_fraction: 1,
+    status: null, types: ['Electric'], active: true, fainted: false
+  };
+  const eevee = {
+    id: 'p2a: Eevee', name: 'Eevee', species: 'Eevee', hp_fraction: 1,
+    status: null, types: ['Normal'], active: true, fainted: false
+  };
+  const snorlax = {
+    id: 'p2b: Snorlax', name: 'Snorlax', species: 'Snorlax', hp_fraction: 1,
+    status: null, types: ['Normal'], active: true, fainted: false
+  };
+  const doubles = {
+    ...battle,
+    player: {
+      side: 'p1', display_name: 'Alpha', active: pikachu,
+      active_slots: [pikachu, raichu], team: [pikachu, raichu]
+    },
+    opponent: {
+      side: 'p2', display_name: 'Beta', active: eevee,
+      active_slots: [eevee, snorlax], team: [eevee, snorlax]
+    }
+  } satisfies BattleState;
+
+  const state = reduceEvents(createPresentationState(match), [
+    event(1, 'state_snapshot', { state: doubles }),
+    // Raichu is field slot "b", not the side's slot 0 (Pikachu) — the recap must
+    // still credit the actual mover, not whichever mon happens to sit in slot 0.
+    event(2, 'move_used', { actor: 'p1b: Raichu', target: 'p2a: Eevee', move: 'Thunderbolt' }),
+    event(3, 'damage', { target: 'p2a: Eevee', hp: '0 fnt' }),
+    event(4, 'pokemon_fainted', { target: 'p2a: Eevee' })
+  ]);
+
+  const raichuRecap = state.recap.find((entry) => entry.species === 'Raichu');
+  const pikachuRecap = state.recap.find((entry) => entry.species === 'Pikachu');
+  assert.ok(raichuRecap, 'Raichu should appear in the recap as the attacker');
+  assert.equal(raichuRecap.damageDealt, 100);
+  assert.equal(raichuRecap.knockouts, 1);
+  assert.equal(pikachuRecap?.damageDealt ?? 0, 0);
+  assert.equal(pikachuRecap?.knockouts ?? 0, 0);
+});
 
 test('the recap credits move damage to the attacker and never to hazards or status', () => {
   const arena = {
