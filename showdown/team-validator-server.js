@@ -467,9 +467,15 @@ function speciesCatalog(formatId) {
           })
         : [];
       const requiredItem = entry.requiredItem || (entry.requiredItems && entry.requiredItems[0]) || null;
-      const competitiveSet = showdownFactorySet(format, entry, validator, CAMPAIGN_MIN_LEVEL) ||
-        showdownRandomSet(format, entry, validator, CAMPAIGN_MIN_LEVEL) ||
-        showdownDexSet(formatDex, entry, validator, requiredItem, CAMPAIGN_MIN_LEVEL);
+      // An evolved species can be rejected by Showdown below its own evolution level even
+      // when its moves are otherwise perfectly legal. Build reusable metadata at that
+      // minimum; the campaign launcher applies the actual stage level later.
+      const setLevel = Number.isFinite(entry.evoLevel)
+        ? Math.max(CAMPAIGN_MIN_LEVEL, Number(entry.evoLevel))
+        : CAMPAIGN_MIN_LEVEL;
+      const competitiveSet = showdownFactorySet(format, entry, validator, setLevel) ||
+        showdownRandomSet(format, entry, validator, setLevel) ||
+        showdownDexSet(formatDex, entry, validator, requiredItem, setLevel);
       // Every species this one can evolve into, with the trigger for reaching it. A missing
       // `evoLevel` alongside any other evoType (item/trade/friendship/condition/etc.) has no
       // level of its own in the source games; the backend maps every such case to one fixed,
