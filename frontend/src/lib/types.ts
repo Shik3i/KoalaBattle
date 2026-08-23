@@ -146,6 +146,7 @@ export interface BattleSide {
   side: Side;
   display_name: string;
   active: PokemonState | null;
+  active_slots?: PokemonState[];
   team: PokemonState[];
   side_conditions?: string[];
   can_terastallize?: boolean;

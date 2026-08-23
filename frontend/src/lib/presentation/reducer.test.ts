@@ -405,6 +405,46 @@ test('repeated authoritative lines are not duplicated in the spectator feed', ()
   assert.equal(lines.length, 1);
 });
 
+test('Doubles keeps both field slots active and targets damage at the correct partner', () => {
+  const pikachu = {
+    id: 'p1a: Pikachu', name: 'Pikachu', species: 'Pikachu', hp_fraction: 1,
+    status: null, types: ['Electric'], active: true, fainted: false
+  };
+  const raichu = {
+    id: 'p1b: Raichu', name: 'Raichu', species: 'Raichu', hp_fraction: 1,
+    status: null, types: ['Electric'], active: true, fainted: false
+  };
+  const eevee = {
+    id: 'p2a: Eevee', name: 'Eevee', species: 'Eevee', hp_fraction: 1,
+    status: null, types: ['Normal'], active: true, fainted: false
+  };
+  const snorlax = {
+    id: 'p2b: Snorlax', name: 'Snorlax', species: 'Snorlax', hp_fraction: 1,
+    status: null, types: ['Normal'], active: true, fainted: false
+  };
+  const doubles = {
+    ...battle,
+    player: {
+      side: 'p1', display_name: 'Alpha', active: pikachu,
+      active_slots: [pikachu, raichu], team: [pikachu, raichu]
+    },
+    opponent: {
+      side: 'p2', display_name: 'Beta', active: eevee,
+      active_slots: [eevee, snorlax], team: [eevee, snorlax]
+    }
+  } satisfies BattleState;
+
+  const state = reduceEvents(createPresentationState(match), [
+    event(1, 'state_snapshot', { state: doubles }),
+    event(2, 'damage', { target: 'p2b: Snorlax', hp: '25/100' })
+  ]);
+
+  assert.equal(state.battle?.opponent.active_slots?.length, 2);
+  assert.equal(state.battle?.opponent.active_slots?.[0].hp_fraction, 1);
+  assert.equal(state.battle?.opponent.active_slots?.[1].hp_fraction, 0.25);
+  assert.equal(state.battle?.opponent.team.find((pokemon) => pokemon.name === 'Snorlax')?.hp_fraction, 0.25);
+});
+
 
 test('the recap credits move damage to the attacker and never to hazards or status', () => {
   const arena = {

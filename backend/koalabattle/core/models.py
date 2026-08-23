@@ -269,6 +269,9 @@ class BattleSide(FrozenModel):
     side: Side
     display_name: str
     active: PokemonState | None = None
+    # `active` remains the primary slot for archive compatibility. Doubles exposes both
+    # field positions here so consumers never collapse a real 2v2 battle into 1v1.
+    active_slots: tuple[PokemonState, ...] = ()
     team: tuple[PokemonState, ...] = ()
     side_conditions: tuple[str, ...] = ()
     can_terastallize: bool = False

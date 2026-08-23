@@ -66,21 +66,35 @@ const OTHER_SIDE: Record<Side, Side> = { p1: 'p2', p2: 'p1' };
 
 function activePokemon(
   battle: BattlePresentationState['battle'],
-  side: Side | null
+  side: Side | null,
+  actor: unknown = null
 ) {
   if (!battle || !side) return null;
   const entry = battle.player.side === side ? battle.player : battle.opponent.side === side ? battle.opponent : null;
-  return entry?.active || null;
+  if (!entry) return null;
+  const actives = activePokemonSlots(entry);
+  const name = actorName(actor).toLocaleLowerCase();
+  return actives.find((pokemon) =>
+    pokemon.name.toLocaleLowerCase() === name
+    || pokemon.id.toLocaleLowerCase().endsWith(`: ${name}`)
+  ) || entry.active || actives[0] || null;
+}
+
+function activePokemonSlots(side: BattleState['player']): BattleState['player']['team'] {
+  const explicit = side.active_slots || [];
+  if (explicit.length) return explicit;
+  const activeTeam = side.team.filter((pokemon) => pokemon.active);
+  if (activeTeam.length) return activeTeam;
+  return side.active ? [side.active] : [];
 }
 
 /** The Pokemon currently on the field for one side, as the recap knows it. */
 function activeIdentity(
   battle: BattlePresentationState['battle'],
-  side: Side | null
+  side: Side | null,
+  actor: unknown = null
 ): { species: string; name: string } | null {
-  if (!battle || !side) return null;
-  const entry = battle.player.side === side ? battle.player : battle.opponent.side === side ? battle.opponent : null;
-  const active = entry?.active;
+  const active = activePokemon(battle, side, actor);
   return active ? { species: active.species, name: active.name || active.species } : null;
 }
 
@@ -165,9 +179,9 @@ export function reducePresentation(
       break;
     case 'damage': {
       effect = 'impact';
-      effectValue = hpDelta(state, targetSide, payload.hp);
+      effectValue = hpDelta(state, targetSide, payload.target, payload.hp);
       const dealt = effectValue === null ? 0 : Math.max(0, -effectValue);
-      const victim = activeIdentity(state.battle, targetSide);
+      const victim = activeIdentity(state.battle, targetSide, payload.target);
       if (targetSide && victim && dealt) {
         recap = withRecap(recap, targetSide, victim, { damageTaken: dealt });
       }
@@ -178,15 +192,15 @@ export function reducePresentation(
         const attacker = activeIdentity(state.battle, attackerSide);
         if (attacker) recap = withRecap(recap, attackerSide, attacker, { damageDealt: dealt });
       }
-      battle = updateBattleActive(battle, targetSide, { hp: payload.hp });
+      battle = updateBattleActive(battle, targetSide, payload.target, { hp: payload.hp });
       players = setMotion(players, targetSide, 'taking-damage');
       impacts = withImpact(impacts, targetSide, effectValue, event.sequence, 'damage');
       break;
     }
     case 'healing':
       effect = 'healing';
-      effectValue = hpDelta(state, targetSide, payload.hp);
-      battle = updateBattleActive(battle, targetSide, { hp: payload.hp });
+      effectValue = hpDelta(state, targetSide, payload.target, payload.hp);
+      battle = updateBattleActive(battle, targetSide, payload.target, { hp: payload.hp });
       players = setMotion(players, targetSide, 'status-flash');
       impacts = withImpact(impacts, targetSide, effectValue, event.sequence, 'healing');
       break;
@@ -201,7 +215,7 @@ export function reducePresentation(
     case 'status_applied':
     case 'status_removed':
       effect = 'status';
-      battle = updateBattleActive(battle, targetSide, {
+      battle = updateBattleActive(battle, targetSide, payload.target, {
         status: event.event_type === 'status_applied' ? stringValue(payload.status) : null
       });
       players = setMotion(players, targetSide, 'status-flash');
@@ -234,11 +248,11 @@ export function reducePresentation(
     }
     case 'pokemon_switched':
       {
-        const outgoing = activePokemon(state.battle, side);
+        const outgoing = activePokemon(state.battle, side, payload.actor);
         battle = switchBattleActive(battle, side, payload);
-        const entering = activeIdentity(battle, side);
+        const entering = activeIdentity(battle, side, payload.actor);
         if (side && entering) recap = withRecap(recap, side, entering, {});
-        const incoming = activePokemon(battle, side);
+        const incoming = activePokemon(battle, side, payload.actor);
         if (side && incoming) {
           switchTransitions = {
             ...switchTransitions,
@@ -276,12 +290,17 @@ export function reducePresentation(
       break;
     case 'pokemon_fainted': {
       effect = 'faint';
-      const victim = activeIdentity(state.battle, targetSide);
+      const victim = activeIdentity(state.battle, targetSide, payload.target);
       if (targetSide && victim) recap = withRecap(recap, targetSide, victim, { fainted: true });
       const scorerSide = targetSide ? OTHER_SIDE[targetSide] : null;
       const scorer = activeIdentity(state.battle, scorerSide);
       if (scorerSide && scorer) recap = withRecap(recap, scorerSide, scorer, { knockouts: 1 });
-      battle = updateBattleActive(battle, targetSide, { hp: '0 fnt', fainted: true });
+      battle = updateBattleActive(
+        battle,
+        targetSide,
+        payload.target,
+        { hp: '0 fnt', fainted: true }
+      );
       players = setMotion(players, targetSide, 'fainting');
       break;
     }
@@ -495,7 +514,7 @@ function eventTargetSide(event: BattleEvent): Side | null {
 }
 
 function sideFromText(value: string): Side | null {
-  const match = value.match(/(?:^|\|)(p[12])(?:a|:|$)/);
+  const match = value.match(/(?:^|\|)(p[12])(?:[a-z]|:|$)/i);
   return match?.[1] === 'p1' || match?.[1] === 'p2' ? match[1] : null;
 }
 
@@ -567,11 +586,11 @@ function internalWinnerSide(value: string): Side | null {
 function hpDelta(
   state: BattlePresentationState,
   side: Side | null,
+  actor: unknown,
   hp: unknown
 ): number | null {
   if (!side || typeof hp !== 'string' || !state.battle) return null;
-  const battleSide = state.battle.player.side === side ? state.battle.player : state.battle.opponent;
-  const previous = battleSide.active?.hp_fraction;
+  const previous = activePokemon(state.battle, side, actor)?.hp_fraction;
   const match = hp.match(/([0-9.]+)\s*\/\s*([0-9.]+)/);
   const next = match ? Number(match[1]) / Math.max(1, Number(match[2])) : hp.includes('fnt') ? 0 : null;
   return previous === undefined || next === null ? null : Math.round((next - previous) * 100);
@@ -594,12 +613,15 @@ function legacyProtocolEffect(command: string): BattleEffect | null {
 function updateBattleActive(
   battle: BattlePresentationState['battle'],
   side: Side | null,
+  actor: unknown,
   update: { hp?: unknown; status?: string | null; fainted?: boolean }
 ): BattlePresentationState['battle'] {
   if (!battle || !side) return battle;
   const key = battle.player.side === side ? 'player' : battle.opponent.side === side ? 'opponent' : null;
-  if (!key || !battle[key].active) return battle;
-  const active = battle[key].active;
+  if (!key) return battle;
+  const battleSide = battle[key];
+  const active = activePokemon(battle, side, actor);
+  if (!active) return battle;
   let hpFraction = active.hp_fraction;
   if (typeof update.hp === 'string') {
     const match = update.hp.match(/([0-9.]+)\s*\/\s*([0-9.]+)/);
@@ -612,8 +634,15 @@ function updateBattleActive(
     status: update.status !== undefined ? update.status : active.status,
     fainted: update.fainted ?? active.fainted
   };
-  const team = battle[key].team.map((member) => member.id === active.id ? nextActive : member);
-  return { ...battle, [key]: { ...battle[key], active: nextActive, team } };
+  const team = battleSide.team.map((member) => member.id === active.id ? nextActive : member);
+  const activeSlots = activePokemonSlots(battleSide).map((member) =>
+    member.id === active.id ? nextActive : member
+  );
+  const primary = battleSide.active?.id === active.id ? nextActive : battleSide.active;
+  return {
+    ...battle,
+    [key]: { ...battleSide, active: primary || activeSlots[0] || null, active_slots: activeSlots, team }
+  };
 }
 
 function mergeBattleSnapshot(
@@ -650,7 +679,31 @@ function mergeBattleSnapshot(
       : previousActive || null;
     const team = mergeTeam(previousSide.team, nextSide.team);
     if (active && !team.some((member) => member.id === active.id)) team.push(active);
-    return { ...nextSide, active, team };
+    const previousSlots = activePokemonSlots(previousSide);
+    const nextSlots = activePokemonSlots(nextSide);
+    const activeSlots = nextSlots.map((next, index) => {
+      const previous = previousSlots[index];
+      if (!previous) return next;
+      const samePokemon = previous.id === next.id
+        || previous.name.toLocaleLowerCase() === next.name.toLocaleLowerCase();
+      return samePokemon
+        ? {
+            ...next,
+            current_hp: previous.current_hp,
+            max_hp: previous.max_hp,
+            hp_fraction: previous.hp_fraction,
+            status: previous.status,
+            fainted: previous.fainted,
+            active: previous.active
+          }
+        : previous;
+    });
+    return {
+      ...nextSide,
+      active: activeSlots[0] || active,
+      active_slots: activeSlots,
+      team
+    };
   };
   return {
     ...incoming,
@@ -725,16 +778,25 @@ function switchBattleActive(
     hp_fraction: hpFraction,
     fainted: hp.includes('fnt')
   };
+  const slotMatch = stringValue(payload.actor).match(/^p[12]([a-z]):/i);
+  const slotIndex = slotMatch ? slotMatch[1].toLocaleLowerCase().charCodeAt(0) - 97 : 0;
+  const activeSlots = [...activePokemonSlots(battleSide)];
+  while (activeSlots.length <= slotIndex) activeSlots.push(active);
+  activeSlots[slotIndex] = active;
+  const activeIds = new Set(activeSlots.map((pokemon) => pokemon.id));
   const team = [...battleSide.team, ...(battleSide.team.some((member) => member.id === selected?.id) ? [] : [selected])].map((member) => ({
     ...member,
-    active: member.id === active.id,
+    active: activeIds.has(member.id),
     ...(member.id === active.id ? active : {})
   }));
-  return { ...battle, [key]: { ...battleSide, active, team } };
+  return {
+    ...battle,
+    [key]: { ...battleSide, active: activeSlots[0] || active, active_slots: activeSlots, team }
+  };
 }
 
 function actorName(value: unknown): string {
-  return stringValue(value).replace(/^p[12]a:\s*/, '') || 'Pokémon';
+  return stringValue(value).replace(/^p[12][a-z]:\s*/i, '') || 'Pokémon';
 }
 
 function actionPayload(event: BattleEvent): { type: string; payload: Record<string, unknown> } {

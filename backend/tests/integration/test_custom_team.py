@@ -207,5 +207,11 @@ async def test_campaign_doubles_format_completes_a_real_two_active_match(tmp_pat
     assert archive.turns > 0
     assert archive.raw_showdown_log is not None
     assert "p1b:" in archive.raw_showdown_log and "p2b:" in archive.raw_showdown_log
+    snapshots = [event for event in archive.events if event.event_type == "state_snapshot"]
+    assert any(
+        len(event.payload["state"]["player"]["active_slots"]) == 2
+        and len(event.payload["state"]["opponent"]["active_slots"]) == 2
+        for event in snapshots
+    )
     await service.close()
     await database.close()

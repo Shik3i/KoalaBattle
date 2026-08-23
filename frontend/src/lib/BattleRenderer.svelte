@@ -41,7 +41,8 @@
   interface Slot {
     place: 'far' | 'near';
     side: Side;
-    data: BattleSide | null;
+    active: PokemonState;
+    fieldSlot: number;
     perspective: 'front' | 'back';
   }
 
@@ -73,9 +74,22 @@
       : Math.round(650 / Number(config.playbackSpeed));
   $: formatLabel = formatName(presentation?.format || '', generation);
   $: finalPokemon = isFinalPokemon(near) && isFinalPokemon(far);
+  $: doublesLayout = activeSlots(near).length > 1 || activeSlots(far).length > 1;
   $: slots = [
-    { place: 'far', side: farSide, data: far, perspective: 'front' },
-    { place: 'near', side: nearSide, data: near, perspective: 'back' }
+    ...activeSlots(far).map((active, fieldSlot) => ({
+      place: 'far' as const,
+      side: farSide,
+      active,
+      fieldSlot,
+      perspective: 'front' as const
+    })),
+    ...activeSlots(near).map((active, fieldSlot) => ({
+      place: 'near' as const,
+      side: nearSide,
+      active,
+      fieldSlot,
+      perspective: 'back' as const
+    }))
   ] as Slot[];
 
   function battleSide(state: BattlePresentationState, side: Side): BattleSide | null {
@@ -96,8 +110,16 @@
     return `GEN ${gen} · ${(suffix || 'custom game').replace(/([a-z])([A-Z])/g, '$1 $2').toUpperCase()}`;
   }
 
-  function assetKey(side: BattleSide, perspective: 'front' | 'back') {
-    return `${side.active?.species}:${perspective}:${config.animatedSprites}`;
+  function activeSlots(side: BattleSide | null): PokemonState[] {
+    if (!side) return [];
+    if (side.active_slots?.length) return side.active_slots;
+    const teamActives = side.team.filter((pokemon) => pokemon.active);
+    if (teamActives.length) return teamActives;
+    return side.active ? [side.active] : [];
+  }
+
+  function assetKey(active: PokemonState, perspective: 'front' | 'back') {
+    return `${active.species}:${perspective}:${config.animatedSprites}`;
   }
 
   function renderablePokemon(active: PokemonState | null | undefined): active is PokemonState {
@@ -281,6 +303,7 @@
     class:overlay
     class:transparent={config.transparentBackground}
     class:deterministic
+    class:doubles-layout={doublesLayout}
     class:reduced-motion={config.reducedMotion}
     class:voice-active={speaking.length > 0}
     class="battle-renderer"
@@ -307,26 +330,27 @@
       {/if}
 
       <!-- Authentic Pokémon Gen 5 HUD: Symmetrical HP Plates in the classic corners -->
-      {#each slots as slot (slot.side)}
-        {#if slot.data?.active && renderablePokemon(slot.data.active)}
-          {@const gender = pokemonGender(slot.data.active)}
+      {#each slots as slot (`${slot.side}-${slot.fieldSlot}`)}
+        {#if renderablePokemon(slot.active)}
+          {@const gender = pokemonGender(slot.active)}
           <div
-            class={`hp-plate plate-${slot.place}`}
+            class={`hp-plate plate-${slot.place} field-slot-${slot.fieldSlot}`}
             class:switching={Boolean(presentation.switchTransitions[slot.side])}
             data-side={slot.side}
+            data-field-slot={slot.fieldSlot}
             style={switchPlateStyle(slot.side)}
             role="region"
-            aria-label={`${slot.data.active.name}, ${formatExactHp(slot.data.active)} (${hpPercent(slot.data.active)}%) health`}
+            aria-label={`${slot.active.name}, ${formatExactHp(slot.active)} (${hpPercent(slot.active)}%) health`}
           >
             <div class={`gen5-box gen5-${slot.place}-box`}>
               <!-- Top Row: Name | Level | Gender | Types | Status -->
               <div class="gen5-top-row">
                 <div class="gen5-name-wrap">
-                  <b class="gen5-name">{slot.data.active.name}</b>
+                  <b class="gen5-name">{slot.active.name}</b>
                 </div>
-                <div class="gen5-lv-badge" aria-label={`Level ${slot.data.active.level ?? 50}`}>
+                <div class="gen5-lv-badge" aria-label={`Level ${slot.active.level ?? 50}`}>
                   <span class="lv-text">Lv.</span>
-                  <b class="lv-val">{slot.data.active.level ?? 50}</b>
+                  <b class="lv-val">{slot.active.level ?? 50}</b>
                 </div>
                 {#if gender}
                   <div class={`gen5-gender-badge ${gender}`} aria-label={gender}>
@@ -334,12 +358,12 @@
                   </div>
                 {/if}
                 <div class="gen5-types-row">
-                  {#each slot.data.active.types as type}
+                  {#each slot.active.types as type}
                     <span class="gen5-type-badge" style={`--type-bg:${typeColor(type)}`}>{type}</span>
                   {/each}
                 </div>
-                {#if slot.data.active.status}
-                  <span class={`gen5-status-badge status-${slot.data.active.status.toLowerCase()}`}>{readableStatus(slot.data.active.status)}</span>
+                {#if slot.active.status}
+                  <span class={`gen5-status-badge status-${slot.active.status.toLowerCase()}`}>{readableStatus(slot.active.status)}</span>
                 {/if}
               </div>
 
@@ -347,15 +371,15 @@
               <div class="gen5-bar-row">
                 <div
                   class="gen5-hp-track"
-                  data-tone={hpTone(slot.data.active.hp_fraction)}
+                  data-tone={hpTone(slot.active.hp_fraction)}
                   role="progressbar"
-                  aria-valuenow={hpPercent(slot.data.active)}
+                  aria-valuenow={hpPercent(slot.active)}
                   aria-valuemin="0"
                   aria-valuemax="100"
-                  aria-label={`${slot.data.active.name} health`}
+                  aria-label={`${slot.active.name} health`}
                 >
-                  <b style={`width:${previousHp(slot.side, slot.data.active.hp_fraction) * 100}%`}></b>
-                  <i style={`width:${slot.data.active.hp_fraction * 100}%`}></i>
+                  <b style={`width:${previousHp(slot.side, slot.active.hp_fraction) * 100}%`}></b>
+                  <i style={`width:${slot.active.hp_fraction * 100}%`}></i>
                 </div>
               </div>
 
@@ -363,8 +387,8 @@
               <div class="gen5-bottom-row">
                 <div class="gen5-hp-label">HP</div>
                 <div class="gen5-exact-hp-wrap">
-                  <b class="gen5-exact-hp">{formatExactHp(slot.data.active)}</b>
-                  <span class="gen5-hp-pct">({hpPercent(slot.data.active)}%)</span>
+                  <b class="gen5-exact-hp">{formatExactHp(slot.active)}</b>
+                  <span class="gen5-hp-pct">({hpPercent(slot.active)}%)</span>
                 </div>
               </div>
             </div>
@@ -373,16 +397,17 @@
       {/each}
 
       <!-- Combatants: Grounded sprites positioned in classic perspective -->
-      {#each slots as slot (slot.side)}
-        {@const transition = presentation.switchTransitions[slot.side]}
-        {#if slot.data?.active && renderablePokemon(slot.data.active) && (transition || !slot.data.active.fainted || presentation.players[slot.side].motion === 'fainting')}
+      {#each slots as slot (`${slot.side}-${slot.fieldSlot}`)}
+        {@const transition = slot.fieldSlot === 0 ? presentation.switchTransitions[slot.side] : null}
+        {#if renderablePokemon(slot.active) && (transition || !slot.active.fainted || presentation.players[slot.side].motion === 'fainting')}
           <article
-            class={`combatant combatant-${slot.place}`}
+            class={`combatant combatant-${slot.place} field-slot-${slot.fieldSlot}`}
             class:speaking={speaking.includes(slot.side) || speaking.includes('narrator')}
             data-side={slot.side}
-            data-fainted={slot.data.active.fainted}
+            data-field-slot={slot.fieldSlot}
+            data-fainted={slot.active.fainted}
             data-switching={Boolean(transition)}
-            aria-label={`${slot.data.active.name}: ${formatExactHp(slot.data.active)} HP (${hpPercent(slot.data.active)}%)`}
+            aria-label={`${slot.active.name}: ${formatExactHp(slot.active)} HP (${hpPercent(slot.active)}%)`}
           >
             <div class="sprite-slot">
               <div class="platform" aria-hidden="true"><i class="pedestal-surface"></i><i class="pedestal-rim"></i></div>
@@ -405,17 +430,17 @@
                   </div>
                 {/key}
               {:else}
-                {#key `${slot.data.active.species}:${presentation.players[slot.side].motion}`}
+                {#key `${slot.active.species}:${presentation.players[slot.side].motion}`}
                   <div
                     style={spriteStyle(presentation.players[slot.side].motion, slot.place === 'near')}
                     class={`sprite ${presentation.players[slot.side].motion}`}
                   >
-                    {#if !failedAssets.has(assetKey(slot.data, slot.perspective))}
+                    {#if !failedAssets.has(assetKey(slot.active, slot.perspective))}
                       <img
-                        src={spriteUrl(slot.data.active.species, slot.perspective)}
-                        alt={slot.data.active.name}
+                        src={spriteUrl(slot.active.species, slot.perspective)}
+                        alt={slot.active.name}
                         on:load={onAssetLoad}
-                        on:error={() => slot.data && onAssetError(assetKey(slot.data, slot.perspective))}
+                        on:error={() => onAssetError(assetKey(slot.active, slot.perspective))}
                       />
                     {:else}
                       <div class="sprite-missing"><span class="pokeball" aria-hidden="true"><i></i></span><small>SPRITE</small></div>
@@ -608,6 +633,11 @@
   .hp-plate.switching{animation:hp-plate-switch .3s .14s ease-out both}
   .plate-far{top:5%;left:3.5%;width:clamp(320px,39cqw,500px)}
   .plate-near{bottom:6%;right:3.5%;width:clamp(320px,39cqw,500px)}
+  .doubles-layout .hp-plate{width:clamp(230px,29cqw,370px)}
+  .doubles-layout .plate-far.field-slot-0{left:2%}
+  .doubles-layout .plate-far.field-slot-1{left:31.5%}
+  .doubles-layout .plate-near.field-slot-0{right:2%}
+  .doubles-layout .plate-near.field-slot-1{right:31.5%}
 
   .gen5-box{position:relative;background:#202524;border:2px solid #36403e;border-radius:4px;padding:clamp(6px,.85cqw,9px) clamp(12px,1.4cqw,18px);box-shadow:inset 0 1px 1px rgba(255,255,255,.18),0 8px 20px rgba(0,0,0,.7)}
   .gen5-far-box{clip-path:polygon(0 0,calc(100% - 24px) 0,100% 100%,0 100%)}
@@ -659,6 +689,11 @@
   .combatant{position:absolute;z-index:10;display:flex;align-items:center;justify-content:center;pointer-events:none}
   .combatant-far{top:15%;right:27%;width:min(30%,340px)}
   .combatant-near{bottom:4%;left:8%;width:min(38%,440px)}
+  .doubles-layout .combatant{width:min(27%,310px)}
+  .doubles-layout .combatant-far.field-slot-0{right:32%}
+  .doubles-layout .combatant-far.field-slot-1{right:10%}
+  .doubles-layout .combatant-near.field-slot-0{left:7%}
+  .doubles-layout .combatant-near.field-slot-1{left:30%}
   .platform{position:absolute;bottom:0;left:50%;width:88%;aspect-ratio:3.4/1;transform:translate(-50%,36%);pointer-events:none}
   .platform .pedestal-surface{position:absolute;inset:0;border-radius:50%;background:radial-gradient(ellipse at 50% 46%,rgba(140,255,190,.32),rgba(20,74,62,.44) 56%,transparent 74%);box-shadow:0 0 32px rgba(122,255,183,.16)}
   [data-renderer-theme='pokemon-route'] .combatant-far .platform .pedestal-surface{background:radial-gradient(ellipse at 50% 50%,#e2d9b6 0%,#d2c59a 65%,#b8ab7f 90%,transparent 100%);border:none;box-shadow:0 10px 24px rgba(40,45,30,.35)}

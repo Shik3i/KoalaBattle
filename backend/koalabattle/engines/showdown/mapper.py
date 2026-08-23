@@ -247,8 +247,10 @@ def battle_state(
         _pokemon_state(identifier, pokemon)
         for identifier, pokemon in sorted(battle.opponent_team.items())
     )
-    own_active = next((pokemon for pokemon in own_team if pokemon.active), None)
-    opponent_active = next((pokemon for pokemon in opponent_team if pokemon.active), None)
+    own_active_slots = tuple(pokemon for pokemon in own_team if pokemon.active)
+    opponent_active_slots = tuple(pokemon for pokemon in opponent_team if pokemon.active)
+    own_active = own_active_slots[0] if own_active_slots else None
+    opponent_active = opponent_active_slots[0] if opponent_active_slots else None
     history = _public_history(battle)
     last_action = next((item for item in reversed(history) if "|move|" in item), None)
     return BattleState(
@@ -261,6 +263,7 @@ def battle_state(
             side=side,
             display_name=display_names[side],
             active=own_active,
+            active_slots=own_active_slots,
             team=own_team,
             side_conditions=tuple(
                 sorted(_enum_name(item) or "unknown" for item in battle.side_conditions)
@@ -272,6 +275,7 @@ def battle_state(
             side=opponent_side,
             display_name=display_names[opponent_side],
             active=opponent_active,
+            active_slots=opponent_active_slots,
             team=opponent_team,
             side_conditions=tuple(
                 sorted(_enum_name(item) or "unknown" for item in battle.opponent_side_conditions)
