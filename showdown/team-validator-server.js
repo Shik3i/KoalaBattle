@@ -638,5 +638,9 @@ const server = http.createServer((request, response) => {
 });
 
 server.listen(PORT, HOST, () => {
+  // Build the challenge catalog before health checks pass.  The first catalog request is
+  // intentionally synchronous (it walks Showdown's pinned Dex and factory sets); doing that
+  // lazily made the browser's first Quick Start request look stuck during a cold container start.
+  speciesCatalog('gen9natdexdraft');
   process.stdout.write(`KoalaBattle Showdown tools listening on ${HOST}:${PORT}\n`);
 });
