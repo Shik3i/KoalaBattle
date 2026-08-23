@@ -51,7 +51,7 @@ test('Draft Quick Start skips setup with Fast Auto, Normal and Fast Watch', asyn
   await expect(quickStart).toBeVisible();
   await expect(quickStart).toContainText('Fast Auto · Normal · Fast Watch');
   await expect(quickStart).toContainText('Base forms · Original teams');
-  await expect(quickStart).toContainText('Pokémon rerolls off · Type 1× · Gen 1×');
+  await expect(quickStart).toContainText('Same team size · Auto matchup selection');
   await quickStart.click();
   await expect(page).toHaveURL(/\/challenges\/[0-9a-f-]+$/);
 
@@ -67,6 +67,7 @@ test('Draft Quick Start skips setup with Fast Auto, Normal and Fast Watch', asyn
       battle_experience: string;
       difficulty: string;
       opponent_team_mode: string;
+      battle_mode: string;
       draft_pool: { candidates: Array<{ evolution_stage: number }> };
       definition: { draft_rules: { choice_count: number; roster_size: number; rerolls: number; type_rerolls: number; generation_rerolls: number; draft_pool_mode: string } };
     };
@@ -76,10 +77,32 @@ test('Draft Quick Start skips setup with Fast Auto, Normal and Fast Watch', asyn
   expect(view.run.battle_experience).toBe('fast-watch');
   expect(view.run.difficulty).toBe('normal');
   expect(view.run.opponent_team_mode).toBe('original');
+  expect(view.run.battle_mode).toBe('singles');
   expect(view.run.definition.draft_rules).toMatchObject({ choice_count: 3, roster_size: 6, rerolls: 0, type_rerolls: 1, generation_rerolls: 1, draft_pool_mode: 'base-forms-only' });
   expect(view.unseen_candidate_count).toBeGreaterThan(100);
   expect(view.run.draft_pool.candidates.length).toBeGreaterThan(0);
   expect(view.run.draft_pool.candidates.every((candidate) => candidate.evolution_stage === 0)).toBeTruthy();
+});
+
+test('Quick Draft Duo creates the same draft contract with Doubles enabled', async ({ page }) => {
+  let payload: Record<string, unknown> = {};
+  const fakeRunId = '00000000-0000-4000-8000-000000000002';
+  await page.route(`${apiBase}/api/challenges`, async (route) => {
+    if (route.request().method() !== 'POST') return route.continue();
+    payload = route.request().postDataJSON();
+    await route.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: JSON.stringify({ run: { id: fakeRunId, current_offer: null } })
+    });
+  });
+
+  await page.goto('/challenges');
+  await page.getByRole('button', { name: /Quick Draft Duo:/ }).click();
+  await expect(page).toHaveURL(`/challenges/${fakeRunId}`);
+  expect(payload.battle_mode).toBe('doubles');
+  expect((payload.draft_rules as { roster_size: number }).roster_size).toBe(6);
+  expect((payload.battle_controller as { agent_type: string }).agent_type).toBe('tactical-auto');
 });
 
 test('Draft Quick Start retries a failed campaign-route request before creating', async ({ page }) => {

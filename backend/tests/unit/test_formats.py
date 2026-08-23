@@ -85,15 +85,26 @@ def test_non_singles_formats_are_listed_but_marked_unsupported() -> None:
     assert "renderer" in doubles.unsupported_reason
     catalog = default_catalog()
     game_types = {item.game_type for item in catalog.formats}
-    # Every Showdown game type stays visible; only singles is runnable today.
+    # Every Showdown game type stays visible; only the isolated campaign Doubles format
+    # joins the generally supported Singles catalog.
     assert {"doubles", "triples", "multi", "freeforall"} <= game_types
-    assert all(item.game_type == "singles" for item in catalog.formats if item.supported)
+    supported_doubles = [
+        item.id for item in catalog.formats if item.supported and item.game_type == "doubles"
+    ]
+    assert supported_doubles == ["gen9koalabattlecanonicalnatdexdraftdoubles"]
 
 
 def test_capability_explains_each_refusal() -> None:
     assert capability({"game_type": "singles", "player_count": 2}) == (True, None)
     supported, reason = capability({"game_type": "doubles", "player_count": 2})
     assert not supported and reason and "doubles" in reason
+    assert capability(
+        {
+            "id": "gen9koalabattlecanonicalnatdexdraftdoubles",
+            "game_type": "doubles",
+            "player_count": 2,
+        }
+    ) == (True, None)
     supported, reason = capability({"game_type": "singles", "player_count": 4})
     assert not supported and reason and "two players" in reason
     supported, reason = capability(

@@ -455,6 +455,7 @@ class ChallengeRun(FrozenModel):
     battle_experience: Literal["quick-sim", "fast-watch", "normal"] = "quick-sim"
     difficulty: ChallengeDifficulty = ChallengeDifficulty.NORMAL
     opponent_team_mode: Literal["original", "filled"] = "original"
+    battle_mode: Literal["singles", "doubles"] = "singles"
     rerolls_remaining: int = Field(default=3, ge=0)
     type_rerolls_remaining: int = Field(default=1, ge=0)
     generation_rerolls_remaining: int = Field(default=1, ge=0)
@@ -590,6 +591,7 @@ class CreateChallengeRun(FrozenModel):
     battle_experience: Literal["quick-sim", "fast-watch", "normal"] = "quick-sim"
     difficulty: ChallengeDifficulty = ChallengeDifficulty.NORMAL
     opponent_team_mode: Literal["original", "filled"] = "original"
+    battle_mode: Literal["singles", "doubles"] = "singles"
     draft_rules: DraftRules | None = None
     training_rules: TrainingRules | None = None
 

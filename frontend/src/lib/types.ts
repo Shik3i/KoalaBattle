@@ -524,6 +524,7 @@ export interface ChallengeRunView {
     battle_experience: 'quick-sim' | 'fast-watch' | 'normal';
     difficulty: ChallengeDifficulty;
     opponent_team_mode: 'original' | 'filled';
+    battle_mode: 'singles' | 'doubles';
     /** Drafted entries knocked out earlier in the current gauntlet section. */
     downed_entry_ids: string[];
     rerolls_remaining: number;

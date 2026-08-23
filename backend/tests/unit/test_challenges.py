@@ -52,10 +52,13 @@ from koalabattle.challenges.repository import (
 from koalabattle.challenges.service import (
     AUTO_ADVANCE_DELAYS,
     ChallengeService,
+    _automatic_stage_team,
     _eligible_draft_candidates,
+    _even_duo_opponent_team,
     _knocked_out_entry_ids,
     _opponent_stage_team,
     _resolve_draft_action,
+    _scaled_stage_level,
     _team_scaffold,
     _with_level,
     _with_unique_duplicate_nicknames,
@@ -153,6 +156,88 @@ def test_opponent_team_mode_selects_original_or_filled_team() -> None:
 
     assert _opponent_stage_team(stage, "original").startswith("Geodude")
     assert _opponent_stage_team(stage, "filled").startswith("Onix")
+
+
+def test_campaign_level_curve_runs_from_five_to_one_hundred() -> None:
+    levels = [_scaled_stage_level(index, 13) for index in range(13)]
+
+    assert levels[0] == 5
+    assert levels[-1] == 100
+    assert levels == sorted(levels)
+
+
+def test_duo_odd_team_prefers_same_generation_legendary_specialist() -> None:
+    stage = ChallengeStage(
+        id="surge",
+        name="Lt. Surge",
+        title="Gym Leader",
+        theme="Electric",
+        level=5,
+        specialty="Electric",
+        opponent_team="Pikachu\n- Thunderbolt",
+    )
+    regular = _candidate(20, types=("Electric",), generation=1)
+    legendary = _candidate(21, types=("Electric", "Flying"), generation=1)
+
+    def species(
+        candidate: DraftCandidate, *, name: str, legendary: bool = False
+    ) -> SpeciesMetadata:
+        return SpeciesMetadata(
+            id=candidate.showdown_id,
+            name=name,
+            base_species_id=candidate.base_species_id,
+            national_dex_number=candidate.national_dex_number,
+            introduction_generation=candidate.introduction_generation,
+            types=candidate.types,
+            base_stat_total=candidate.base_stat_total,
+            abilities=candidate.abilities,
+            recommended_moves=candidate.recommended_moves,
+            showdown_set=candidate.showdown_set,
+            is_legendary=legendary,
+        )
+
+    metadata = {
+        regular.showdown_id: species(regular, name=regular.species),
+        legendary.showdown_id: species(legendary, name="Zapdos", legendary=True),
+    }
+
+    completed = _even_duo_opponent_team(stage.opponent_team, stage, 1, metadata)
+
+    assert len(completed.split("\n\n")) == 2
+    assert "Zapdos" in completed
+
+
+def test_automatic_stage_team_uses_exact_size_and_type_advantage() -> None:
+    def metadata(identifier: str, name: str, types: tuple[str, ...]) -> SpeciesMetadata:
+        candidate = _candidate(len(identifier), types=types)
+        return SpeciesMetadata(
+            id=identifier,
+            name=name,
+            base_species_id=identifier,
+            national_dex_number=len(identifier),
+            introduction_generation=1,
+            types=types,
+            base_stat_total=candidate.base_stat_total,
+            abilities=candidate.abilities,
+            recommended_moves=candidate.recommended_moves,
+            showdown_set=candidate.showdown_set,
+        )
+
+    species = {
+        "bulbasaur": metadata("bulbasaur", "Bulbasaur", ("Grass", "Poison")),
+        "charmander": metadata("charmander", "Charmander", ("Fire",)),
+        "squirtle": metadata("squirtle", "Squirtle", ("Water",)),
+        "onix": metadata("onix", "Onix", ("Rock", "Ground")),
+    }
+    player = "Bulbasaur\n- Tackle\n\nCharmander\n- Tackle\n\nSquirtle\n- Water Gun"
+    opponent = "Onix\n- Rock Throw"
+
+    selected = _automatic_stage_team(
+        player, opponent, 1, species, doubles=False
+    )
+
+    assert selected.startswith("Squirtle")
+    assert len(selected.split("\n\n")) == 1
 
 
 def _candidate(
@@ -1280,6 +1365,8 @@ async def test_final_team_enforces_abilities_then_creates_first_campaign_match(
     assert match.challenge_stage_id == "stage-one"
     assert launched.opponent_controller.agent_type is AgentType.TACTICAL_AUTO
     assert match.config.players[1].agent_type is AgentType.TACTICAL_AUTO
+    assert len(battles.team_validator.submissions[-2].split("\n\n")) == 1
+    assert len(battles.team_validator.submissions[-1].split("\n\n")) == 1
     await database.close()
 
 

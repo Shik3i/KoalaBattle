@@ -6,6 +6,7 @@ import json
 import re
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
+from itertools import combinations
 from pathlib import Path
 from typing import Literal
 from uuid import UUID, uuid4
@@ -83,6 +84,28 @@ PRESENTATION_GATED_EXPERIENCES = {"fast-watch", "normal"}
 # The first eight stages are the Gym/Trial route; Mega selection opens after its eighth
 # badge, immediately before the first Elite Four stage (stage index 8 in regional routes).
 MEGA_UNLOCK_STAGE_INDEX = 8
+CAMPAIGN_DOUBLES_FORMAT = "gen9koalabattlecanonicalnatdexdraftdoubles"
+
+
+def _scaled_stage_level(index: int, count: int) -> int:
+    """Every newly created route progresses evenly from level 5 to level 100."""
+    if count <= 1:
+        return 100
+    return round(5 + (95 * index / (count - 1)))
+
+
+def _with_scaled_levels(definition: ChallengeDefinition) -> ChallengeDefinition:
+    return definition.model_copy(
+        update={
+            "format": "gen9koalabattlecanonicalnatdexdraft",
+            "stages": tuple(
+                stage.model_copy(
+                    update={"level": _scaled_stage_level(index, len(definition.stages))}
+                )
+                for index, stage in enumerate(definition.stages)
+            )
+        }
+    )
 
 
 def _event_pokemon(value: object) -> tuple[str, str] | None:
@@ -397,7 +420,8 @@ def _definition(definition_id: str) -> ChallengeDefinition:
     path = CONTENT_ROOT / f"{definition_id}.json"
     if not path.is_file():
         raise KeyError(definition_id)
-    return ChallengeDefinition.model_validate_json(path.read_text(encoding="utf-8"))
+    definition = ChallengeDefinition.model_validate_json(path.read_text(encoding="utf-8"))
+    return _with_scaled_levels(definition)
 
 
 def _definition_summaries() -> tuple[ChallengeDefinitionSummary, ...]:
@@ -446,6 +470,183 @@ def _opponent_stage_team(stage: ChallengeStage, mode: Literal["original", "fille
     if mode == "filled" and stage.filled_opponent_team is not None:
         return stage.filled_opponent_team
     return stage.opponent_team
+
+
+def _team_blocks(team_export: str) -> list[str]:
+    return [block.strip() for block in team_export.strip().split("\n\n") if block.strip()]
+
+
+_TYPE_ADVANTAGES: dict[str, frozenset[str]] = {
+    "normal": frozenset(),
+    "fire": frozenset({"grass", "ice", "bug", "steel"}),
+    "water": frozenset({"fire", "ground", "rock"}),
+    "electric": frozenset({"water", "flying"}),
+    "grass": frozenset({"water", "ground", "rock"}),
+    "ice": frozenset({"grass", "ground", "flying", "dragon"}),
+    "fighting": frozenset({"normal", "ice", "rock", "dark", "steel"}),
+    "poison": frozenset({"grass", "fairy"}),
+    "ground": frozenset({"fire", "electric", "poison", "rock", "steel"}),
+    "flying": frozenset({"grass", "fighting", "bug"}),
+    "psychic": frozenset({"fighting", "poison"}),
+    "bug": frozenset({"grass", "psychic", "dark"}),
+    "rock": frozenset({"fire", "ice", "flying", "bug"}),
+    "ghost": frozenset({"psychic", "ghost"}),
+    "dragon": frozenset({"dragon"}),
+    "dark": frozenset({"psychic", "ghost"}),
+    "steel": frozenset({"ice", "rock", "fairy"}),
+    "fairy": frozenset({"fighting", "dragon", "dark"}),
+}
+
+
+def _block_types(
+    block: str, species_by_id: dict[str, SpeciesMetadata]
+) -> tuple[str, ...]:
+    metadata = species_by_id.get(showdown_id(_team_block_species(block)))
+    return tuple(item.casefold() for item in metadata.types) if metadata else ()
+
+
+def _matchup_score(own_types: tuple[str, ...], opponent_types: tuple[tuple[str, ...], ...]) -> int:
+    attacking = sum(
+        target in _TYPE_ADVANTAGES.get(own, frozenset())
+        for target_types in opponent_types
+        for own in own_types
+        for target in target_types
+    )
+    threatened = sum(
+        own in _TYPE_ADVANTAGES.get(attacker, frozenset())
+        for target_types in opponent_types
+        for attacker in target_types
+        for own in own_types
+    )
+    return 4 * attacking - 3 * threatened
+
+
+def _pair_synergy(left: tuple[str, ...], right: tuple[str, ...]) -> int:
+    left_weak = {
+        attacker
+        for attacker, targets in _TYPE_ADVANTAGES.items()
+        if any(item in targets for item in left)
+    }
+    right_weak = {
+        attacker
+        for attacker, targets in _TYPE_ADVANTAGES.items()
+        if any(item in targets for item in right)
+    }
+    left_coverage = set().union(*(_TYPE_ADVANTAGES.get(item, frozenset()) for item in left))
+    right_coverage = set().union(*(_TYPE_ADVANTAGES.get(item, frozenset()) for item in right))
+    mutual_cover = len(left_coverage & right_weak) + len(right_coverage & left_weak)
+    shared_weaknesses = len(left_weak & right_weak)
+    distinct_types = len(set(left) ^ set(right))
+    return 3 * mutual_cover + distinct_types - 2 * shared_weaknesses
+
+
+def _automatic_stage_team(
+    team_export: str,
+    opponent_export: str,
+    size: int,
+    species_by_id: dict[str, SpeciesMetadata],
+    *,
+    doubles: bool,
+) -> str:
+    """Choose the exact stage roster by matchup and, in Doubles, partner synergy."""
+    blocks = _team_blocks(team_export)
+    if not blocks:
+        return team_export
+    count = min(size, len(blocks))
+    opponent_types = tuple(
+        _block_types(block, species_by_id) for block in _team_blocks(opponent_export)
+    )
+    types = {block: _block_types(block, species_by_id) for block in blocks}
+    individual = {block: _matchup_score(types[block], opponent_types) for block in blocks}
+
+    def group_score(group: tuple[str, ...]) -> int:
+        score = sum(individual[block] for block in group)
+        if doubles:
+            score += sum(
+                _pair_synergy(types[left], types[right])
+                for left, right in combinations(group, 2)
+            )
+        return score
+
+    selected = max(combinations(blocks, count), key=group_score)
+    remaining = list(selected)
+    ordered: list[str] = []
+    if doubles and len(remaining) >= 2:
+        lead = max(
+            combinations(remaining, 2),
+            key=lambda pair: individual[pair[0]]
+            + individual[pair[1]]
+            + _pair_synergy(types[pair[0]], types[pair[1]]),
+        )
+        ordered.extend(lead)
+        remaining = [block for block in remaining if block not in lead]
+    ordered.extend(sorted(remaining, key=lambda block: -individual[block]))
+    return "\n\n".join(ordered)
+
+
+def _competitive_species_block(species: SpeciesMetadata) -> str | None:
+    competitive = species.showdown_set
+    if competitive is None:
+        return None
+    lines = [f"{species.name} @ {competitive.item}" if competitive.item else species.name]
+    if competitive.ability:
+        lines.append(f"Ability: {competitive.ability}")
+    ev_line = _ev_line(competitive.evs)
+    if ev_line:
+        lines.append(ev_line)
+    lines.append(f"{competitive.nature} Nature")
+    iv_line = _iv_line(competitive.ivs)
+    if iv_line:
+        lines.append(iv_line)
+    lines.extend(f"- {move}" for move in competitive.moves)
+    return "\n".join(lines)
+
+
+def _even_duo_opponent_team(
+    team_export: str,
+    stage: ChallengeStage,
+    generation: int,
+    species_by_id: dict[str, SpeciesMetadata],
+) -> str:
+    """Add one same-generation specialist when a Doubles stage roster is odd."""
+    blocks = _team_blocks(team_export)
+    if len(blocks) % 2 == 0:
+        return team_export
+    existing = {showdown_id(_team_block_species(block)) for block in blocks}
+    specialty = (stage.specialty or "").casefold()
+    if specialty in {"", "mixed", "champion", "starter type"}:
+        first = species_by_id.get(showdown_id(_team_block_species(blocks[0])))
+        specialty = first.types[0].casefold() if first and first.types else ""
+    eligible = [
+        species
+        for species in species_by_id.values()
+        if species.introduction_generation == generation
+        and not species.unavailable
+        and not species.battle_only
+        and not species.cosmetic
+        and not species.is_mega
+        and not species.is_gmax
+        and species.id not in existing
+        and specialty in {item.casefold() for item in species.types}
+        and species.showdown_set is not None
+    ]
+    eligible.sort(
+        key=lambda species: (
+            not species.is_legendary,
+            -(species.base_stat_total or 0),
+            species.national_dex_number,
+            species.id,
+        )
+    )
+    if not eligible:
+        raise ValueError(
+            f"no same-generation {stage.specialty or 'specialty'} Pokemon can complete "
+            f"the Doubles roster for {stage.name}"
+        )
+    addition = _competitive_species_block(eligible[0])
+    if addition is None:
+        raise ValueError(f"{eligible[0].name} has no pinned competitive set")
+    return "\n\n".join((*blocks, addition))
 
 
 def _team_block_species(block: str) -> str:
@@ -1005,10 +1206,9 @@ def _with_level(
     normalized: list[str] = []
     for block in blocks:
         lines = block.splitlines()
-        heading = lines[0].split("@", 1)[0].strip()
-        species_match = re.search(r"\(([^()]+)\)\s*$", heading)
-        species_id = showdown_id(species_match.group(1) if species_match else heading)
-        effective_level = max(level, (minimum_levels or {}).get(species_id, 1))
+        # The campaign formats explicitly relax source/event move minimums so the shared
+        # route curve remains exact, including the new level-5 opening stage.
+        effective_level = level
         level_indexes = [index for index, line in enumerate(lines) if line.startswith("Level:")]
         if level_indexes:
             lines[level_indexes[0]] = f"Level: {effective_level}"
@@ -1349,6 +1549,7 @@ class ChallengeService:
             battle_experience=payload.battle_experience,
             difficulty=payload.difficulty,
             opponent_team_mode=payload.opponent_team_mode,
+            battle_mode=payload.battle_mode,
             rerolls_remaining=definition.draft_rules.rerolls,
             type_rerolls_remaining=definition.draft_rules.type_rerolls,
             generation_rerolls_remaining=definition.draft_rules.generation_rerolls,
@@ -1512,6 +1713,7 @@ class ChallengeService:
             battle_experience=source.battle_experience,
             difficulty=source.difficulty,
             opponent_team_mode=source.opponent_team_mode,
+            battle_mode=source.battle_mode,
             rerolls_remaining=source.rerolls_remaining,
             type_rerolls_remaining=source.type_rerolls_remaining,
             generation_rerolls_remaining=source.generation_rerolls_remaining,
@@ -1794,9 +1996,14 @@ class ChallengeService:
             if scaffold is None:
                 raise ValueError("complete draft has no team scaffold")
             submitted = _with_zero_ev_confirmation(_apply_selected_abilities(scaffold, run))
+            format_id = (
+                CAMPAIGN_DOUBLES_FORMAT
+                if run.battle_mode == "doubles"
+                else run.definition.format
+            )
             try:
                 validation = await self.battles.team_validator.validate(
-                    submitted, run.definition.format
+                    submitted, format_id
                 )
             except (RuntimeError, ValueError, OSError) as error:
                 # The validator being unreachable must not strand the run in `preparing`
@@ -1833,7 +2040,8 @@ class ChallengeService:
             )
             auto_advance_at = (
                 datetime.now(UTC) + timedelta(seconds=1)
-                if self.auto_run_available(run) and not run.auto_run_paused
+                if self.auto_run_available(run)
+                and not run.auto_run_paused
                 else None
             )
             stored = await self.repository.save(
@@ -2208,8 +2416,13 @@ class ChallengeService:
                 raise ValueError("challenge is not waiting for team finalization")
             configured_team = _apply_selected_abilities(team_text, run)
             submitted_team = _with_zero_ev_confirmation(configured_team)
+            format_id = (
+                CAMPAIGN_DOUBLES_FORMAT
+                if run.battle_mode == "doubles"
+                else run.definition.format
+            )
             validation = await self.battles.team_validator.validate(
-                submitted_team, run.definition.format
+                submitted_team, format_id
             )
             if not validation.valid:
                 raise ValueError("Showdown rejected the team: " + "; ".join(validation.errors))
@@ -2245,6 +2458,7 @@ class ChallengeService:
             update: dict[str, object] = {
                 "team_snapshot_id": snapshot.id,
                 "status": ChallengeStatus.READY,
+                "auto_advance_at": None,
             }
             if self.auto_run_available(run) and not run.auto_run_paused:
                 update["auto_advance_at"] = datetime.now(UTC) + timedelta(seconds=1)
@@ -2327,6 +2541,23 @@ class ChallengeService:
             )
             opponent_team = _opponent_stage_team(stage, run.opponent_team_mode)
             opponent_team = _prepare_opponent_stage_team(opponent_team, species_by_id)
+            if run.battle_mode == "doubles":
+                opponent_team = _even_duo_opponent_team(
+                    opponent_team, stage, run.definition.generation, species_by_id
+                )
+            team_size = len(_team_blocks(opponent_team))
+            available = _automatic_stage_team(
+                available,
+                opponent_team,
+                team_size,
+                species_by_id,
+                doubles=run.battle_mode == "doubles",
+            )
+            battle_format = (
+                CAMPAIGN_DOUBLES_FORMAT
+                if run.battle_mode == "doubles"
+                else run.definition.format
+            )
             minimum_levels = {
                 showdown_id(species.id): species.minimum_level for species in species_by_id.values()
             }
@@ -2346,14 +2577,14 @@ class ChallengeService:
                     run.mega_selection.required_item,
                 )
             player_validation = await self.battles.team_validator.validate(
-                _with_level(available, player_level, minimum_levels), run.definition.format
+                _with_level(available, player_level, minimum_levels), battle_format
             )
             opponent_team, opponent_validation = await _validated_opponent_stage_team(
                 opponent_team,
                 species_by_id,
                 minimum_levels,
                 opponent_level,
-                run.definition.format,
+                battle_format,
                 self.battles.team_validator,
                 try_mega=run.current_stage_index >= MEGA_UNLOCK_STAGE_INDEX,
             )
@@ -2393,7 +2624,7 @@ class ChallengeService:
                     player_level=player_level,
                     opponent_level=opponent_level,
                 ),
-                format=run.definition.format,
+                format=battle_format,
                 players=(
                     self._player(run.battle_controller, Side.P1, run.name, player_snapshot.id),
                     self._player(

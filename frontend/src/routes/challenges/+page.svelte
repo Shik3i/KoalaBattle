@@ -11,7 +11,7 @@
   let routesLoading = true;
   let historyError = '';
   let routesError = '';
-  let quickStarting = false;
+  let quickStarting: 'singles' | 'doubles' | '' = '';
   let quickStartError = '';
 
   onMount(() => {
@@ -54,9 +54,9 @@
     return `Stage ${Math.min(run.current_stage_index + 1, run.stage_count)} of ${run.stage_count}`;
   }
 
-  async function quickStart() {
+  async function quickStart(battleMode: 'singles' | 'doubles') {
     if (quickStarting) return;
-    quickStarting = true;
+    quickStarting = battleMode;
     quickStartError = '';
     try {
       const seed = Math.floor(Date.now() / 1000);
@@ -66,7 +66,12 @@
       const view = await api<ChallengeRunView>('/api/challenges', {
         method: 'POST',
         body: JSON.stringify(
-          standardChallengePayload(seed, `${selected.region} Draft Gauntlet`, selected.id)
+          standardChallengePayload(
+            seed,
+            `${selected.region} Draft ${battleMode === 'doubles' ? 'Duo ' : ''}Gauntlet`,
+            selected.id,
+            battleMode
+          )
         )
       });
       if (view.run.current_offer) {
@@ -75,7 +80,7 @@
       await goto(`/challenges/${view.run.id}`);
     } catch (caught) {
       quickStartError = challengeErrorMessage(caught instanceof Error ? caught.message : String(caught));
-      quickStarting = false;
+      quickStarting = '';
     }
   }
 </script>
@@ -87,9 +92,13 @@
     <p>Build one roster from disappearing offers, tune automatic recommended EVs, then clear a recorded campaign at fair, equal stage levels.</p>
   </div>
   <div class="challenge-actions">
-    <button class="button quick-start" type="button" disabled={quickStarting || routesLoading} aria-label="Quick Start: Fast Auto, Normal difficulty, Fast Watch, base forms only, original teams, Pokémon rerolls off, Type 1, Generation 1" on:click={quickStart}>
+    <button class="button quick-start" type="button" disabled={Boolean(quickStarting) || routesLoading} aria-label="Quick Start: Fast Auto, Normal difficulty, Fast Watch, base forms only, original teams, Pokémon rerolls off, Type 1, Generation 1" on:click={() => quickStart('singles')}>
       <i class={`ph ${quickStarting || routesLoading ? 'ph-spinner-gap spinner' : 'ph-lightning'}`} aria-hidden="true"></i>
-      <span><strong>{quickStarting ? 'Starting Draft…' : routesLoading ? 'Loading routes…' : 'Quick Start'}</strong><small>Fast Auto · Normal · Fast Watch</small><small>Base forms · Original teams</small><small>Pokémon rerolls off · Type 1× · Gen 1×</small></span>
+      <span><strong>{quickStarting === 'singles' ? 'Starting Draft…' : routesLoading ? 'Loading routes…' : 'Quick Start'}</strong><small>Fast Auto · Normal · Fast Watch</small><small>Same team size · Auto matchup selection</small><small>Base forms · Original teams</small></span>
+    </button>
+    <button class="button quick-start duo" type="button" disabled={Boolean(quickStarting) || routesLoading} aria-label="Quick Draft Duo: Doubles battles, Fast Auto, Normal difficulty, Fast Watch, base forms only, original teams" on:click={() => quickStart('doubles')}>
+      <i class={`ph ${quickStarting || routesLoading ? 'ph-spinner-gap spinner' : 'ph-users-three'}`} aria-hidden="true"></i>
+      <span><strong>{quickStarting === 'doubles' ? 'Starting Duo Draft…' : routesLoading ? 'Loading routes…' : 'Quick Draft Duo'}</strong><small>2v2 Doubles · Fast Auto · Normal</small><small>Even teams · Auto synergy selection</small><small>Base forms · Original teams</small></span>
     </button>
     <a class="button secondary" href="/challenges/new"><i class="ph ph-sliders-horizontal" aria-hidden="true"></i>Customize</a>
   </div>

@@ -18,9 +18,10 @@ LOGGER = logging.getLogger(__name__)
 
 SNAPSHOT_PATH = Path(__file__).with_name("showdown-format-catalog.json")
 
-#: KoalaBattle normalizes exactly one active Pokemon per side, so only two-player singles
-#: formats can be rendered, prompted and replayed correctly today.
-SUPPORTED_GAME_TYPES: tuple[Literal["singles"], ...] = ("singles",)
+#: The campaign has a dedicated, engine-tested Doubles format. Other Doubles formats stay
+#: hidden until their rules and presentation are explicitly supported.
+SUPPORTED_GAME_TYPES: tuple[Literal["singles", "doubles"], ...] = ("singles", "doubles")
+CAMPAIGN_DOUBLES_FORMAT = "gen9koalabattlecanonicalnatdexdraftdoubles"
 
 _GAME_TYPE_REASONS = {
     "doubles": "Not yet supported by KoalaBattle battle renderer (doubles)",
@@ -33,6 +34,8 @@ _GAME_TYPE_REASONS = {
 def capability(descriptor: dict[str, Any]) -> tuple[bool, str | None]:
     """Decide whether KoalaBattle's normalized battle pipeline can run one Showdown format."""
     game_type = str(descriptor.get("game_type") or "singles")
+    if game_type == "doubles" and descriptor.get("id") != CAMPAIGN_DOUBLES_FORMAT:
+        return False, _GAME_TYPE_REASONS["doubles"]
     if game_type not in SUPPORTED_GAME_TYPES:
         reason = _GAME_TYPE_REASONS.get(
             game_type, f"Not yet supported by KoalaBattle battle renderer ({game_type})"

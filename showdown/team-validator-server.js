@@ -528,6 +528,7 @@ function speciesCatalog(formatId) {
         unavailable: Boolean(entry.isNonstandard && entry.isNonstandard !== 'Past') || !competitiveSet,
         is_mega: String(entry.forme || '').toLowerCase().startsWith('mega'),
         is_gmax: String(entry.forme || '').toLowerCase() === 'gmax',
+        is_legendary: Boolean((entry.tags || []).some((tag) => tag === 'Restricted Legendary' || tag === 'Sub-Legendary')),
         prevo_id: entry.prevo ? Dex.toID(entry.prevo) : null,
         evolves_to: evolvesTo,
         mega_evolutions: megaEvolutions

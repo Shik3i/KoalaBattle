@@ -209,13 +209,17 @@ def test_kanto_content_offers_original_and_filled_teams() -> None:
     assert definition.stages[0].trainer_asset_id == "brock-gen1rb"
 
 
-def test_campaigns_start_at_level_ten() -> None:
+def test_campaigns_scale_from_level_five_to_level_one_hundred() -> None:
     summaries = _definition_summaries()
 
     assert summaries
     for summary in summaries:
         definition = _definition(summary.id)
-        assert definition.stages[0].level == 10, summary.id
+        assert definition.stages[0].level == 5, summary.id
+        assert definition.stages[-1].level == 100, summary.id
+        assert [stage.level for stage in definition.stages] == sorted(
+            stage.level for stage in definition.stages
+        )
 
 
 def test_original_sets_preserve_moves_and_filled_sets_are_competitive() -> None:
@@ -269,17 +273,17 @@ def test_kanto_opponent_sets_are_regression_locked() -> None:
     payload = json.dumps(_source_snapshot(), sort_keys=True, separators=(",", ":")).encode()
 
     assert hashlib.sha256(payload).hexdigest() == (
-        "16f035209998dddbc784e39bf08d10f0c5e346142361a06c5a7f988cb55bf295"
+        "6a5766011e325cd5d38048f032fba61eeb4479f9e816ed1654d786d66f5f9272"
     )
 
 
-def test_challenge_format_only_relaxes_misc_obtainability() -> None:
+def test_challenge_formats_relax_obtainability_for_the_exact_level_curve() -> None:
     format_config = (
         Path(__file__).resolve().parents[3] / "showdown/config/custom-formats.js"
     ).read_text()
 
-    assert "'!Obtainable Misc'" in format_config
-    assert "'!Obtainable Moves'" not in format_config
+    assert format_config.count("'!Obtainable'") == 2
+    assert "KoalaBattle Canonical NatDex Draft Doubles" in format_config
     assert "'!Obtainable Abilities'" not in format_config
     assert "'!Obtainable Formes'" not in format_config
 

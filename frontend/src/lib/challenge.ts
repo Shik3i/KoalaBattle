@@ -43,7 +43,8 @@ export function standardChallengeDefinition(
 export function standardChallengePayload(
   seed: number,
   name = 'Draft Gauntlet',
-  definitionId = 'all-generations-gauntlet'
+  definitionId = 'all-generations-gauntlet',
+  battleMode: 'singles' | 'doubles' = 'singles'
 ) {
   return {
     name,
@@ -70,6 +71,7 @@ export function standardChallengePayload(
     battle_experience: STANDARD_CHALLENGE_SETTINGS.battleExperience,
     difficulty: STANDARD_CHALLENGE_SETTINGS.difficulty,
     opponent_team_mode: STANDARD_CHALLENGE_SETTINGS.opponentTeamMode,
+    battle_mode: battleMode,
     draft_rules: {
       roster_size: 6,
       rerolls: STANDARD_CHALLENGE_SETTINGS.pokemonRerolls,

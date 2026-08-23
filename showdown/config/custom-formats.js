@@ -16,7 +16,22 @@ exports.Formats = [
       '!OHKO Clause',
       '!Evasion Abilities Clause',
       '!Evasion Moves Clause',
-      '!Obtainable Misc'
+      '!Obtainable'
+    ]
+  },
+  {
+    name: '[Gen 9] KoalaBattle Canonical NatDex Draft Doubles',
+    desc: 'Doubles variant of the canonical NatDex Draft campaign format.',
+    mod: 'gen9',
+    gameType: 'doubles',
+    searchShow: false,
+    tournamentShow: false,
+    ruleset: [
+      '[Gen 9] NatDex Draft',
+      '!OHKO Clause',
+      '!Evasion Abilities Clause',
+      '!Evasion Moves Clause',
+      '!Obtainable'
     ]
   }
 ];

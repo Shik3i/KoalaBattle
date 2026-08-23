@@ -7,6 +7,7 @@ import pytest
 from koalabattle.challenges.models import ChallengeDifficulty, opponent_stage_level
 from koalabattle.challenges.service import (
     _definition,
+    _even_duo_opponent_team,
     _opponent_stage_team,
     _prepare_opponent_stage_team,
     _validated_opponent_stage_team,
@@ -126,6 +127,47 @@ async def test_every_regional_campaign_team_is_legal_after_dex_enrichment() -> N
                 )
                 if not result.valid:
                     failures[f"{definition_id}/{stage.id}/{mode}"] = result.errors
+
+    assert failures == {}
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_every_quick_draft_duo_stage_has_an_even_legal_opponent_team() -> None:
+    _skip_unless_showdown()
+    validator = _validator()
+    catalog = ShowdownSpeciesCatalog(
+        os.getenv("KOALABATTLE_TEAM_VALIDATOR_URL", "http://127.0.0.1:8002")
+    )
+    failures: dict[str, tuple[str, ...]] = {}
+    for definition_id in (
+        "kanto-gym-gauntlet",
+        "johto-gym-gauntlet",
+        "hoenn-gym-gauntlet",
+        "sinnoh-gym-gauntlet",
+        "unova-gym-gauntlet",
+        "kalos-gym-gauntlet",
+        "alola-trial-gauntlet",
+        "galar-gym-gauntlet",
+        "paldea-gym-gauntlet",
+    ):
+        definition = _definition(definition_id)
+        species_by_id = {
+            showdown_id(entry.id): entry for entry in await catalog.entries(definition.format)
+        }
+        for stage in definition.stages:
+            team = _prepare_opponent_stage_team(stage.opponent_team, species_by_id)
+            team = _even_duo_opponent_team(
+                team, stage, definition.generation, species_by_id
+            )
+            blocks = [item for item in team.split("\n\n") if item.strip()]
+            assert len(blocks) % 2 == 0, f"{definition_id}/{stage.id} stayed odd"
+            result = await validator.validate(
+                _with_unique_duplicate_nicknames(_with_level(team, stage.level)),
+                "gen9koalabattlecanonicalnatdexdraftdoubles",
+            )
+            if not result.valid:
+                failures[f"{definition_id}/{stage.id}"] = result.errors
 
     assert failures == {}
 

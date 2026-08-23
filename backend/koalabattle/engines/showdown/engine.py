@@ -10,9 +10,9 @@ from typing import Any
 from uuid import uuid4
 
 from poke_env import AccountConfiguration, ServerConfiguration
-from poke_env.battle import AbstractBattle, Pokemon
+from poke_env.battle import AbstractBattle, DoubleBattle, Pokemon
 from poke_env.player import BattleOrder, Player
-from poke_env.player.battle_order import ForfeitBattleOrder
+from poke_env.player.battle_order import DoubleBattleOrder, ForfeitBattleOrder
 
 from koalabattle.agents import AgentForfeitError
 from koalabattle.agents.base import Agent
@@ -239,6 +239,62 @@ class _KoalaPlayer(Player):
                 ),
             )
             return ForfeitBattleOrder()
+        if isinstance(battle, DoubleBattle):
+            orders = DoubleBattleOrder.join_orders(*battle.valid_orders)
+            if not self.context.config.allow_terastallization:
+                orders = [
+                    order
+                    for order in orders
+                    if not order.first_order.terastallize
+                    and not order.second_order.terastallize
+                ]
+            if not orders:
+                return self.choose_default_move()
+            def doubles_power(order: DoubleBattleOrder) -> int:
+                total = 0
+                for choice in (order.first_order, order.second_order):
+                    try:
+                        power = getattr(choice.order, "base_power", 0)
+                    except (KeyError, TypeError, ValueError):
+                        power = 0
+                    total += int(power) if isinstance(power, int | float) else 0
+                return total
+
+            selected_order = max(orders, key=doubles_power)
+            self.decision_sequence += 1
+            self.submission_guard.register_submission(selected_order.message)
+            state = battle_state(
+                battle,
+                match_id=self.context.match_id,
+                side=self.side,
+                display_names=self._display_names,
+            )
+            await _bridge(
+                self.app_loop,
+                self.context.sink.emit(
+                    "state_snapshot", battle.turn, {"state": state.model_dump(mode="json")}
+                ),
+            )
+            await _bridge(
+                self.app_loop,
+                self.context.sink.emit(
+                    "agent_decision",
+                    battle.turn,
+                    {
+                        "side": self.side.value,
+                        "action": selected_order.message,
+                        "action_name": "Doubles turn",
+                        "commentary": "",
+                        "banter": "",
+                        "public_text": "",
+                        "provider": "local",
+                        "model": "tactical-auto-doubles",
+                        "latency_ms": 0,
+                        "fallback": False,
+                    },
+                ),
+            )
+            return selected_order
         actions = legal_actions(battle)
         if not self.context.config.allow_terastallization:
             actions = tuple(action for action in actions if not action.terastallize)

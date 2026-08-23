@@ -172,11 +172,20 @@ def test_quick_start_waits_for_routes_but_not_the_full_run_history() -> None:
 
     assert "void loadHistory();" in page
     assert "void loadDefinitions();" in page
-    assert "disabled={quickStarting || routesLoading}" in page
-    assert "disabled={quickStarting || historyLoading}" not in page
+    assert "disabled={Boolean(quickStarting) || routesLoading}" in page
+    assert "disabled={Boolean(quickStarting) || historyLoading}" not in page
     assert "definitions.length ? definitions : await loadDefinitions()" in page
     assert "routesError = caught instanceof Error" in page
     assert "historyError = caught instanceof Error" in page
+    assert "Quick Draft Duo" in page
+    assert "quickStart('doubles')" in page
+
+
+def test_quick_draft_promises_automatic_matchup_selection() -> None:
+    page = CHALLENGE_LIST_PAGE.read_text(encoding="utf-8")
+
+    assert "Same team size · Auto matchup selection" in page
+    assert "Even teams · Auto synergy selection" in page
 
 
 def test_battle_heading_prioritizes_the_opponent_and_title() -> None:

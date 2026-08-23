@@ -46,6 +46,7 @@ class SpeciesMetadata(BaseModel):
     unavailable: bool = False
     is_mega: bool = False
     is_gmax: bool = False
+    is_legendary: bool = False
     prevo_id: str | None = None
     evolves_to: tuple[EvolutionTrigger, ...] = ()
     mega_evolutions: tuple[MegaEvolutionOption, ...] = ()
