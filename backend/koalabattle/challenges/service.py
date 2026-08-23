@@ -1114,15 +1114,15 @@ def _mega_options(
     return tuple(sorted(options, key=lambda option: (option.entry_id, option.mega_species_id)))
 
 
-def _automatic_mega_selection(
+def _automatic_mega_selections(
     run: ChallengeRun,
     team_export: str,
     opponent_export: str,
     species_by_id: dict[str, SpeciesMetadata],
-) -> ChallengeMegaSelection | None:
-    """Choose this stage's Mega by matchup, team synergy, BST, then Draft order."""
+) -> tuple[ChallengeMegaSelection, ...]:
+    """Rank this stage's Megas by matchup, team synergy, BST, then Draft order."""
     if run.current_stage_index < MEGA_UNLOCK_STAGE_INDEX:
-        return None
+        return ()
     available = _team_species_ids(team_export)
     options = [
         option
@@ -1130,7 +1130,7 @@ def _automatic_mega_selection(
         if showdown_id(option.from_species) in available
     ]
     if not options:
-        return None
+        return ()
     opponent_types = tuple(
         _block_types(block, species_by_id) for block in _team_blocks(opponent_export)
     )
@@ -1154,7 +1154,20 @@ def _automatic_mega_selection(
             -draft_order.get(option.entry_id, len(run.picks)),
         )
 
-    return ChallengeMegaSelection(**max(options, key=score).model_dump())
+    return tuple(
+        ChallengeMegaSelection(**option.model_dump())
+        for option in sorted(options, key=score, reverse=True)
+    )
+
+
+def _automatic_mega_selection(
+    run: ChallengeRun,
+    team_export: str,
+    opponent_export: str,
+    species_by_id: dict[str, SpeciesMetadata],
+) -> ChallengeMegaSelection | None:
+    selections = _automatic_mega_selections(run, team_export, opponent_export, species_by_id)
+    return selections[0] if selections else None
 
 
 def _with_selected_item(
@@ -1180,6 +1193,33 @@ def _with_selected_item(
     if not matched:
         raise ValueError(f"Mega selection species is missing from the derived team: {species}")
     return "\n\n".join(rewritten)
+
+
+async def _validated_player_stage_team(
+    team_export: str,
+    opponent_export: str,
+    run: ChallengeRun,
+    species_by_id: dict[str, SpeciesMetadata],
+    minimum_levels: Mapping[str, int],
+    level: int,
+    format_id: str,
+    validator: TeamValidator,
+) -> tuple[str, TeamValidationResult, ChallengeMegaSelection | None]:
+    """Use the strongest legal Mega, or preserve a legal team without one."""
+    for selection in _automatic_mega_selections(run, team_export, opponent_export, species_by_id):
+        candidate = _with_selected_item(
+            team_export, selection.from_species, selection.required_item
+        )
+        validation = await validator.validate(
+            _with_level(candidate, level, minimum_levels), format_id
+        )
+        if validation.valid:
+            return candidate, validation, selection
+
+    validation = await validator.validate(
+        _with_level(team_export, level, minimum_levels), format_id
+    )
+    return team_export, validation, None
 
 
 def _team_species_ids(team_export: str) -> set[str]:
@@ -2616,17 +2656,15 @@ class ChallengeService:
             minimum_levels = {
                 showdown_id(species.id): species.minimum_level for species in species_by_id.values()
             }
-            mega_selection = _automatic_mega_selection(
-                run, available, opponent_team, species_by_id
-            )
-            if mega_selection is not None:
-                available = _with_selected_item(
-                    available,
-                    mega_selection.from_species,
-                    mega_selection.required_item,
-                )
-            player_validation = await self.battles.team_validator.validate(
-                _with_level(available, player_level, minimum_levels), battle_format
+            _, player_validation, _ = await _validated_player_stage_team(
+                available,
+                opponent_team,
+                run,
+                species_by_id,
+                minimum_levels,
+                player_level,
+                battle_format,
+                self.battles.team_validator,
             )
             opponent_team, opponent_validation = await _validated_opponent_stage_team(
                 opponent_team,

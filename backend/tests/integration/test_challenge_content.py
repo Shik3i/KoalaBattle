@@ -86,6 +86,25 @@ async def test_agatha_mega_selection_skips_hypnosis_gengar() -> None:
 
 @pytest.mark.integration
 @pytest.mark.asyncio
+async def test_showdown_rejects_hypnosis_gengarite_but_accepts_hypnosis_gengar() -> None:
+    _skip_unless_showdown()
+    validator = _validator()
+    moves = "Ability: Cursed Body\n- Hypnosis\n- Shadow Ball\n- Sludge Bomb\n- Protect"
+
+    mega = await validator.validate(
+        f"Gengar @ Gengarite\n{moves}", "gen9koalabattlecanonicalnatdexdraft"
+    )
+    regular = await validator.validate(
+        f"Gengar @ Leftovers\n{moves}", "gen9koalabattlecanonicalnatdexdraft"
+    )
+
+    assert not mega.valid
+    assert any("Hypnosis + Gengarite" in error for error in mega.errors)
+    assert regular.valid, regular.errors
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
 async def test_every_regional_campaign_team_is_legal_after_dex_enrichment() -> None:
     """Canonical regional rosters must remain validator-legal in every shipped route."""
     _skip_unless_showdown()

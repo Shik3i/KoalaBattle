@@ -36,6 +36,7 @@ from koalabattle.challenges.service import (
     _opponent_mega_choices,
     _resolve_evolution_path,
     _validated_opponent_stage_team,
+    _validated_player_stage_team,
     _with_evolutions,
     _with_selected_item,
 )
@@ -357,6 +358,121 @@ def test_selected_mega_stone_replaces_only_the_exact_species_item() -> None:
     assert "Blastoise @ Leftovers" in rewritten
 
 
+class _SleepClauseValidator:
+    def __init__(self) -> None:
+        self.checked: list[str] = []
+
+    async def validate(self, team_text: str, format_id: str) -> TeamValidationResult:
+        self.checked.append(team_text)
+        invalid = "Gengarite" in team_text and "- Hypnosis" in team_text
+        return TeamValidationResult(
+            format=format_id,
+            valid=not invalid,
+            errors=(
+                (
+                    "Gengar (Gengar) has the combination of Hypnosis + Gengarite, "
+                    "which is banned by Sleep Clause Mod."
+                ),
+            )
+            if invalid
+            else (),
+            normalized_export=team_text if not invalid else None,
+            packed_team="packed" if not invalid else None,
+        )
+
+
+def _gengar_mega_fixture(*, with_backup: bool) -> tuple[_FakeRun, dict[str, SpeciesMetadata]]:
+    gengar_pick = _pick("gengar-entry", "Gengar", "gengar", ("gengar",))
+    picks = [gengar_pick]
+    gengar = _species("gengar", "Gengar").model_copy(
+        update={
+            "mega_evolutions": (
+                MegaEvolutionOption(
+                    id="gengarmega", species="Gengar-Mega", required_item="Gengarite"
+                ),
+            )
+        }
+    )
+    species_by_id = {
+        "gengar": gengar,
+        "gengarmega": _species("gengarmega", "Gengar-Mega").model_copy(
+            update={"is_mega": True, "required_item": "Gengarite", "base_stat_total": 600}
+        ),
+        "normalmon": _species("normalmon", "Normalmon"),
+    }
+    if with_backup:
+        picks.append(_pick("beta-entry", "Beta", "beta", ("beta",)))
+        species_by_id.update(
+            {
+                "beta": _species("beta", "Beta").model_copy(
+                    update={
+                        "mega_evolutions": (
+                            MegaEvolutionOption(
+                                id="betamega",
+                                species="Beta-Mega",
+                                required_item="Beta Stone",
+                            ),
+                        )
+                    }
+                ),
+                "betamega": _species("betamega", "Beta-Mega").model_copy(
+                    update={
+                        "is_mega": True,
+                        "required_item": "Beta Stone",
+                        "base_stat_total": 500,
+                    }
+                ),
+            }
+        )
+    return _FakeRun(tuple(picks), current_stage_index=8), species_by_id
+
+
+@pytest.mark.asyncio
+async def test_player_hypnosis_gengar_falls_back_to_no_mega_when_it_is_the_only_option() -> None:
+    run, species_by_id = _gengar_mega_fixture(with_backup=False)
+    validator = _SleepClauseValidator()
+
+    selected_team, validation, selection = await _validated_player_stage_team(
+        "Gengar\n- Hypnosis\n- Shadow Ball",
+        "Normalmon\n- Tackle",
+        cast(ChallengeRun, run),
+        species_by_id,
+        {},
+        100,
+        "gen9natdexdraft",
+        validator,
+    )
+
+    assert validation.valid
+    assert selection is None
+    assert "Gengarite" not in selected_team
+    assert "Gengarite" in validator.checked[0]
+    assert "Gengarite" not in validator.checked[1]
+
+
+@pytest.mark.asyncio
+async def test_player_hypnosis_gengar_uses_the_next_ranked_legal_mega() -> None:
+    run, species_by_id = _gengar_mega_fixture(with_backup=True)
+    validator = _SleepClauseValidator()
+
+    selected_team, validation, selection = await _validated_player_stage_team(
+        "Gengar\n- Hypnosis\n- Shadow Ball\n\nBeta\n- Tackle",
+        "Normalmon\n- Tackle",
+        cast(ChallengeRun, run),
+        species_by_id,
+        {},
+        100,
+        "gen9natdexdraft",
+        validator,
+    )
+
+    assert validation.valid
+    assert selection is not None
+    assert selection.mega_species_id == "betamega"
+    assert "Beta @ Beta Stone" in selected_team
+    assert "Gengarite" in validator.checked[0]
+
+
 @pytest.mark.asyncio
 async def test_opponent_mega_skips_an_illegal_duplicate_and_uses_the_next_set() -> None:
     gengar = _species("gengar", "Gengar").model_copy(
@@ -634,6 +750,113 @@ def _branching_run() -> ChallengeRun:
         if any(option.entry_id == "brancher" for option in offered.current_offer.options):
             return offered
     raise AssertionError("branching fixture could not produce the expected offer")
+
+
+def _real_branching_line(species_id: str) -> dict[str, SpeciesMetadata]:
+    lines = {
+        "poliwag": (
+            ("poliwag", "Poliwag", "poliwhirl"),
+            ("poliwhirl", "Poliwhirl", "poliwrath", "politoed"),
+            ("poliwrath", "Poliwrath"),
+            ("politoed", "Politoed"),
+        ),
+        "pichu": (
+            ("pichu", "Pichu", "pikachu"),
+            ("pikachu", "Pikachu", "raichu", "raichualola"),
+            ("raichu", "Raichu"),
+            ("raichualola", "Raichu-Alola"),
+        ),
+        "ralts": (
+            ("ralts", "Ralts", "kirlia"),
+            ("kirlia", "Kirlia", "gardevoir", "gallade"),
+            ("gardevoir", "Gardevoir"),
+            ("gallade", "Gallade"),
+        ),
+        "rowlet": (
+            ("rowlet", "Rowlet", "dartrix"),
+            ("dartrix", "Dartrix", "decidueye", "decidueyehisui"),
+            ("decidueye", "Decidueye"),
+            ("decidueyehisui", "Decidueye-Hisui"),
+        ),
+    }
+    entries: dict[str, SpeciesMetadata] = {}
+    for row in lines[species_id]:
+        current_id, name, *children = row
+        entries[current_id] = _species(
+            current_id,
+            name,
+            evolves_to=tuple(
+                EvolutionTrigger(id=child, name=child, trigger_kind="branch") for child in children
+            ),
+        )
+    return entries
+
+
+@pytest.mark.parametrize(
+    ("species_id", "choice", "expected_path"),
+    (
+        ("poliwag", "poliwrath", ("poliwag", "poliwhirl", "poliwrath")),
+        ("poliwag", "politoed", ("poliwag", "poliwhirl", "politoed")),
+        ("pichu", "raichu", ("pichu", "pikachu", "raichu")),
+        ("pichu", "raichualola", ("pichu", "pikachu", "raichualola")),
+        ("ralts", "gardevoir", ("ralts", "kirlia", "gardevoir")),
+        ("ralts", "gallade", ("ralts", "kirlia", "gallade")),
+        ("rowlet", "decidueye", ("rowlet", "dartrix", "decidueye")),
+        ("rowlet", "decidueyehisui", ("rowlet", "dartrix", "decidueyehisui")),
+    ),
+)
+@pytest.mark.asyncio
+async def test_real_branching_draft_picks_accept_every_final_evolution(
+    tmp_path: Path,
+    species_id: str,
+    choice: str,
+    expected_path: tuple[str, ...],
+) -> None:
+    species_by_id = _real_branching_line(species_id)
+    source = species_by_id[species_id]
+    candidate = _branch_candidate().model_copy(
+        update={
+            "entry_id": species_id,
+            "species": source.name,
+            "showdown_id": species_id,
+            "base_species_id": species_id,
+            "evolves_to": source.evolves_to,
+            "evolution_choices": _evolution_branches(species_id, species_by_id),
+        }
+    )
+    run = _branching_run()
+    assert run.current_offer is not None
+    run = run.model_copy(
+        update={
+            "draft_pool": run.draft_pool.model_copy(
+                update={"candidates": (candidate, _decoy_candidate())}
+            ),
+            "current_offer": run.current_offer.model_copy(update={"options": (candidate,)}),
+        }
+    )
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / f'{species_id}-{choice}.db'}")
+    await database.create_schema()
+    repository = ChallengeRepository(database)
+    await repository.create(run)
+    catalog = ShowdownSpeciesCatalog("http://127.0.0.1:9")
+    catalog.set_entries_for_test(tuple(species_by_id.values()), format_id=run.definition.format)
+    service = ChallengeService(repository, catalog, cast(Any, None))
+
+    picked = await service.pick(
+        run.id,
+        candidate.entry_id,
+        run.current_offer.fingerprint,
+        run.revision,
+        evolution_choice=choice,
+    )
+
+    assert {option.id for option in candidate.evolution_choices} == {
+        "poliwag": {"poliwrath", "politoed"},
+        "pichu": {"raichu", "raichualola"},
+        "ralts": {"gardevoir", "gallade"},
+        "rowlet": {"decidueye", "decidueyehisui"},
+    }[species_id]
+    assert picked.picks[0].evolution_path == expected_path
 
 
 @pytest.mark.asyncio
