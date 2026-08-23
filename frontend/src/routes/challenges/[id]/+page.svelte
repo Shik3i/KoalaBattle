@@ -40,6 +40,8 @@
   let copied = false;
   let agentFailed = false;
   let trainingNotice = '';
+  let continuationDefinitionId = '';
+  let continuationError = '';
   let timer: ReturnType<typeof setInterval> | null = null;
   let clock = Date.now();
   let initializedRun = '';
@@ -114,6 +116,9 @@
   /** Current (post-evolution) species/types per pick, keyed by entry id — always prefer this
    *  over `pick.candidate` once the run has left drafting; evolution never changes candidate. */
   $: currentByEntryId = new Map((view?.current_roster || []).map((item) => [item.entry_id, item]));
+  $: if (view?.continuation_options.length && !view.continuation_options.some((item) => item.id === continuationDefinitionId)) {
+    continuationDefinitionId = view.continuation_options[0].id;
+  }
   // An AI draft has to actually draft. Requiring six manual "Ask AI to choose" clicks read
   // as the feature being broken; the AI now takes each offer on its own and only stops when
   // a decision fails, where Retry and Take over remain.
@@ -362,6 +367,22 @@
       technicalError = caught instanceof Error ? caught.message : String(caught);
       error = challengeErrorMessage(technicalError);
     } finally { if (sequence === viewSequence) loading = ''; }
+  }
+
+  async function continueWithSameTeam() {
+    if (!run || !continuationDefinitionId || loading) return;
+    loading = 'continue-same-team';
+    continuationError = '';
+    try {
+      const next = await api<ChallengeRunView>(`/api/challenges/${run.id}/continue`, {
+        method: 'POST',
+        body: JSON.stringify({ definition_id: continuationDefinitionId })
+      });
+      await goto(`/challenges/${next.run.id}`);
+    } catch (caught) {
+      continuationError = challengeErrorMessage(caught instanceof Error ? caught.message : String(caught));
+      loading = '';
+    }
   }
 
   async function pick(entryId: string, evolutionChoice?: string) {
@@ -709,8 +730,8 @@
 {#if run.compatibility_notice}<section class="snapshot-warning panel" role="alert"><i class="ph ph-warning" aria-hidden="true"></i><div><strong>This saved run uses retired Draft Rules</strong><p>{run.compatibility_notice}</p></div></section>{/if}
 
 {#if !['drafting','training','team_review'].includes(run.status)}<section id="campaign" class="campaign panel">
-  <header><div><span class="eyebrow">Campaign route</span><h2>{run.status === 'completed' ? 'Kanto Gauntlet complete' : campaignBattleLabel(run.current_stage_index, view.stages.length, view.current_stage?.name || '')}</h2></div><span class="route-count">{view.statistics.stages_cleared} / {view.stages.length} cleared</span></header>
-  <ol class="route-rail" aria-label="Kanto campaign progression">
+  <header><div><span class="eyebrow">Campaign route</span><h2>{run.status === 'completed' ? `${run.definition.region} Gauntlet complete` : campaignBattleLabel(run.current_stage_index, view.stages.length, view.current_stage?.name || '')}</h2></div><span class="route-count">{view.statistics.stages_cleared} / {view.stages.length} cleared</span></header>
+  <ol class="route-rail" aria-label={`${run.definition.region} campaign progression`}>
     {#each view.stages as stage, index}
       {@const attempts = stageAttempts(stage.id)}
       {#if attempts.length}
@@ -749,7 +770,57 @@
   <section class:success={latestResult.status === 'won'} class:technical={['failed','cancelled','interrupted'].includes(latestResult.status)} class="result-card panel"><div class="result-icon"><i class={`ph ${latestResult.status === 'won' ? 'ph-trophy' : latestResult.status === 'lost' ? 'ph-x-circle' : 'ph-warning'}`} aria-hidden="true"></i></div><div class="result-copy"><span class="eyebrow">Battle result</span><h2>{outcomeTitle(latestResult.status)} — {latestStage?.name}{latestResult.status === 'won' ? ' defeated' : ''}</h2><p>{outcomeDetail(latestResult.status)}</p>{#if view.latest_battle_summary}<div class="battle-summary"><div><strong>Your team used</strong><div>{#each view.latest_battle_summary.player_participants as species}<span><PokemonSprite {species} size="small" decorative />{species}</span>{/each}</div></div><div><strong>Defeated</strong><small>Yours</small><div>{#each view.latest_battle_summary.player_fainted as species}<span class="fainted"><PokemonSprite {species} size="small" decorative />{species}</span>{:else}<em>None</em>{/each}</div><small>{latestStage?.name}</small><div>{#each view.latest_battle_summary.opponent_fainted as species}<span class="fainted opponent"><PokemonSprite {species} size="small" decorative />{species}</span>{:else}<em>None</em>{/each}</div></div></div>{/if}</div><div class="result-actions"><a class="button secondary" href={`/replay/${latestResult.match_id}`}><i class="ph ph-play-circle" aria-hidden="true"></i>Watch replay</a>{#if run.status !== 'completed' && (!autoRunAvailable || run.auto_run_paused || !run.auto_advance_at || latestResult.status !== 'won')}<button class="button" disabled={Boolean(loading)} on:click={run.auto_run_paused ? continueAutoRun : launch}>{latestResult.status === 'won' ? `Continue to ${view.current_stage?.name}` : `Retry ${latestStage?.name}`}</button>{/if}</div></section>
 {/if}
 
-{#if run.status === 'completed'}<section id="summary" class="complete panel"><i class="ph ph-crown" aria-hidden="true"></i><span class="eyebrow">Kanto Gauntlet complete</span><h2>Champion cleared</h2><p>{view.statistics.wins} wins · {view.statistics.total_battles} battles · {view.statistics.total_turns} turns · {formatDuration(view.statistics.duration_seconds)}</p><dl><div><dt>Draft</dt><dd>{run.picks.length} Pokémon · {run.consumed_species_ids.length} species consumed</dd></div><div><dt>Recommended EVs</dt><dd>{view.statistics.ev_used} allocated</dd></div><div><dt>Rerolls</dt><dd>{view.statistics.rerolls_used} used</dd></div><div><dt>Controllers</dt><dd>{run.draft_controller_history.length ? 'AI → Me draft' : `${run.draft_controller.kind} draft`} · {run.battle_controller.agent_type} battle</dd></div><div><dt>Estimated API cost</dt><dd>${view.statistics.estimated_cost.toFixed(4)}</dd></div><div><dt>Average decision</dt><dd>{view.statistics.average_decision_latency_ms == null ? 'Not available' : `${Math.round(view.statistics.average_decision_latency_ms)} ms`}</dd></div></dl><div class="final-roster">{#each run.picks as pick}{@const current = currentByEntryId.get(pick.candidate.entry_id)}<span>{current?.species || pick.candidate.species}{#if current?.evolved}<i class="ph ph-sparkle evolved-mark" aria-hidden="true" title={`Evolved from ${pick.candidate.species}`}></i>{/if}<small>{pick.candidate.abilities.find((ability) => ability.id === run.ability_selections[pick.candidate.entry_id])?.name || 'No ability'}</small></span>{/each}</div><div class="final-actions"><a class="button" href="/challenges/new">Start new Draft run</a><a class="button secondary" href="#run-archive">View all battles</a></div></section>{/if}
+{#if run.status === 'completed'}
+  <section id="summary" class="complete panel">
+    <i class="ph ph-crown" aria-hidden="true"></i>
+    <span class="eyebrow">{run.definition.region} Gauntlet complete</span>
+    <h2>Champion cleared</h2>
+    <p>{view.statistics.wins} wins · {view.statistics.total_battles} battles · {view.statistics.total_turns} turns · {formatDuration(view.statistics.duration_seconds)}</p>
+    <dl>
+      <div><dt>Draft</dt><dd>{run.picks.length} Pokémon · {run.consumed_species_ids.length} species consumed</dd></div>
+      <div><dt>Recommended EVs</dt><dd>{view.statistics.ev_used} allocated</dd></div>
+      <div><dt>Rerolls</dt><dd>{view.statistics.rerolls_used} used</dd></div>
+      <div><dt>Controllers</dt><dd>{run.draft_controller_history.length ? 'AI → Me draft' : `${run.draft_controller.kind} draft`} · {run.battle_controller.agent_type} battle</dd></div>
+      <div><dt>Estimated API cost</dt><dd>${view.statistics.estimated_cost.toFixed(4)}</dd></div>
+      <div><dt>Average decision</dt><dd>{view.statistics.average_decision_latency_ms == null ? 'Not available' : `${Math.round(view.statistics.average_decision_latency_ms)} ms`}</dd></div>
+    </dl>
+    <div class="final-roster">{#each run.picks as pick}{@const current = currentByEntryId.get(pick.candidate.entry_id)}<span>{current?.species || pick.candidate.species}{#if current?.evolved}<i class="ph ph-sparkle evolved-mark" aria-hidden="true" title={`Evolved from ${pick.candidate.species}`}></i>{/if}<small>{pick.candidate.abilities.find((ability) => ability.id === run.ability_selections[pick.candidate.entry_id])?.name || 'No ability'}</small></span>{/each}</div>
+    <div class="final-actions"><a class="button" href="/challenges/new">Start new Draft run</a><a class="button secondary" href="#run-archive">View all battles</a></div>
+  </section>
+  <section class="team-performance panel" aria-labelledby="team-performance-title">
+    <header><div><span class="eyebrow">Run performance</span><h2 id="team-performance-title">Your team, battle by battle</h2></div><small>Derived from every saved replay · HP-equivalent damage</small></header>
+    {#if view.pokemon_statistics.length}
+      <div class="pokemon-stat-grid">
+        {#each view.pokemon_statistics as pokemon}
+          <article class="pokemon-stat-card">
+            <header><PokemonSprite species={pokemon.species} size="small" decorative /><div><strong>{pokemon.species}</strong>{#if pokemon.drafted_species !== pokemon.species}<small>Drafted as {pokemon.drafted_species}</small>{/if}<TypeBadges types={pokemon.types} /></div></header>
+            <dl>
+              <div><dt>Battles</dt><dd>{pokemon.battles}</dd></div>
+              <div><dt>Switch-ins</dt><dd>{pokemon.switch_ins}</dd></div>
+              <div><dt>Turns active</dt><dd>{pokemon.turns_active}</dd></div>
+              <div><dt>Moves used</dt><dd>{pokemon.moves_used}</dd></div>
+              <div><dt>Damage dealt</dt><dd>{pokemon.damage_dealt}</dd></div>
+              <div><dt>Damage taken</dt><dd>{pokemon.damage_taken}</dd></div>
+              <div><dt>Knockouts</dt><dd>{pokemon.knockouts}</dd></div>
+              <div><dt>Fainted</dt><dd>{pokemon.fainted}</dd></div>
+              <div><dt>Healing</dt><dd>{pokemon.healing}</dd></div>
+              <div><dt>Crits</dt><dd>{pokemon.critical_hits}</dd></div>
+              <div><dt>Status inflicted</dt><dd>{pokemon.statuses_inflicted}</dd></div>
+            </dl>
+            {#if pokemon.base_stats}<small class="base-stat-line">Base stats · HP {pokemon.base_stats.hp} · Atk {pokemon.base_stats.atk} · Def {pokemon.base_stats.defense} · SpA {pokemon.base_stats.spa} · SpD {pokemon.base_stats.spd} · Spe {pokemon.base_stats.spe}</small>{/if}
+          </article>
+        {/each}
+      </div>
+    {:else}<p class="empty-stats">Replay statistics are still being indexed. Refresh this run in a moment.</p>{/if}
+  </section>
+  {#if view.continuation_options.length}
+    <section class="same-team panel" aria-labelledby="same-team-title">
+      <div><span class="eyebrow">Keep the roster</span><h2 id="same-team-title">Continue with this team</h2><p>Take the finalized, evolved team into another regional route or the full Gen I–IX campaign. No new draft and no revalidation.</p></div>
+      <div class="same-team-controls"><label for="continuation-definition">Next campaign<select id="continuation-definition" bind:value={continuationDefinitionId}>{#each view.continuation_options as option}<option value={option.id}>{option.name} · {option.stage_count_label || `${option.stage_count} stages`}</option>{/each}</select></label><button class="button" disabled={Boolean(loading) || !continuationDefinitionId} on:click={continueWithSameTeam}>{loading === 'continue-same-team' ? 'Creating…' : 'Continue with same team'}<i class="ph ph-arrow-right" aria-hidden="true"></i></button></div>
+      {#if continuationError}<p class="error" role="alert">{continuationError}</p>{/if}
+    </section>
+  {/if}
+{/if}
 
 {#if run.stage_results.length}
   <details id="run-archive" class="battle-history panel">
@@ -1021,4 +1092,7 @@
   .route-rail li.current{border-color:var(--stage-accent);background:color-mix(in srgb,var(--stage-accent) 12%,var(--panel));box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--stage-accent) 30%,transparent)}
   .route-entry[href]:hover,.route-entry[href]:focus-visible{background:color-mix(in srgb,var(--stage-accent) 11%,var(--panel));outline:none}
   .route-entry[href]:focus-visible{box-shadow:inset 0 0 0 2px var(--stage-accent)}
+  .team-performance,.same-team{margin-top:.75rem;padding:1rem 1.1rem}.team-performance>header,.same-team{display:grid;gap:.65rem}.team-performance>header{grid-template-columns:minmax(0,1fr) auto;align-items:end}.team-performance h2,.same-team h2{margin:.2rem 0 0;font-size:1.2rem}.team-performance>header>small{color:var(--muted);font:.58rem var(--mono)}.pokemon-stat-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.6rem;margin-top:.8rem}.pokemon-stat-card{display:grid;gap:.55rem;padding:.75rem;border:1px solid var(--border);border-radius:.7rem;background:var(--panel-strong)}.pokemon-stat-card>header{display:flex;align-items:center;gap:.55rem;min-width:0}.pokemon-stat-card>header>div{display:grid;gap:.15rem;min-width:0}.pokemon-stat-card strong{font-size:.86rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.pokemon-stat-card header small{color:var(--muted);font:.58rem var(--mono)}.pokemon-stat-card dl{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.3rem}.pokemon-stat-card dl div{display:flex;align-items:baseline;justify-content:space-between;gap:.4rem;padding:.26rem .35rem;border-radius:.35rem;background:var(--surface)}.pokemon-stat-card dt{color:var(--muted);font:.57rem var(--mono)}.pokemon-stat-card dd{margin:0;color:var(--text);font:800 .72rem var(--display)}.base-stat-line{color:var(--muted);font:.55rem/1.35 var(--mono)}.empty-stats{margin:.8rem 0 0!important;color:var(--muted);font-size:.72rem}.same-team{grid-template-columns:minmax(0,1fr) minmax(18rem,.9fr);align-items:end;border-color:color-mix(in srgb,var(--accent) 42%,var(--border));background:color-mix(in srgb,var(--accent) 5%,var(--panel))}.same-team p{margin:.3rem 0 0!important;color:var(--muted);font-size:.72rem;line-height:1.45}.same-team-controls{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end;gap:.55rem}.same-team-controls label{display:grid;gap:.25rem;color:var(--muted);font:.58rem var(--mono)}.same-team-controls select{min-height:42px;padding:.45rem .55rem;border:1px solid var(--border);border-radius:.5rem;background:var(--panel-strong);color:var(--text);font:650 .7rem var(--display)}.same-team .error{grid-column:1/-1;margin:0!important}
+  @media(max-width:980px){.pokemon-stat-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.same-team{grid-template-columns:1fr}}
+  @media(max-width:600px){.team-performance>header{align-items:start;grid-template-columns:1fr}.pokemon-stat-grid{grid-template-columns:1fr}.same-team-controls{grid-template-columns:1fr}.same-team-controls .button{width:100%}}
 </style>

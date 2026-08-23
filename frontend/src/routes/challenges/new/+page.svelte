@@ -12,7 +12,7 @@
   let setupError = '';
   let loading = false;
   let error = '';
-  let name = 'Kanto Draft Gauntlet';
+  let name = 'Draft Gauntlet';
   let nameEdited = false;
   let definitionId = 'kanto-gym-gauntlet';
   let seed = Math.floor(Date.now() / 1000);

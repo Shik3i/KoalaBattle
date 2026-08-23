@@ -33,6 +33,7 @@ from koalabattle.challenges import (
     ChallengeService,
 )
 from koalabattle.challenges.models import (
+    ContinueChallengeRun,
     CreateChallengeRun,
     DraftPickInput,
     DraftRerollInput,
@@ -785,6 +786,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return await _challenges(request).get(run_id)
         except KeyError as error:
             raise HTTPException(status_code=404, detail="challenge not found") from error
+
+    @app.post(
+        "/api/challenges/{run_id}/continue",
+        response_model=ChallengeRunView,
+        status_code=status.HTTP_201_CREATED,
+    )
+    async def continue_challenge(
+        run_id: UUID, payload: ContinueChallengeRun, request: Request
+    ) -> ChallengeRunView:
+        try:
+            return await _challenges(request).continue_with_same_team(run_id, payload)
+        except KeyError as error:
+            raise HTTPException(
+                status_code=404, detail="challenge or definition not found"
+            ) from error
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
 
     @app.post("/api/challenges/{run_id}/draft/pick", response_model=ChallengeRunView)
     async def challenge_draft_pick(

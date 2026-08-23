@@ -6,6 +6,9 @@
   Galar and Paldea plus an All Generations route that reuses one persistent draft; the Custom
   route picker now exposes each generation and labels Alola's Grand Trials and Galar's missing
   Elite Four explicitly; source rosters are completed with pinned Showdown Dex details at launch;
+- added replay-derived per-Pokémon completion statistics (participation, turns, moves, HP damage,
+  healing, knockouts, faints, critical hits and statuses), seeded random regional Quick Start
+  naming, and same-team continuation into another region or the full All Generations route;
 - made Quick Start use only base-form and single-stage draft candidates plus the original
   Red/Blue trainer teams; Custom Draft can independently choose the all-forms pool and six-Pokémon
   filled teams. Evolved forms are removed from base-only pools rather than replaced, so the frozen

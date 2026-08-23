@@ -1,4 +1,4 @@
-import type { ChallengeStatus, DraftCandidate, EvSpread, PokemonBaseStats } from './types.ts';
+import type { ChallengeDefinitionSummary, ChallengeStatus, DraftCandidate, EvSpread, PokemonBaseStats } from './types.ts';
 
 export const STANDARD_CHALLENGE_SETTINGS = {
   battleType: 'tactical-auto',
@@ -24,10 +24,25 @@ function standardControllerConfiguration() {
 }
 
 /** The one-click Draft contract. Keep it shared with the detailed setup defaults. */
-export function standardChallengePayload(seed: number, name = 'Kanto Draft Gauntlet') {
+export function standardChallengeDefinition(
+  definitions: ChallengeDefinitionSummary[],
+  seed: number
+): ChallengeDefinitionSummary | null {
+  const regional = definitions
+    .filter((definition) => definition.campaign_kind === 'regional')
+    .sort((left, right) => left.generation - right.generation || left.id.localeCompare(right.id));
+  if (!regional.length) return definitions.find((definition) => definition.campaign_kind === 'multi-generation') || null;
+  return regional[Math.abs(seed) % regional.length];
+}
+
+export function standardChallengePayload(
+  seed: number,
+  name = 'Draft Gauntlet',
+  definitionId = 'all-generations-gauntlet'
+) {
   return {
     name,
-    definition_id: 'kanto-gym-gauntlet' as const,
+    definition_id: definitionId,
     seed,
     draft_controller: {
       kind: 'human' as const,

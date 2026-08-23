@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import type { ChallengeDefinitionSummary } from './types.ts';
 
 import {
   campaignBattleLabel,
@@ -23,6 +24,7 @@ import {
   pokemonTypeColor,
   recommendedEvPresets,
   STANDARD_CHALLENGE_SETTINGS,
+  standardChallengeDefinition,
   standardChallengePayload
 } from './challenge.ts';
 
@@ -39,6 +41,20 @@ test('one-click Draft uses the visible standard settings and complete saved rule
   assert.equal(payload.draft_rules.roster_size, 6);
   assert.equal(payload.draft_rules.draft_pool_mode, 'base-forms-only');
   assert.notEqual(payload.battle_controller.configuration, payload.opponent_controller.configuration);
+});
+
+test('standard route selection is regional and seed-stable instead of always Kanto', () => {
+  const definitions: ChallengeDefinitionSummary[] = [
+    { id: 'all-generations-gauntlet', name: 'All Generations', campaign_kind: 'multi-generation' as const, generation: 1 },
+    { id: 'kanto-gym-gauntlet', name: 'Kanto', campaign_kind: 'regional' as const, generation: 1 },
+    { id: 'johto-gym-gauntlet', name: 'Johto', campaign_kind: 'regional' as const, generation: 2 }
+  ].map((item) => ({ ...item, description: '', region: item.name, stage_count: 1, stage_count_label: '1 stage', specialties: [] }));
+  const first = standardChallengeDefinition(definitions, 1);
+  const second = standardChallengeDefinition(definitions, 2);
+
+  assert.equal(first?.id, 'johto-gym-gauntlet');
+  assert.equal(second?.id, 'kanto-gym-gauntlet');
+  assert.notEqual(first?.id, 'all-generations-gauntlet');
 });
 
 test('empty EV spreads are independent zeroed records', () => {

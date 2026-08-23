@@ -2,7 +2,7 @@
   import { goto } from '$app/navigation';
   import { onMount } from 'svelte';
   import { api } from '$lib/api';
-  import { challengeErrorMessage, challengeStatusLabel, difficultyLabel, standardChallengePayload } from '$lib/challenge';
+  import { challengeErrorMessage, challengeStatusLabel, difficultyLabel, standardChallengeDefinition, standardChallengePayload } from '$lib/challenge';
   import type { ChallengeDefinitionSummary, ChallengeRunSummary, ChallengeRunView } from '$lib/types';
 
   let runs: ChallengeRunSummary[] = [];
@@ -44,9 +44,14 @@
     quickStarting = true;
     quickStartError = '';
     try {
+      const seed = Math.floor(Date.now() / 1000);
+      const selected = standardChallengeDefinition(definitions, seed);
+      if (!selected) throw new Error('No Draft campaign route is available.');
       const view = await api<ChallengeRunView>('/api/challenges', {
         method: 'POST',
-        body: JSON.stringify(standardChallengePayload(Math.floor(Date.now() / 1000)))
+        body: JSON.stringify(
+          standardChallengePayload(seed, `${selected.region} Draft Gauntlet`, selected.id)
+        )
       });
       if (view.run.current_offer) {
         sessionStorage.setItem(`draft-first-roll:${view.run.id}`, view.run.current_offer.fingerprint);
@@ -66,9 +71,9 @@
     <p>Build one roster from disappearing offers, tune automatic recommended EVs, then clear a recorded campaign at fair, equal stage levels.</p>
   </div>
   <div class="challenge-actions">
-    <button class="button quick-start" type="button" disabled={quickStarting} aria-label="Quick Start: Fast Auto, Normal difficulty, Fast Watch, base forms only, original teams" on:click={quickStart}>
-      <i class={`ph ${quickStarting ? 'ph-spinner-gap spinner' : 'ph-lightning'}`} aria-hidden="true"></i>
-      <span><strong>{quickStarting ? 'Starting Draft…' : 'Quick Start'}</strong><small>Fast Auto · Normal · Fast Watch</small><small>Base forms · Original teams</small></span>
+    <button class="button quick-start" type="button" disabled={quickStarting || historyLoading} aria-label="Quick Start: Fast Auto, Normal difficulty, Fast Watch, base forms only, original teams" on:click={quickStart}>
+      <i class={`ph ${quickStarting || historyLoading ? 'ph-spinner-gap spinner' : 'ph-lightning'}`} aria-hidden="true"></i>
+      <span><strong>{quickStarting ? 'Starting Draft…' : historyLoading ? 'Loading routes…' : 'Quick Start'}</strong><small>Fast Auto · Normal · Fast Watch</small><small>Base forms · Original teams</small></span>
     </button>
     <a class="button secondary" href="/challenges/new"><i class="ph ph-sliders-horizontal" aria-hidden="true"></i>Customize</a>
   </div>
@@ -78,9 +83,9 @@
 
 <section class="mode-intro panel" aria-labelledby="challenge-intro-title">
   <div class="intro-copy">
-    <span class="eyebrow">Kanto Gym Gauntlet</span>
-    <h2 id="challenge-intro-title">Your draft. Your team. Thirteen real battles.</h2>
-    <p>Draft six Pokémon from Generation + Type offers, allocate training, finish legal sets, then face the Gym Leaders, Elite Four, and Champion.</p>
+    <span class="eyebrow">Regional Gym Gauntlets</span>
+    <h2 id="challenge-intro-title">Your draft. Your team. A real story route.</h2>
+    <p>Quick Start chooses a regional route for you. Custom Draft lets you choose a region or run every generation with one shared roster.</p>
   </div>
   <div class="intro-facts">
     <span><i class="ph ph-cards-three" aria-hidden="true"></i><strong>Fresh offers</strong><small>Every shown Pokémon leaves the pool after its round.</small></span>
@@ -108,7 +113,7 @@
   {:else if historyError}
     <section class="empty panel" role="alert"><h3>History could not be loaded</h3><p>{historyError}</p><button class="button secondary" on:click={loadHistory}>Retry</button></section>
   {:else if !runs.length}
-    <section class="empty panel"><i class="ph ph-map-trifold" aria-hidden="true"></i><h3>No Draft runs yet</h3><p>Create a Kanto run. Your draft, consumed offers, stage matches, results, and replays will stay here.</p><a class="button" href="/challenges/new">Start the Kanto Gauntlet</a></section>
+    <section class="empty panel"><i class="ph ph-map-trifold" aria-hidden="true"></i><h3>No Draft runs yet</h3><p>Start a regional run. Your draft, consumed offers, stage matches, results, and replays will stay here.</p><a class="button" href="/challenges/new">Start a Draft Gauntlet</a></section>
   {:else}
     <div class="run-list">
       {#each runs as run}

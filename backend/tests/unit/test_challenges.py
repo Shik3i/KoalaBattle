@@ -27,6 +27,7 @@ from koalabattle.challenges.models import (
     ChallengeSource,
     ChallengeStage,
     ChallengeStatus,
+    ContinueChallengeRun,
     CreateChallengeRun,
     DraftCandidate,
     DraftControllerKind,
@@ -60,6 +61,7 @@ from koalabattle.challenges.service import (
     _with_zero_ev_confirmation,
     _without_downed,
     derive_battle_summary,
+    derive_pokemon_statistics,
     redact_challenge_match,
 )
 from koalabattle.challenges.service import (
@@ -728,6 +730,50 @@ class _Battles:
         return match
 
 
+@pytest.mark.asyncio
+async def test_same_team_continuation_reuses_finalized_snapshot_and_resets_route(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'continuation.db'}")
+    await database.create_schema()
+    repository = ChallengeRepository(database)
+    battles = _Battles(())
+    source = _picked_run().model_copy(update={"status": ChallengeStatus.COMPLETED})
+    snapshot = TeamSnapshot(
+        id=uuid4(),
+        name="Fixture roster",
+        format=source.definition.format,
+        source=TeamSource.IMPORTED,
+        submitted_text="Mon 1",
+        normalized_export="Mon 1",
+        packed_team="packed",
+        structured_team=(),
+        created_at=datetime.now(UTC),
+    )
+    battles.teams.snapshots[snapshot.id] = snapshot
+    source = source.model_copy(update={"team_snapshot_id": snapshot.id})
+    await repository.create(source)
+    target = source.definition.model_copy(update={"id": "next-route", "name": "Next Route"})
+    monkeypatch.setattr(
+        "koalabattle.challenges.service._definition",
+        lambda definition_id: target if definition_id == target.id else source.definition,
+    )
+    service = ChallengeService(
+        repository, ShowdownSpeciesCatalog("http://127.0.0.1:9"), cast(Any, battles)
+    )
+
+    continued = await service.continue_with_same_team(
+        source.id, ContinueChallengeRun(definition_id=target.id)
+    )
+
+    assert continued.run.status is ChallengeStatus.READY
+    assert continued.run.team_snapshot_id == snapshot.id
+    assert continued.run.continued_from_run_id == source.id
+    assert continued.run.current_stage_index == 0
+    assert continued.run.stage_results == ()
+    await database.close()
+
+
 def _won_archive(run: ChallengeRun, match_id: UUID, stage_id: str) -> MatchArchive:
     now = datetime.now(UTC)
     return MatchArchive(
@@ -804,6 +850,101 @@ def test_battle_summary_uses_only_participants_and_authoritative_faints() -> Non
     assert summary.opponent_participants == ("Geodude",)
     assert summary.player_fainted == ("Pikachu",)
     assert summary.opponent_fainted == ("Geodude",)
+
+
+def test_pokemon_statistics_aggregate_damage_participation_and_ko_events() -> None:
+    run = _picked_run().model_copy(update={"status": ChallengeStatus.COMPLETED})
+    match_id = uuid4()
+    archive = _won_archive(run, match_id, "stage-one").model_copy(
+        update={
+            "events": (
+                BattleEvent(
+                    match_id=match_id,
+                    sequence=1,
+                    turn=0,
+                    event_type="pokemon_switched",
+                    payload={"actor": "p1a: Mon 1", "details": "Mon 1, L50", "hp": "100/100"},
+                ),
+                BattleEvent(
+                    match_id=match_id,
+                    sequence=2,
+                    turn=0,
+                    event_type="pokemon_switched",
+                    payload={"actor": "p2a: Enemy", "details": "Enemy, L50", "hp": "100/100"},
+                ),
+                BattleEvent(
+                    match_id=match_id,
+                    sequence=3,
+                    turn=1,
+                    event_type="turn_started",
+                    payload={"turn": 1},
+                ),
+                BattleEvent(
+                    match_id=match_id,
+                    sequence=4,
+                    turn=1,
+                    event_type="move_used",
+                    payload={"actor": "p1a: Mon 1", "move": "Tackle", "target": "p2a: Enemy"},
+                ),
+                BattleEvent(
+                    match_id=match_id,
+                    sequence=5,
+                    turn=1,
+                    event_type="damage",
+                    payload={"target": "p2a: Enemy", "hp": "50/100"},
+                ),
+                BattleEvent(
+                    match_id=match_id,
+                    sequence=6,
+                    turn=1,
+                    event_type="critical_hit",
+                    payload={"target": "p2a: Enemy"},
+                ),
+                BattleEvent(
+                    match_id=match_id,
+                    sequence=7,
+                    turn=1,
+                    event_type="status_applied",
+                    payload={"target": "p2a: Enemy", "status": "par", "source_actor": "p1a: Mon 1"},
+                ),
+                BattleEvent(
+                    match_id=match_id,
+                    sequence=8,
+                    turn=1,
+                    event_type="pokemon_fainted",
+                    payload={"target": "p2a: Enemy"},
+                ),
+                BattleEvent(
+                    match_id=match_id,
+                    sequence=9,
+                    turn=2,
+                    event_type="damage",
+                    payload={"target": "p1a: Mon 1", "hp": "75/100"},
+                ),
+                BattleEvent(
+                    match_id=match_id,
+                    sequence=10,
+                    turn=2,
+                    event_type="healing",
+                    payload={"target": "p1a: Mon 1", "hp": "100/100"},
+                ),
+            )
+        }
+    )
+
+    stats = derive_pokemon_statistics(run, (archive,))
+
+    assert stats[0].species == "Mon 1"
+    assert stats[0].battles == 1
+    assert stats[0].switch_ins == 1
+    assert stats[0].turns_active == 1
+    assert stats[0].moves_used == 1
+    assert stats[0].damage_dealt == 50
+    assert stats[0].damage_taken == 25
+    assert stats[0].healing == 25
+    assert stats[0].knockouts == 1
+    assert stats[0].critical_hits == 1
+    assert stats[0].statuses_inflicted == 1
 
 
 def _auto_match_config() -> MatchConfig:

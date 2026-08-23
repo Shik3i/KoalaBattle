@@ -42,12 +42,14 @@ from .models import (
     ChallengeDifficulty,
     ChallengeMegaOption,
     ChallengeMegaSelection,
+    ChallengePokemonStats,
     ChallengeRun,
     ChallengeRunStats,
     ChallengeRunView,
     ChallengeStage,
     ChallengeStageResult,
     ChallengeStatus,
+    ContinueChallengeRun,
     CreateChallengeRun,
     CurrentPickView,
     DraftCandidate,
@@ -119,6 +121,203 @@ def derive_battle_summary(archive: MatchArchive) -> ChallengeBattleSummary:
         opponent_participants=tuple(participants["p2"]),
         player_fainted=tuple(fainted["p1"]),
         opponent_fainted=tuple(fainted["p2"]),
+    )
+
+
+def _hp_value(value: object) -> tuple[int, int | None] | None:
+    """Parse Showdown's public `current/max` or `0 fnt` HP token."""
+    if not isinstance(value, str):
+        return None
+    token = value.split(" ", 1)[0].strip()
+    if "/" not in token:
+        return (int(token), None) if token.isdigit() else None
+    current, maximum = token.split("/", 1)
+    if not current.isdigit() or not maximum.isdigit() or int(maximum) <= 0:
+        return None
+    return int(current), int(maximum)
+
+
+def _event_species(value: object, aliases: dict[tuple[str, str], str]) -> tuple[str, str] | None:
+    parsed = _event_pokemon(value)
+    if parsed is None:
+        return None
+    side, nickname = parsed
+    return side, aliases.get(parsed, nickname)
+
+
+def derive_pokemon_statistics(
+    run: ChallengeRun, archives: tuple[MatchArchive, ...]
+) -> tuple[ChallengePokemonStats, ...]:
+    """Aggregate player contribution metrics from the immutable battle event stream.
+
+    Damage is reported as HP-equivalent points (using the public max HP when Showdown
+    provides it); older archives without that value fall back to a 100-point scale.
+    """
+    picks = run.picks
+    entry_by_species: dict[str, str] = {}
+    values: dict[str, dict[str, int]] = {}
+    for pick in picks:
+        entry_id = pick.candidate.entry_id
+        species = pick.current_species or pick.candidate.species
+        for name in (species, pick.candidate.species):
+            entry_by_species[showdown_id(name)] = entry_id
+        values[entry_id] = {
+            key: 0
+            for key in (
+                "battles",
+                "switch_ins",
+                "turns_active",
+                "moves_used",
+                "damage_dealt",
+                "damage_taken",
+                "healing",
+                "knockouts",
+                "fainted",
+                "critical_hits",
+                "statuses_inflicted",
+            )
+        }
+
+    for archive in archives:
+        aliases: dict[tuple[str, str], str] = {}
+        active: dict[str, tuple[str, str]] = {}
+        hp: dict[tuple[str, str], tuple[int, int | None]] = {}
+        move_sources: dict[tuple[str, str], tuple[str, str]] = {}
+        damage_sources: dict[tuple[str, str], tuple[str, str]] = {}
+        participants: set[str] = set()
+
+        def player_entry(value: object, current_aliases: dict[tuple[str, str], str]) -> str | None:
+            resolved = _event_species(value, current_aliases)
+            if resolved is None or resolved[0] != "p1":
+                return None
+            return entry_by_species.get(showdown_id(resolved[1]))
+
+        def actor_key(value: object) -> tuple[str, str] | None:
+            parsed = _event_pokemon(value)
+            return parsed
+
+        def amount(previous: tuple[int, int | None] | None, current: tuple[int, int | None]) -> int:
+            if previous is None:
+                return 0
+            delta = max(0, previous[0] - current[0])
+            if current[1] or previous[1]:
+                maximum = current[1] or previous[1] or 100
+                return round(delta / maximum * maximum)
+            return delta
+
+        for event in archive.events:
+            payload = event.payload
+            if event.event_type == "pokemon_switched":
+                actor = actor_key(payload.get("actor"))
+                if actor is None:
+                    continue
+                details = payload.get("details")
+                species = (
+                    str(details).split(",", 1)[0].strip()
+                    if isinstance(details, str) and details.strip()
+                    else actor[1]
+                )
+                aliases[actor] = species
+                active[actor[0]] = actor
+                entry_id = player_entry(payload.get("actor"), aliases)
+                if entry_id is not None:
+                    values[entry_id]["switch_ins"] += 1
+                    participants.add(entry_id)
+                parsed_hp = _hp_value(payload.get("hp"))
+                if parsed_hp is not None:
+                    hp[actor] = parsed_hp
+            elif event.event_type == "turn_started":
+                for actor in active.values():
+                    entry_id = player_entry(f"{actor[0]}a: {actor[1]}", aliases)
+                    if entry_id is not None:
+                        values[entry_id]["turns_active"] += 1
+            elif event.event_type == "move_used":
+                actor = actor_key(payload.get("actor"))
+                target = actor_key(payload.get("target"))
+                if actor is not None and target is not None:
+                    move_sources[target] = actor
+                entry_id = player_entry(payload.get("actor"), aliases)
+                if entry_id is not None:
+                    values[entry_id]["moves_used"] += 1
+                    participants.add(entry_id)
+            elif event.event_type in {"damage", "healing"}:
+                target = actor_key(payload.get("target"))
+                current = _hp_value(payload.get("hp"))
+                if target is None or current is None:
+                    continue
+                previous = hp.get(target)
+                if event.event_type == "damage":
+                    points = amount(previous, current)
+                    target_entry = player_entry(payload.get("target"), aliases)
+                    if target_entry is not None:
+                        values[target_entry]["damage_taken"] += points
+                        participants.add(target_entry)
+                    source = (
+                        actor_key(payload.get("source_actor"))
+                        or damage_sources.get(target)
+                        or move_sources.get(target)
+                    )
+                    source_entry = (
+                        player_entry(f"{source[0]}a: {source[1]}", aliases)
+                        if source
+                        else None
+                    )
+                    if source_entry is not None:
+                        values[source_entry]["damage_dealt"] += points
+                        participants.add(source_entry)
+                    if source is not None:
+                        damage_sources[target] = source
+                else:
+                    gained = amount(current, previous) if previous is not None else 0
+                    target_entry = player_entry(payload.get("target"), aliases)
+                    if target_entry is not None:
+                        values[target_entry]["healing"] += gained
+                        participants.add(target_entry)
+                hp[target] = current
+            elif event.event_type == "critical_hit":
+                target = actor_key(payload.get("target"))
+                source = damage_sources.get(target) if target else None
+                source_entry = (
+                    player_entry(f"{source[0]}a: {source[1]}", aliases) if source else None
+                )
+                if source_entry is not None:
+                    values[source_entry]["critical_hits"] += 1
+            elif event.event_type == "status_applied":
+                target = actor_key(payload.get("target"))
+                source = actor_key(payload.get("source_actor")) or (
+                    damage_sources.get(target) if target else None
+                )
+                source_entry = (
+                    player_entry(f"{source[0]}a: {source[1]}", aliases) if source else None
+                )
+                if source_entry is not None:
+                    values[source_entry]["statuses_inflicted"] += 1
+            elif event.event_type == "pokemon_fainted":
+                target = actor_key(payload.get("target"))
+                target_entry = player_entry(payload.get("target"), aliases)
+                if target_entry is not None:
+                    values[target_entry]["fainted"] += 1
+                    participants.add(target_entry)
+                source = damage_sources.get(target) if target else None
+                source_entry = (
+                    player_entry(f"{source[0]}a: {source[1]}", aliases) if source else None
+                )
+                if source_entry is not None:
+                    values[source_entry]["knockouts"] += 1
+
+        for entry_id in participants:
+            values[entry_id]["battles"] += 1
+
+    return tuple(
+        ChallengePokemonStats(
+            entry_id=pick.candidate.entry_id,
+            species=pick.current_species or pick.candidate.species,
+            drafted_species=pick.candidate.species,
+            types=pick.current_types or pick.candidate.types,
+            base_stats=pick.candidate.base_stats,
+            **values[pick.candidate.entry_id],
+        )
+        for pick in picks
     )
 
 
@@ -1117,17 +1316,84 @@ class ChallengeService:
         run = await self.require(run_id)
         run = await self._refresh_active(run)
         summary = None
+        archives: list[MatchArchive] = []
         if run.stage_results and self.battles is not None:
-            archive = await self.battles.repository.get_match(run.stage_results[-1].match_id)
-            if archive is not None and archive.status is MatchStatus.COMPLETED:
-                summary = derive_battle_summary(archive)
-        return self.view(run, latest_battle_summary=summary)
+            for result in run.stage_results:
+                archive = await self.battles.repository.get_match(result.match_id)
+                if archive is not None:
+                    archives.append(archive)
+            if archives and archives[-1].status is MatchStatus.COMPLETED:
+                summary = derive_battle_summary(archives[-1])
+        return self.view(
+            run,
+            latest_battle_summary=summary,
+            pokemon_statistics=derive_pokemon_statistics(run, tuple(archives)),
+        )
+
+    async def continue_with_same_team(
+        self, run_id: UUID, payload: ContinueChallengeRun
+    ) -> ChallengeRunView:
+        """Start another campaign route with the finalized roster snapshot unchanged."""
+        source = await self.require(run_id)
+        if source.status is not ChallengeStatus.COMPLETED:
+            raise ValueError("a same-team continuation is available after a completed run")
+        if source.team_snapshot_id is None:
+            raise ValueError("the completed run has no finalized team snapshot")
+        if not source.picks:
+            raise ValueError("the completed run has no drafted roster to carry forward")
+        definition = _definition(payload.definition_id)
+        if definition.id == source.definition.id:
+            raise ValueError("choose a different campaign route for the same-team continuation")
+        if len(source.picks) != definition.draft_rules.roster_size:
+            raise ValueError("the selected campaign does not support this roster size")
+        now = datetime.now(UTC)
+        seed_material = f"{source.id}:{source.seed}:{definition.id}".encode()
+        seed = int.from_bytes(hashlib.sha256(seed_material).digest()[:8], "big")
+        auto_advance_at = (
+            now + timedelta(seconds=1)
+            if self.auto_run_available(source) and not source.auto_run_paused
+            else None
+        )
+        continuation = ChallengeRun(
+            id=uuid4(),
+            name=payload.name or f"{definition.region} Draft Gauntlet · Same Team",
+            definition=definition,
+            status=ChallengeStatus.READY,
+            seed=seed,
+            draft_rules_version=DRAFT_RULES_VERSION,
+            draft_pool=source.draft_pool,
+            draft_controller=source.draft_controller,
+            draft_controller_history=source.draft_controller_history,
+            battle_controller=source.battle_controller,
+            opponent_controller=source.opponent_controller,
+            battle_experience=source.battle_experience,
+            difficulty=source.difficulty,
+            opponent_team_mode=source.opponent_team_mode,
+            rerolls_remaining=source.rerolls_remaining,
+            type_rerolls_remaining=source.type_rerolls_remaining,
+            generation_rerolls_remaining=source.generation_rerolls_remaining,
+            consumed_species_ids=source.consumed_species_ids,
+            draft_history=source.draft_history,
+            picks=source.picks,
+            ev_allocations=source.ev_allocations,
+            ability_selections=source.ability_selections,
+            team_snapshot_id=source.team_snapshot_id,
+            auto_run_paused=source.auto_run_paused,
+            auto_advance_at=auto_advance_at,
+            created_at=now,
+            updated_at=now,
+            continued_from_run_id=source.id,
+        )
+        await self.repository.create(continuation)
+        self._schedule_auto_run(continuation)
+        return self.view(continuation)
 
     def view(
         self,
         run: ChallengeRun,
         *,
         latest_battle_summary: ChallengeBattleSummary | None = None,
+        pokemon_statistics: tuple[ChallengePokemonStats, ...] = (),
     ) -> ChallengeRunView:
         stages = tuple(_public_stage(stage, run.difficulty) for stage in run.definition.stages)
         current = stages[run.current_stage_index] if run.current_stage_index < len(stages) else None
@@ -1191,6 +1457,10 @@ class ChallengeService:
             stages=stages,
             current_stage=current,
             latest_battle_summary=latest_battle_summary,
+            pokemon_statistics=pokemon_statistics,
+            continuation_options=tuple(
+                item for item in _definition_summaries() if item.id != run.definition.id
+            ),
             team_export_scaffold=(
                 _team_scaffold(run)
                 if run.status

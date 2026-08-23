@@ -25,7 +25,9 @@ Pokémon Showdown. No Pokémon artwork, sprites, audio, or other third-party med
 
 - Run isolated Random, Manual Web Chat, API, or mixed-agent battles.
 - Build durable Single Elimination and Round Robin tournaments with bounded concurrency.
-- Draft a budgeted team, train it once, and take it through a persistent Kanto Gym Gauntlet.
+- Draft a team, train it once, and take it through a persistent regional Gauntlet; Quick Start
+  chooses the route, Custom Draft can select one, or All Generations can reuse one roster across
+  every registered region.
 - Inspect player-scoped decisions and immutable event history without exposing private context
   to spectator or OBS clients.
 - Direct live productions with commentary, free Edge neural speech, captions, music/SFX slots,
@@ -119,7 +121,7 @@ are stored in SQLite.
 
 ## Draft
 
-Open `/challenges` for a one-click base-form Draft against the original Red/Blue teams, or use
+Open `/challenges` for a one-click base-form Draft against a seeded random regional route, or use
 `/challenges/new` to choose any regional story route, the all-generations route, the full-form
 pool and optional six-Pokémon competitive teams. Every
 stage still uses the normal battle engine and replay. The sixth pick automatically
@@ -139,7 +141,8 @@ and per-Pokémon damage and knockouts for both sides.
 Regional packs preserve canonical story rosters for Johto, Hoenn, Sinnoh, Unova, Kalos, Alola,
 Galar and Paldea. Alola's Grand Trials replace Gym Leaders and Galar has no Elite Four in the
 source campaign; the route picker labels those differences explicitly. All Generations reuses the
-same drafted roster across every registered regional route.
+same drafted roster across every registered regional route. A completed run also exposes replay-
+derived per-Pokémon battle statistics and can continue the finalized roster into another route.
 
 Draft Rules V2 provide three Pokémon, one Type, and one Generation reroll. They consume every species
 shown in an offer, whether selected, rejected, or rerolled.

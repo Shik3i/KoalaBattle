@@ -218,6 +218,27 @@ class PokemonBaseStats(FrozenModel):
     spe: int = Field(ge=1, le=255)
 
 
+class ChallengePokemonStats(FrozenModel):
+    """Aggregated, replay-derived contribution stats for one drafted entry."""
+
+    entry_id: str
+    species: str
+    drafted_species: str
+    types: tuple[str, ...] = Field(min_length=1, max_length=2)
+    base_stats: PokemonBaseStats | None = None
+    battles: int = Field(default=0, ge=0)
+    switch_ins: int = Field(default=0, ge=0)
+    turns_active: int = Field(default=0, ge=0)
+    moves_used: int = Field(default=0, ge=0)
+    damage_dealt: int = Field(default=0, ge=0)
+    damage_taken: int = Field(default=0, ge=0)
+    healing: int = Field(default=0, ge=0)
+    knockouts: int = Field(default=0, ge=0)
+    fainted: int = Field(default=0, ge=0)
+    critical_hits: int = Field(default=0, ge=0)
+    statuses_inflicted: int = Field(default=0, ge=0)
+
+
 class PokemonAbility(FrozenModel):
     slot: Literal["0", "1", "H", "S"]
     id: str = Field(pattern=r"^[a-z0-9]+$", max_length=80)
@@ -373,6 +394,11 @@ class ChallengeBattleSummary(FrozenModel):
     opponent_fainted: tuple[str, ...] = ()
 
 
+class ContinueChallengeRun(FrozenModel):
+    definition_id: str = Field(pattern=r"^[a-z0-9-]+$", max_length=80)
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+
+
 class EvolutionEvent(FrozenModel):
     """One pick evolving at one stage transition, for the browser's evolution reveal."""
 
@@ -450,6 +476,7 @@ class ChallengeRun(FrozenModel):
     created_at: datetime
     updated_at: datetime
     completed_at: datetime | None = None
+    continued_from_run_id: UUID | None = None
 
 
 class PublicChallengeStage(FrozenModel):
@@ -502,6 +529,8 @@ class ChallengeRunView(FrozenModel):
     statistics: ChallengeRunStats
     current_stage: PublicChallengeStage | None = None
     latest_battle_summary: ChallengeBattleSummary | None = None
+    pokemon_statistics: tuple[ChallengePokemonStats, ...] = ()
+    continuation_options: tuple[ChallengeDefinitionSummary, ...] = ()
     team_export_scaffold: str | None = None
     can_reroll: bool = False
     can_reroll_type: bool = False
@@ -537,7 +566,7 @@ class ChallengeDefinitionSummary(FrozenModel):
 
 
 class CreateChallengeRun(FrozenModel):
-    name: str = Field(default="Kanto Draft Gauntlet", min_length=1, max_length=120)
+    name: str = Field(default="Draft Gauntlet", min_length=1, max_length=120)
     definition_id: str = Field(default="kanto-gym-gauntlet", pattern=r"^[a-z0-9-]+$", max_length=80)
     seed: int
     draft_controller: DraftControllerSnapshot
