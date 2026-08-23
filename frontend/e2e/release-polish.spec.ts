@@ -16,6 +16,14 @@ function configuration() {
   };
 }
 
+test('home hero rolls through regional Draft routes instead of naming Kanto permanently', async ({ page }) => {
+  await page.goto('/');
+
+  const hero = page.getByRole('heading', { name: /Draft a team\. Climb/ });
+  await expect(hero).toContainText('Kanto');
+  await expect.poll(() => hero.innerText(), { timeout: 7_000 }).toMatch(/Johto|Hoenn|Sinnoh|Unova|Kalos|Alola|Galar|Paldea/);
+});
+
 async function createDraft(request: APIRequestContext, seed = 20260822) {
   const response = await request.post(`${apiBase}/api/challenges`, {
     data: {

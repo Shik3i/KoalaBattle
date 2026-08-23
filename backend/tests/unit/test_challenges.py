@@ -101,6 +101,17 @@ def test_new_challenge_drafts_reject_non_human_controllers() -> None:
         )
 
 
+def test_new_challenge_defaults_to_all_registered_generations() -> None:
+    payload = CreateChallengeRun(
+        seed=1,
+        draft_controller=DraftControllerSnapshot(kind=DraftControllerKind.HUMAN),
+        battle_controller=BattleControllerSnapshot(agent_type=AgentType.TACTICAL_AUTO),
+        opponent_controller=BattleControllerSnapshot(agent_type=AgentType.RANDOM),
+    )
+
+    assert payload.definition_id == "all-generations-gauntlet"
+
+
 def test_new_challenge_opponents_are_always_local_tactical_auto() -> None:
     payload = CreateChallengeRun(
         seed=1,

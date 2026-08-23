@@ -2,7 +2,7 @@
   import { goto } from '$app/navigation';
   import { onMount } from 'svelte';
   import { api } from '$lib/api';
-  import { challengeErrorMessage, STANDARD_CHALLENGE_SETTINGS } from '$lib/challenge';
+  import { challengeErrorMessage, standardChallengeDefinition, STANDARD_CHALLENGE_SETTINGS } from '$lib/challenge';
   import { deepSeekModelLabel, knownProviderModels } from '$lib/provider-models';
   import type { AgentType, ChallengeDefinitionSummary, ChallengeRunView, ProviderKind, ProviderStatus } from '$lib/types';
 
@@ -14,7 +14,7 @@
   let error = '';
   let name = 'Draft Gauntlet';
   let nameEdited = false;
-  let definitionId = 'kanto-gym-gauntlet';
+  let definitionId = '';
   let seed = Math.floor(Date.now() / 1000);
   let choiceCount = STANDARD_CHALLENGE_SETTINGS.choiceCount;
   let draftPoolMode: 'all-forms' | 'base-forms-only' = STANDARD_CHALLENGE_SETTINGS.draftPoolMode;
@@ -41,7 +41,7 @@
   $: if (playerIsInteractive && battleExperience !== 'normal') battleExperience = 'normal';
   $: needsAi = battleType === 'api';
   $: aiReady = !needsAi || readyProviders.length > 0;
-  $: valid = Boolean(name.trim()) && Number.isSafeInteger(Number(seed)) && choiceCount >= 2 && choiceCount <= 8 && aiReady;
+  $: valid = Boolean(name.trim()) && Boolean(definitionId) && Number.isSafeInteger(Number(seed)) && choiceCount >= 2 && choiceCount <= 8 && aiReady;
   $: selectedDefinition = definitions.find((item) => item.id === definitionId) || null;
 
   function selectDefinition(id: string) {
@@ -66,6 +66,12 @@
       const requestedDefinition = new URLSearchParams(window.location.search).get('definition');
       if (requestedDefinition && definitions.some((item) => item.id === requestedDefinition)) {
         selectDefinition(requestedDefinition);
+      } else {
+        const selected = standardChallengeDefinition(definitions, seed);
+        if (selected) {
+          definitionId = selected.id;
+          if (!nameEdited) name = `${selected.region} Draft Gauntlet`;
+        }
       }
       const preferred = providers.find((item) => item.configured && !['fake', 'openai-compatible'].includes(item.id))
         || providers.find((item) => item.configured && item.id === 'fake')

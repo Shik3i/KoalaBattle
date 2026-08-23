@@ -8,7 +8,7 @@ compatible Chromium/WebCodecs path or the documented FFmpeg fallback.
 ## Supported workflows
 
 - Every two-player singles format in the pinned Showdown registry, Generations 1-9
-- Persistent six-Pokémon Draft and Kanto Gym Gauntlet runs with real Showdown-backed species,
+- Persistent six-Pokémon Draft and regional Gauntlet runs with real Showdown-backed species,
   legal recommended sets, fixed-HP overrides, deterministic offers, and normal stored battles
 - Random, Manual Web Chat, OpenAI, Gemini, Anthropic, DeepSeek, and OpenAI-compatible agents
 - Single Elimination and Round Robin tournaments with durable concurrent scheduling

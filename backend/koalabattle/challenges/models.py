@@ -198,7 +198,7 @@ class ChallengeDefinition(FrozenModel):
     name: str = Field(min_length=1, max_length=120)
     description: str = Field(max_length=500)
     format: str = Field(default="gen9natdexdraft", max_length=80)
-    region: str = Field(default="Kanto", min_length=1, max_length=80)
+    region: str = Field(default="All regions", min_length=1, max_length=80)
     generation: int = Field(default=1, ge=1, le=9)
     campaign_kind: Literal["regional", "multi-generation"] = "regional"
     stage_count_label: str | None = Field(default=None, max_length=80)
@@ -567,7 +567,9 @@ class ChallengeDefinitionSummary(FrozenModel):
 
 class CreateChallengeRun(FrozenModel):
     name: str = Field(default="Draft Gauntlet", min_length=1, max_length=120)
-    definition_id: str = Field(default="kanto-gym-gauntlet", pattern=r"^[a-z0-9-]+$", max_length=80)
+    definition_id: str = Field(
+        default="all-generations-gauntlet", pattern=r"^[a-z0-9-]+$", max_length=80
+    )
     seed: int
     draft_controller: DraftControllerSnapshot
     battle_controller: BattleControllerSnapshot
