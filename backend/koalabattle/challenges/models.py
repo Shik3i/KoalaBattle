@@ -140,6 +140,7 @@ class DraftRules(FrozenModel):
     generation_rerolls: int = Field(default=1, ge=0, le=20)
     choice_count: int = Field(default=3, ge=2, le=8)
     species_clause: bool = True
+    draft_pool_mode: Literal["all-forms", "base-forms-only"] = "all-forms"
 
 
 class TrainingRules(FrozenModel):
@@ -180,6 +181,7 @@ class ChallengeStage(FrozenModel):
     # previous stage stay out. The Elite Four is fought in one sitting in the source games.
     full_heal_before: bool = True
     opponent_team: str = Field(min_length=1, max_length=50_000)
+    filled_opponent_team: str | None = Field(default=None, min_length=1, max_length=50_000)
 
 
 class ChallengeSource(FrozenModel):
@@ -191,11 +193,15 @@ class ChallengeSource(FrozenModel):
 
 
 class ChallengeDefinition(FrozenModel):
-    id: str = Field(pattern=r"^[a-z0-9-]+$", max_length=60)
+    id: str = Field(pattern=r"^[a-z0-9-]+$", max_length=80)
     version: str = Field(min_length=1, max_length=30)
     name: str = Field(min_length=1, max_length=120)
     description: str = Field(max_length=500)
     format: str = Field(default="gen9natdexdraft", max_length=80)
+    region: str = Field(default="Kanto", min_length=1, max_length=80)
+    generation: int = Field(default=1, ge=1, le=9)
+    campaign_kind: Literal["regional", "multi-generation"] = "regional"
+    stage_count_label: str | None = Field(default=None, max_length=80)
     mechanics_assumptions: tuple[str, ...] = ()
     source: ChallengeSource | None = None
     draft_rules: DraftRules = Field(default_factory=DraftRules)
@@ -410,6 +416,7 @@ class ChallengeRun(FrozenModel):
     opponent_controller: BattleControllerSnapshot
     battle_experience: Literal["quick-sim", "fast-watch", "normal"] = "quick-sim"
     difficulty: ChallengeDifficulty = ChallengeDifficulty.NORMAL
+    opponent_team_mode: Literal["original", "filled"] = "original"
     rerolls_remaining: int = Field(default=3, ge=0)
     type_rerolls_remaining: int = Field(default=1, ge=0)
     generation_rerolls_remaining: int = Field(default=1, ge=0)
@@ -517,15 +524,28 @@ class ChallengeRunSummary(FrozenModel):
     updated_at: datetime
 
 
+class ChallengeDefinitionSummary(FrozenModel):
+    id: str
+    name: str
+    description: str
+    region: str
+    generation: int
+    campaign_kind: Literal["regional", "multi-generation"]
+    stage_count: int
+    stage_count_label: str | None = None
+    specialties: tuple[str, ...] = ()
+
+
 class CreateChallengeRun(FrozenModel):
     name: str = Field(default="Kanto Draft Gauntlet", min_length=1, max_length=120)
-    definition_id: Literal["kanto-gym-gauntlet"] = "kanto-gym-gauntlet"
+    definition_id: str = Field(default="kanto-gym-gauntlet", pattern=r"^[a-z0-9-]+$", max_length=80)
     seed: int
     draft_controller: DraftControllerSnapshot
     battle_controller: BattleControllerSnapshot
     opponent_controller: BattleControllerSnapshot
     battle_experience: Literal["quick-sim", "fast-watch", "normal"] = "quick-sim"
     difficulty: ChallengeDifficulty = ChallengeDifficulty.NORMAL
+    opponent_team_mode: Literal["original", "filled"] = "original"
     draft_rules: DraftRules | None = None
     training_rules: TrainingRules | None = None
 

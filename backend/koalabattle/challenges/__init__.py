@@ -1,4 +1,5 @@
 from .models import (
+    ChallengeDefinitionSummary,
     ChallengeRun,
     ChallengeRunSummary,
     ChallengeRunView,
@@ -13,6 +14,7 @@ from .service import ChallengeService
 
 __all__ = [
     "ChallengeRepository",
+    "ChallengeDefinitionSummary",
     "ChallengeRun",
     "ChallengeRunSummary",
     "ChallengeRunView",

@@ -50,7 +50,9 @@ from koalabattle.challenges.repository import (
 from koalabattle.challenges.service import (
     AUTO_ADVANCE_DELAYS,
     ChallengeService,
+    _eligible_draft_candidates,
     _knocked_out_entry_ids,
+    _opponent_stage_team,
     _resolve_draft_action,
     _team_scaffold,
     _with_level,
@@ -106,6 +108,36 @@ def test_new_challenge_opponents_are_always_local_tactical_auto() -> None:
     )
 
     assert payload.opponent_controller.agent_type is AgentType.TACTICAL_AUTO
+
+
+def test_base_form_pool_removes_evolved_entries_without_replacing_them() -> None:
+    base = _candidate(1).model_copy(update={"evolution_stage": 0})
+    evolved = _candidate(2).model_copy(update={"evolution_stage": 1})
+    single_stage = _candidate(3).model_copy(update={"evolution_stage": 0, "evolves_to": ()})
+    rules = DraftRules(draft_pool_mode="base-forms-only")
+
+    filtered = _eligible_draft_candidates((base, evolved, single_stage), rules)
+
+    assert filtered == (base, single_stage)
+    assert all(candidate.entry_id != evolved.entry_id for candidate in filtered)
+    assert _eligible_draft_candidates(
+        (base, evolved, single_stage), DraftRules(draft_pool_mode="all-forms")
+    ) == (base, evolved, single_stage)
+
+
+def test_opponent_team_mode_selects_original_or_filled_team() -> None:
+    stage = ChallengeStage(
+        id="brock",
+        name="Brock",
+        title="Gym Leader",
+        theme="Rock",
+        level=50,
+        opponent_team="Geodude\n- Tackle",
+        filled_opponent_team="Onix\n- Rock Slide\n\nGolem\n- Earthquake",
+    )
+
+    assert _opponent_stage_team(stage, "original").startswith("Geodude")
+    assert _opponent_stage_team(stage, "filled").startswith("Onix")
 
 
 def _candidate(

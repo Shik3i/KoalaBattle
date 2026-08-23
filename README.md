@@ -119,22 +119,27 @@ are stored in SQLite.
 
 ## Draft
 
-Open `/challenges/new` to draft a persistent six-Pokémon roster and carry it through thirteen
-six-Pokémon KoalaBattle-authored boss teams themed on the eight Kanto Gym Leaders, the Elite Four, and
-Champion Blue. Every opponent Pokémon has a real ability, nature, held item, EV/IV spread, and
-coverage, and set quality escalates from Brock to Blue. The sixth pick automatically
+Open `/challenges` for a one-click base-form Draft against the original Red/Blue teams, or use
+`/challenges/new` to choose any regional story route, the all-generations route, the full-form
+pool and optional six-Pokémon competitive teams. Every
+stage still uses the normal battle engine and replay. The sixth pick automatically
 applies Pokémon-specific recommended EVs, abilities, a matching nature and item, and legal moves
-picked for coverage, then validates the team. Four difficulty modes apply a level disadvantage to
-your team only — Normal 0, Hard −5, Expert −10, Nightmare −15 — and never change the opponents.
+picked for coverage, then validates the team. Four difficulty modes raise only the opponent —
+Normal +0, Hard +5, Expert +10, Nightmare +15 — without changing the player's campaign curve.
 Tactical Auto needs no provider; Quick Sim continuously resolves the real campaign in-place, while
 Fast Watch opens each battle at accelerated presentation speed and returns to the compact result
 countdown. Pause Auto-Run stops before the next match.
 
-Every trainer fields six Pokémon, so no stage is a free numbers advantage; difficulty comes from
-species strength and set quality. A won stage starts the next one immediately, with a short card
+Quick Start uses each trainer's original roster size and recorded moves. Custom Draft can instead
+use the filled six-Pokémon teams with modern items, spreads, and coverage. A won stage starts the next one immediately, with a short card
 announcing the opponent instead of a countdown. Each stage battle opens on a versus card with the
 opponent's trainer sprite and both levels, and ends on a recap: winner, surviving team, an MVP,
 and per-Pokémon damage and knockouts for both sides.
+
+Regional packs preserve canonical story rosters for Johto, Hoenn, Sinnoh, Unova, Kalos, Alola,
+Galar and Paldea. Alola's Grand Trials replace Gym Leaders and Galar has no Elite Four in the
+source campaign; the route picker labels those differences explicitly. All Generations reuses the
+same drafted roster across every registered regional route.
 
 Draft Rules V2 provide three Pokémon, one Type, and one Generation reroll. They consume every species
 shown in an offer, whether selected, rejected, or rerolled.

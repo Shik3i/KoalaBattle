@@ -14,6 +14,8 @@ ROOT = Path(__file__).resolve().parents[3]
 BATTLE_PAGE = ROOT / "frontend/src/routes/battle/[id]/+page.svelte"
 CHALLENGE_PAGE = ROOT / "frontend/src/routes/challenges/[id]/+page.svelte"
 NEW_RUN_PAGE = ROOT / "frontend/src/routes/challenges/new/+page.svelte"
+CHALLENGE_LIST_PAGE = ROOT / "frontend/src/routes/challenges/+page.svelte"
+CHALLENGE_HELPERS = ROOT / "frontend/src/lib/challenge.ts"
 RENDERER_CARDS = ROOT / "frontend/src/lib/battle-renderer/RendererCards.svelte"
 RENDERER = ROOT / "frontend/src/lib/BattleRenderer.svelte"
 POKEMON_SPRITE = ROOT / "frontend/src/lib/PokemonSprite.svelte"
@@ -149,6 +151,19 @@ def test_new_run_page_offers_every_difficulty_with_its_exact_modifier() -> None:
         assert detail in source, detail
     assert "difficulty," in source
     assert "Opponent species and sets are identical on every difficulty" in source
+
+
+def test_draft_quick_start_uses_the_shared_visible_standard_contract() -> None:
+    page = CHALLENGE_LIST_PAGE.read_text(encoding="utf-8")
+    setup = NEW_RUN_PAGE.read_text(encoding="utf-8")
+    helpers = CHALLENGE_HELPERS.read_text(encoding="utf-8")
+
+    assert "standardChallengePayload" in page
+    assert "Fast Auto · Normal · Fast Watch" in page
+    assert "STANDARD_CHALLENGE_SETTINGS" in setup
+    assert "battleType: 'tactical-auto'" in helpers
+    assert "battleExperience: 'fast-watch'" in helpers
+    assert "difficulty: 'normal'" in helpers
 
 
 def test_a_human_battler_cannot_pick_an_unattended_battle_experience() -> None:

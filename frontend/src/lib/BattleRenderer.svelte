@@ -493,8 +493,7 @@
         {/if}
       {/key}
 
-      <RendererCommentary {presentation} {config} variant="feed" />
-      <RendererCommentary {presentation} {config} sideOrder={[farSide, nearSide]} />
+      <RendererCommentary {presentation} {config} />
     </div>
 
     <RendererCards {presentation} {config} {formatLabel} {campaign} {deterministic} />

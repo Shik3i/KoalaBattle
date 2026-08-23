@@ -1,0 +1,209 @@
+{
+  "id": "sinnoh-gym-gauntlet",
+  "version": "1.0.0",
+  "name": "Sinnoh Gym Gauntlet",
+  "description": "Roark through Champion Cynthia with canonical Sinnoh story teams.",
+  "format": "gen9natdexdraft",
+  "region": "Sinnoh",
+  "generation": 4,
+  "campaign_kind": "regional",
+  "stage_count_label": "13 story stages",
+  "mechanics_assumptions": [
+    "Canonical story-mode species and order are preserved in Original teams mode",
+    "The pinned Gen 9 NatDex Draft validator supplies legal modern move and ability details",
+    "Regional campaign levels are normalized to the shared 25-to-100 progression"
+  ],
+  "source": {
+    "game": "Pokémon Sinnoh story campaign",
+    "generation": 4,
+    "variant": "Canonical Gym/Trial, Elite Four and Champion story rosters",
+    "references": [
+      "https://bulbapedia.bulbagarden.net/wiki/Sinnoh_Gym_Leaders"
+    ],
+    "compatibility_note": "Story rosters are presented in the current NatDex Draft battle format."
+  },
+  "draft_rules": {
+    "roster_size": 6,
+    "rerolls": 3,
+    "type_rerolls": 1,
+    "generation_rerolls": 1,
+    "choice_count": 3,
+    "species_clause": true,
+    "draft_pool_mode": "all-forms"
+  },
+  "training_rules": {
+    "per_pokemon_max": 510,
+    "per_stat_max": 252
+  },
+  "stages": [
+    {
+      "id": "roark",
+      "name": "Roark",
+      "title": "Oreburgh Gym Leader",
+      "theme": "rock",
+      "level": 25,
+      "specialty": "Rock",
+      "visual_accent": "#7bf0a2",
+      "full_heal_before": true,
+      "opponent_team": "Geodude\nLevel: 25\n\nOnix\nLevel: 25\n\nCranidos\nLevel: 25",
+      "filled_opponent_team": "Geodude\nLevel: 25\n\nOnix\nLevel: 25\n\nCranidos\nLevel: 25\n\nGolem\nLevel: 25\n\nRhyperior\nLevel: 25\n\nTyranitar\nLevel: 25",
+      "trainer_asset_id": null
+    },
+    {
+      "id": "gardenia",
+      "name": "Gardenia",
+      "title": "Eterna Gym Leader",
+      "theme": "grass",
+      "level": 31,
+      "specialty": "Grass",
+      "visual_accent": "#7bf0a2",
+      "full_heal_before": true,
+      "opponent_team": "Turtwig\nLevel: 31\n\nCherrim\nLevel: 31\n\nRoserade\nLevel: 31",
+      "filled_opponent_team": "Turtwig\nLevel: 31\n\nCherrim\nLevel: 31\n\nRoserade\nLevel: 31\n\nVenusaur\nLevel: 31\n\nBreloom\nLevel: 31\n\nLilligant\nLevel: 31",
+      "trainer_asset_id": null
+    },
+    {
+      "id": "maylene",
+      "name": "Maylene",
+      "title": "Veilstone Gym Leader",
+      "theme": "fighting",
+      "level": 38,
+      "specialty": "Fighting",
+      "visual_accent": "#7bf0a2",
+      "full_heal_before": true,
+      "opponent_team": "Meditite\nLevel: 38\n\nMachoke\nLevel: 38\n\nLucario\nLevel: 38",
+      "filled_opponent_team": "Meditite\nLevel: 38\n\nMachoke\nLevel: 38\n\nLucario\nLevel: 38\n\nMachamp\nLevel: 38\n\nHariyama\nLevel: 38\n\nMienshao\nLevel: 38",
+      "trainer_asset_id": null
+    },
+    {
+      "id": "wake",
+      "name": "Wake",
+      "title": "Pastoria Gym Leader",
+      "theme": "water",
+      "level": 44,
+      "specialty": "Water",
+      "visual_accent": "#7bf0a2",
+      "full_heal_before": true,
+      "opponent_team": "Gyarados\nLevel: 44\n\nQuagsire\nLevel: 44\n\nFloatzel\nLevel: 44",
+      "filled_opponent_team": "Gyarados\nLevel: 44\n\nQuagsire\nLevel: 44\n\nFloatzel\nLevel: 44\n\nLapras\nLevel: 44\n\nLudicolo\nLevel: 44\n\nMilotic\nLevel: 44",
+      "trainer_asset_id": null
+    },
+    {
+      "id": "fantina",
+      "name": "Fantina",
+      "title": "Hearthome Gym Leader",
+      "theme": "ghost",
+      "level": 50,
+      "specialty": "Ghost",
+      "visual_accent": "#7bf0a2",
+      "full_heal_before": true,
+      "opponent_team": "Duskull\nLevel: 50\n\nHaunter\nLevel: 50\n\nMismagius\nLevel: 50",
+      "filled_opponent_team": "Duskull\nLevel: 50\n\nHaunter\nLevel: 50\n\nMismagius\nLevel: 50\n\nGengar\nLevel: 50\n\nChandelure\nLevel: 50\n\nMimikyu\nLevel: 50",
+      "trainer_asset_id": null
+    },
+    {
+      "id": "byron",
+      "name": "Byron",
+      "title": "Canalave Gym Leader",
+      "theme": "steel",
+      "level": 56,
+      "specialty": "Steel",
+      "visual_accent": "#7bf0a2",
+      "full_heal_before": true,
+      "opponent_team": "Bronzor\nLevel: 56\n\nSteelix\nLevel: 56\n\nBastiodon\nLevel: 56",
+      "filled_opponent_team": "Bronzor\nLevel: 56\n\nSteelix\nLevel: 56\n\nBastiodon\nLevel: 56\n\nMetagross\nLevel: 56\n\nScizor\nLevel: 56\n\nExcadrill\nLevel: 56",
+      "trainer_asset_id": null
+    },
+    {
+      "id": "candice",
+      "name": "Candice",
+      "title": "Snowpoint Gym Leader",
+      "theme": "ice",
+      "level": 62,
+      "specialty": "Ice",
+      "visual_accent": "#7bf0a2",
+      "full_heal_before": true,
+      "opponent_team": "Snover\nLevel: 62\n\nSneasel\nLevel: 62\n\nMedicham\nLevel: 62\n\nAbomasnow\nLevel: 62",
+      "filled_opponent_team": "Snover\nLevel: 62\n\nSneasel\nLevel: 62\n\nMedicham\nLevel: 62\n\nAbomasnow\nLevel: 62\n\nLapras\nLevel: 62\n\nMamoswine\nLevel: 62",
+      "trainer_asset_id": null
+    },
+    {
+      "id": "volkner",
+      "name": "Volkner",
+      "title": "Sunyshore Gym Leader",
+      "theme": "electric",
+      "level": 69,
+      "specialty": "Electric",
+      "visual_accent": "#7bf0a2",
+      "full_heal_before": true,
+      "opponent_team": "Raichu\nLevel: 69\n\nAmbipom\nLevel: 69\n\nOctillery\nLevel: 69\n\nLuxray\nLevel: 69",
+      "filled_opponent_team": "Raichu\nLevel: 69\n\nAmbipom\nLevel: 69\n\nOctillery\nLevel: 69\n\nLuxray\nLevel: 69\n\nJolteon\nLevel: 69\n\nElectivire\nLevel: 69",
+      "trainer_asset_id": null
+    },
+    {
+      "id": "aaron",
+      "name": "Aaron",
+      "title": "Elite Four",
+      "theme": "bug",
+      "level": 75,
+      "specialty": "Bug",
+      "visual_accent": "#7bf0a2",
+      "full_heal_before": true,
+      "opponent_team": "Dustox\nLevel: 75\n\nBeautifly\nLevel: 75\n\nVespiquen\nLevel: 75\n\nHeracross\nLevel: 75\n\nDrapion\nLevel: 75",
+      "filled_opponent_team": "Dustox\nLevel: 75\n\nBeautifly\nLevel: 75\n\nVespiquen\nLevel: 75\n\nHeracross\nLevel: 75\n\nDrapion\nLevel: 75\n\nScizor\nLevel: 75",
+      "trainer_asset_id": null
+    },
+    {
+      "id": "bertha",
+      "name": "Bertha",
+      "title": "Elite Four",
+      "theme": "ground",
+      "level": 81,
+      "specialty": "Ground",
+      "visual_accent": "#7bf0a2",
+      "full_heal_before": false,
+      "opponent_team": "Quagsire\nLevel: 81\n\nHippowdon\nLevel: 81\n\nGolem\nLevel: 81\n\nWhiscash\nLevel: 81\n\nRhyperior\nLevel: 81",
+      "filled_opponent_team": "Quagsire\nLevel: 81\n\nHippowdon\nLevel: 81\n\nGolem\nLevel: 81\n\nWhiscash\nLevel: 81\n\nRhyperior\nLevel: 81\n\nFlygon\nLevel: 81",
+      "trainer_asset_id": null
+    },
+    {
+      "id": "flint",
+      "name": "Flint",
+      "title": "Elite Four",
+      "theme": "fire",
+      "level": 88,
+      "specialty": "Fire",
+      "visual_accent": "#7bf0a2",
+      "full_heal_before": false,
+      "opponent_team": "Rapidash\nLevel: 88\n\nSteelix\nLevel: 88\n\nDrifblim\nLevel: 88\n\nLopunny\nLevel: 88\n\nInfernape\nLevel: 88",
+      "filled_opponent_team": "Rapidash\nLevel: 88\n\nSteelix\nLevel: 88\n\nDrifblim\nLevel: 88\n\nLopunny\nLevel: 88\n\nInfernape\nLevel: 88\n\nArcanine\nLevel: 88",
+      "trainer_asset_id": null
+    },
+    {
+      "id": "lucian",
+      "name": "Lucian",
+      "title": "Elite Four",
+      "theme": "psychic",
+      "level": 94,
+      "specialty": "Psychic",
+      "visual_accent": "#7bf0a2",
+      "full_heal_before": false,
+      "opponent_team": "Mr. Mime\nLevel: 94\n\nGirafarig\nLevel: 94\n\nMedicham\nLevel: 94\n\nAlakazam\nLevel: 94\n\nBronzong\nLevel: 94",
+      "filled_opponent_team": "Mr. Mime\nLevel: 94\n\nGirafarig\nLevel: 94\n\nMedicham\nLevel: 94\n\nAlakazam\nLevel: 94\n\nBronzong\nLevel: 94\n\nEspeon\nLevel: 94",
+      "trainer_asset_id": null
+    },
+    {
+      "id": "cynthia",
+      "name": "Cynthia",
+      "title": "Champion",
+      "theme": "mixed",
+      "level": 100,
+      "specialty": "Mixed",
+      "visual_accent": "#7bf0a2",
+      "full_heal_before": false,
+      "opponent_team": "Spiritomb\nLevel: 100\n\nRoserade\nLevel: 100\n\nTogekiss\nLevel: 100\n\nLucario\nLevel: 100\n\nMilotic\nLevel: 100\n\nGarchomp\nLevel: 100",
+      "filled_opponent_team": "Spiritomb\nLevel: 100\n\nRoserade\nLevel: 100\n\nTogekiss\nLevel: 100\n\nLucario\nLevel: 100\n\nMilotic\nLevel: 100\n\nGarchomp\nLevel: 100",
+      "trainer_asset_id": null
+    }
+  ]
+}

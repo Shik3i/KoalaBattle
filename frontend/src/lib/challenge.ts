@@ -1,5 +1,67 @@
 import type { ChallengeStatus, DraftCandidate, EvSpread, PokemonBaseStats } from './types.ts';
 
+export const STANDARD_CHALLENGE_SETTINGS = {
+  battleType: 'tactical-auto',
+  battleExperience: 'fast-watch',
+  difficulty: 'normal',
+  choiceCount: 3,
+  draftPoolMode: 'base-forms-only',
+  opponentTeamMode: 'original'
+} as const;
+
+function standardControllerConfiguration() {
+  return {
+    timeout_seconds: 300,
+    max_retries: 1,
+    fallback: 'random',
+    temperature: null,
+    max_output_tokens: 2048,
+    reasoning_effort: null,
+    base_url: null,
+    maximum_cost: null,
+    fake_scenario: 'valid'
+  };
+}
+
+/** The one-click Draft contract. Keep it shared with the detailed setup defaults. */
+export function standardChallengePayload(seed: number, name = 'Kanto Draft Gauntlet') {
+  return {
+    name,
+    definition_id: 'kanto-gym-gauntlet' as const,
+    seed,
+    draft_controller: {
+      kind: 'human' as const,
+      provider: null,
+      model: null,
+      configuration: standardControllerConfiguration()
+    },
+    battle_controller: {
+      agent_type: STANDARD_CHALLENGE_SETTINGS.battleType,
+      provider: null,
+      model: null,
+      configuration: standardControllerConfiguration()
+    },
+    opponent_controller: {
+      agent_type: 'tactical-auto' as const,
+      provider: null,
+      model: null,
+      configuration: standardControllerConfiguration()
+    },
+    battle_experience: STANDARD_CHALLENGE_SETTINGS.battleExperience,
+    difficulty: STANDARD_CHALLENGE_SETTINGS.difficulty,
+    opponent_team_mode: STANDARD_CHALLENGE_SETTINGS.opponentTeamMode,
+    draft_rules: {
+      roster_size: 6,
+      rerolls: 3,
+      type_rerolls: 1,
+      generation_rerolls: 1,
+      choice_count: STANDARD_CHALLENGE_SETTINGS.choiceCount,
+      species_clause: true,
+      draft_pool_mode: STANDARD_CHALLENGE_SETTINGS.draftPoolMode
+    }
+  };
+}
+
 export const EV_STATS = ['hp', 'atk', 'def', 'spa', 'spd', 'spe'] as const;
 export type EvStat = (typeof EV_STATS)[number];
 

@@ -1,0 +1,170 @@
+{
+  "id": "galar-gym-gauntlet",
+  "version": "1.0.0",
+  "name": "Galar Gym Gauntlet",
+  "description": "The Galar Gym Leaders and Champion Leon with canonical Sword story teams.",
+  "format": "gen9natdexdraft",
+  "region": "Galar",
+  "generation": 8,
+  "campaign_kind": "regional",
+  "stage_count_label": "10 story stages",
+  "mechanics_assumptions": [
+    "Canonical story-mode species and order are preserved in Original teams mode",
+    "The pinned Gen 9 NatDex Draft validator supplies legal modern move and ability details",
+    "Regional campaign levels are normalized to the shared 25-to-100 progression"
+  ],
+  "source": {
+    "game": "Pokémon Galar story campaign",
+    "generation": 8,
+    "variant": "Canonical Gym/Trial, Elite Four and Champion story rosters",
+    "references": [
+      "https://bulbapedia.bulbagarden.net/wiki/Galar_Gym_Leaders"
+    ],
+    "compatibility_note": "Story rosters are presented in the current NatDex Draft battle format."
+  },
+  "draft_rules": {
+    "roster_size": 6,
+    "rerolls": 3,
+    "type_rerolls": 1,
+    "generation_rerolls": 1,
+    "choice_count": 3,
+    "species_clause": true,
+    "draft_pool_mode": "all-forms"
+  },
+  "training_rules": {
+    "per_pokemon_max": 510,
+    "per_stat_max": 252
+  },
+  "stages": [
+    {
+      "id": "milo",
+      "name": "Milo",
+      "title": "Turffield Gym Leader",
+      "theme": "grass",
+      "level": 25,
+      "specialty": "Grass",
+      "visual_accent": "#7bf0a2",
+      "full_heal_before": true,
+      "opponent_team": "Gossifleur\nLevel: 25\n\nEldegoss\nLevel: 25",
+      "filled_opponent_team": "Gossifleur\nLevel: 25\n\nEldegoss\nLevel: 25\n\nVenusaur\nLevel: 25\n\nRoserade\nLevel: 25\n\nBreloom\nLevel: 25\n\nLilligant\nLevel: 25",
+      "trainer_asset_id": null
+    },
+    {
+      "id": "nessa",
+      "name": "Nessa",
+      "title": "Hulbury Gym Leader",
+      "theme": "water",
+      "level": 33,
+      "specialty": "Water",
+      "visual_accent": "#7bf0a2",
+      "full_heal_before": true,
+      "opponent_team": "Goldeen\nLevel: 33\n\nArrokuda\nLevel: 33\n\nDrednaw\nLevel: 33",
+      "filled_opponent_team": "Goldeen\nLevel: 33\n\nArrokuda\nLevel: 33\n\nDrednaw\nLevel: 33\n\nGyarados\nLevel: 33\n\nLapras\nLevel: 33\n\nLudicolo\nLevel: 33",
+      "trainer_asset_id": null
+    },
+    {
+      "id": "kabu",
+      "name": "Kabu",
+      "title": "Motostoke Gym Leader",
+      "theme": "fire",
+      "level": 42,
+      "specialty": "Fire",
+      "visual_accent": "#7bf0a2",
+      "full_heal_before": true,
+      "opponent_team": "Ninetales\nLevel: 42\n\nArcanine\nLevel: 42\n\nCentiskorch\nLevel: 42",
+      "filled_opponent_team": "Ninetales\nLevel: 42\n\nArcanine\nLevel: 42\n\nCentiskorch\nLevel: 42\n\nMagmortar\nLevel: 42\n\nChandelure\nLevel: 42\n\nVolcarona\nLevel: 42",
+      "trainer_asset_id": null
+    },
+    {
+      "id": "bea",
+      "name": "Bea",
+      "title": "Stow-on-Side Gym Leader",
+      "theme": "fighting",
+      "level": 50,
+      "specialty": "Fighting",
+      "visual_accent": "#7bf0a2",
+      "full_heal_before": true,
+      "opponent_team": "Hitmontop\nLevel: 50\n\nPangoro\nLevel: 50\n\nSirfetch'd\nLevel: 50\n\nMachamp\nLevel: 50",
+      "filled_opponent_team": "Hitmontop\nLevel: 50\n\nPangoro\nLevel: 50\n\nSirfetch'd\nLevel: 50\n\nMachamp\nLevel: 50\n\nHariyama\nLevel: 50\n\nLucario\nLevel: 50",
+      "trainer_asset_id": null
+    },
+    {
+      "id": "allister",
+      "name": "Allister",
+      "title": "Stow-on-Side Gym Leader",
+      "theme": "ghost",
+      "level": 58,
+      "specialty": "Ghost",
+      "visual_accent": "#7bf0a2",
+      "full_heal_before": true,
+      "opponent_team": "Yamask\nLevel: 58\n\nMimikyu\nLevel: 58\n\nCursola\nLevel: 58\n\nGengar\nLevel: 58",
+      "filled_opponent_team": "Yamask\nLevel: 58\n\nMimikyu\nLevel: 58\n\nCursola\nLevel: 58\n\nGengar\nLevel: 58\n\nChandelure\nLevel: 58\n\nBanette\nLevel: 58",
+      "trainer_asset_id": null
+    },
+    {
+      "id": "opal",
+      "name": "Opal",
+      "title": "Ballonlea Gym Leader",
+      "theme": "fairy",
+      "level": 67,
+      "specialty": "Fairy",
+      "visual_accent": "#7bf0a2",
+      "full_heal_before": true,
+      "opponent_team": "Weezing\nLevel: 67\n\nMawile\nLevel: 67\n\nTogekiss\nLevel: 67\n\nAlcremie\nLevel: 67",
+      "filled_opponent_team": "Weezing\nLevel: 67\n\nMawile\nLevel: 67\n\nTogekiss\nLevel: 67\n\nAlcremie\nLevel: 67\n\nAzumarill\nLevel: 67\n\nGardevoir\nLevel: 67",
+      "trainer_asset_id": null
+    },
+    {
+      "id": "gordie",
+      "name": "Gordie",
+      "title": "Circhester Gym Leader",
+      "theme": "rock",
+      "level": 75,
+      "specialty": "Rock",
+      "visual_accent": "#7bf0a2",
+      "full_heal_before": true,
+      "opponent_team": "Barbaracle\nLevel: 75\n\nShuckle\nLevel: 75\n\nStonjourner\nLevel: 75\n\nCoalossal\nLevel: 75",
+      "filled_opponent_team": "Barbaracle\nLevel: 75\n\nShuckle\nLevel: 75\n\nStonjourner\nLevel: 75\n\nCoalossal\nLevel: 75\n\nGolem\nLevel: 75\n\nRhyperior\nLevel: 75",
+      "trainer_asset_id": null
+    },
+    {
+      "id": "piers",
+      "name": "Piers",
+      "title": "Spikemuth Gym Leader",
+      "theme": "dark",
+      "level": 83,
+      "specialty": "Dark",
+      "visual_accent": "#7bf0a2",
+      "full_heal_before": true,
+      "opponent_team": "Scrafty\nLevel: 83\n\nMalamar\nLevel: 83\n\nSkuntank\nLevel: 83\n\nObstagoon\nLevel: 83",
+      "filled_opponent_team": "Scrafty\nLevel: 83\n\nMalamar\nLevel: 83\n\nSkuntank\nLevel: 83\n\nObstagoon\nLevel: 83\n\nUmbreon\nLevel: 83\n\nHoundoom\nLevel: 83",
+      "trainer_asset_id": null
+    },
+    {
+      "id": "raihan",
+      "name": "Raihan",
+      "title": "Hammerlocke Gym Leader",
+      "theme": "dragon",
+      "level": 92,
+      "specialty": "Dragon",
+      "visual_accent": "#7bf0a2",
+      "full_heal_before": true,
+      "opponent_team": "Gigalith\nLevel: 92\n\nFlygon\nLevel: 92\n\nSandaconda\nLevel: 92\n\nDuraludon\nLevel: 92",
+      "filled_opponent_team": "Gigalith\nLevel: 92\n\nFlygon\nLevel: 92\n\nSandaconda\nLevel: 92\n\nDuraludon\nLevel: 92\n\nDragonite\nLevel: 92\n\nSalamence\nLevel: 92",
+      "trainer_asset_id": null
+    },
+    {
+      "id": "leon",
+      "name": "Leon",
+      "title": "Champion",
+      "theme": "mixed",
+      "level": 100,
+      "specialty": "Mixed",
+      "visual_accent": "#7bf0a2",
+      "full_heal_before": true,
+      "opponent_team": "Aegislash\nLevel: 100\n\nDragapult\nLevel: 100\n\nHaxorus\nLevel: 100\n\nSeismitoad\nLevel: 100\n\nMr. Rime\nLevel: 100\n\nCharizard\nLevel: 100",
+      "filled_opponent_team": "Aegislash\nLevel: 100\n\nDragapult\nLevel: 100\n\nHaxorus\nLevel: 100\n\nSeismitoad\nLevel: 100\n\nMr. Rime\nLevel: 100\n\nCharizard\nLevel: 100",
+      "trainer_asset_id": null
+    }
+  ]
+}

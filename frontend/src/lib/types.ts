@@ -476,6 +476,18 @@ export interface EvSpread {
   spe: number;
 }
 
+export interface ChallengeDefinitionSummary {
+  id: string;
+  name: string;
+  description: string;
+  region: string;
+  generation: number;
+  campaign_kind: 'regional' | 'multi-generation';
+  stage_count: number;
+  stage_count_label: string | null;
+  specialties: string[];
+}
+
 export interface ChallengeRunView {
   run: {
     id: string;
@@ -489,6 +501,10 @@ export interface ChallengeRunView {
       name: string;
       description: string;
       format: string;
+      region: string;
+      generation: number;
+      campaign_kind: 'regional' | 'multi-generation';
+      stage_count_label: string | null;
       source: {
         game: string;
         generation: number;
@@ -496,7 +512,7 @@ export interface ChallengeRunView {
         references: string[];
         compatibility_note: string;
       } | null;
-      draft_rules: { roster_size: number; rerolls: number; type_rerolls: number; generation_rerolls: number; choice_count: number; species_clause: boolean };
+      draft_rules: { roster_size: number; rerolls: number; type_rerolls: number; generation_rerolls: number; choice_count: number; species_clause: boolean; draft_pool_mode: 'all-forms' | 'base-forms-only' };
       training_rules: { global_ev_budget?: number | null; per_pokemon_max: number; per_stat_max: number };
     };
     draft_rules_version: 'draft-rules-v2' | 'draft-rules-v1-incompatible';
@@ -507,6 +523,7 @@ export interface ChallengeRunView {
     opponent_controller: { agent_type: AgentType; provider?: ProviderKind | null; model?: string | null };
     battle_experience: 'quick-sim' | 'fast-watch' | 'normal';
     difficulty: ChallengeDifficulty;
+    opponent_team_mode: 'original' | 'filled';
     /** Drafted entries knocked out earlier in the current gauntlet section. */
     downed_entry_ids: string[];
     rerolls_remaining: number;

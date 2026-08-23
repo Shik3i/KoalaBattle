@@ -26,13 +26,90 @@ async function createDraft(request: APIRequestContext, seed = 20260822) {
       battle_controller: { agent_type: 'tactical-auto', provider: null, model: null, configuration: configuration() },
       opponent_controller: { agent_type: 'tactical-auto', provider: null, model: null, configuration: configuration() },
       battle_experience: 'quick-sim',
-      difficulty: 'normal'
+      difficulty: 'normal',
+      opponent_team_mode: 'original',
+      draft_rules: { roster_size: 6, rerolls: 3, type_rerolls: 1, generation_rerolls: 1, choice_count: 3, species_clause: true, draft_pool_mode: 'base-forms-only' }
     },
     timeout: 45_000
   });
   expect(response.ok(), await response.text()).toBeTruthy();
   return response.json() as Promise<{ run: { id: string } }>;
 }
+
+test('Draft Quick Start skips setup with Fast Auto, Normal and Fast Watch', async ({ page, request }) => {
+  await page.goto('/challenges');
+
+  const quickStart = page.getByRole('button', { name: 'Quick Start: Fast Auto, Normal difficulty, Fast Watch, base forms only, original teams' });
+  await expect(quickStart).toBeVisible();
+  await expect(quickStart).toContainText('Fast Auto · Normal · Fast Watch');
+  await expect(quickStart).toContainText('Base forms · Original teams');
+  await quickStart.click();
+  await expect(page).toHaveURL(/\/challenges\/[0-9a-f-]+$/);
+
+  const runId = page.url().split('/').at(-1);
+  expect(runId).toBeTruthy();
+  const response = await request.get(`${apiBase}/api/challenges/${runId}`);
+  expect(response.ok(), await response.text()).toBeTruthy();
+  const view = await response.json() as {
+    unseen_candidate_count: number;
+    run: {
+      battle_controller: { agent_type: string };
+      opponent_controller: { agent_type: string };
+      battle_experience: string;
+      difficulty: string;
+      opponent_team_mode: string;
+      draft_pool: { candidates: Array<{ evolution_stage: number }> };
+      definition: { draft_rules: { choice_count: number; roster_size: number; draft_pool_mode: string } };
+    };
+  };
+  expect(view.run.battle_controller.agent_type).toBe('tactical-auto');
+  expect(view.run.opponent_controller.agent_type).toBe('tactical-auto');
+  expect(view.run.battle_experience).toBe('fast-watch');
+  expect(view.run.difficulty).toBe('normal');
+  expect(view.run.opponent_team_mode).toBe('original');
+  expect(view.run.definition.draft_rules).toMatchObject({ choice_count: 3, roster_size: 6, draft_pool_mode: 'base-forms-only' });
+  expect(view.unseen_candidate_count).toBeGreaterThan(100);
+  expect(view.run.draft_pool.candidates.length).toBeGreaterThan(0);
+  expect(view.run.draft_pool.candidates.every((candidate) => candidate.evolution_stage === 0)).toBeTruthy();
+});
+
+test('Custom Draft persists normal pool and filled opponent team choices', async ({ page, request }) => {
+  await page.goto('/challenges/new');
+
+  const baseOnly = page.getByRole('button', { name: /Base forms only/ });
+  const allForms = page.getByRole('button', { name: /All forms/ });
+  const originalTeams = page.getByRole('button', { name: /Original teams/ });
+  const filledTeams = page.getByRole('button', { name: /Filled teams/ });
+  await expect(baseOnly).toHaveAttribute('aria-pressed', 'true');
+  await expect(originalTeams).toHaveAttribute('aria-pressed', 'true');
+  await allForms.click();
+  await filledTeams.click();
+  await page.getByRole('button', { name: 'Start drafting' }).click();
+  await expect(page).toHaveURL(/\/challenges\/[0-9a-f-]+$/);
+
+  const runId = page.url().split('/').at(-1);
+  const response = await request.get(`${apiBase}/api/challenges/${runId}`);
+  expect(response.ok(), await response.text()).toBeTruthy();
+  const view = await response.json() as {
+    run: {
+      opponent_team_mode: string;
+      definition: { draft_rules: { draft_pool_mode: string } };
+    };
+  };
+  expect(view.run.opponent_team_mode).toBe('filled');
+  expect(view.run.definition.draft_rules.draft_pool_mode).toBe('all-forms');
+});
+
+test('Custom Draft exposes every regional route and the shared multi-generation run', async ({ page }) => {
+  await page.goto('/challenges/new?definition=all-generations-gauntlet');
+
+  await expect(page.getByRole('heading', { name: 'All Generations Gauntlet' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'All regions' })).toBeVisible();
+  await expect(page.getByText('One draft · every region')).toBeVisible();
+  await expect(page.getByRole('button', { name: /Johto Gym Gauntlet/ })).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.getByRole('button', { name: /All Generations Gauntlet/ })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByText('110 stages · Gen I–IX')).toBeVisible();
+});
 
 test('primary IA and Draft remain usable at 390px without overflow', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
@@ -71,7 +148,7 @@ test('an unavailable reroll explains itself and the active-game shell stays comp
     if (message.type() === 'error') consoleErrors.push(message.text());
   });
   page.on('pageerror', (error) => pageErrors.push(error.message));
-  const created = await createDraft(request, 1787424372);
+  const created = await createDraft(request, 1);
   await page.goto(`/challenges/${created.run.id}`);
 
   const reroll = page.getByRole('button', { name: /Reroll Pokémon/ });
@@ -187,6 +264,7 @@ test('Battle and Replay use the renderer while private audit stays collapsed', a
   await expect(page.locator('.battle-renderer')).toBeVisible();
   await expect(page.locator('.gen5-hp-track').first()).toBeVisible();
   await expect(page.locator('.battle-action-feed')).toBeVisible();
+  await expect(page.locator('.dialogue-box')).toHaveCount(0);
   const audit = page.locator('details.audit-drawer');
   await expect(audit).not.toHaveAttribute('open', '');
 
@@ -234,9 +312,14 @@ test('Battle and Replay use the renderer while private audit stays collapsed', a
       const stage = rect('.stage');
       const farSprite = document.querySelector<HTMLElement>('.combatant-far .sprite img')?.getBoundingClientRect().toJSON() || null;
       const plates = [...document.querySelectorAll<HTMLElement>('.hp-plate')].map((element) => element.getBoundingClientRect().toJSON());
+      const visibleTurns = [...document.querySelectorAll<HTMLElement>('.action-feed-turn')].filter((element) => {
+        const turn = element.getBoundingClientRect();
+        return turn.top < feed.bottom && turn.bottom > feed.top && getComputedStyle(element).display !== 'none';
+      }).length;
       return {
         feed,
         stage,
+        visibleTurns,
         farSpriteOverlap: farSprite ? overlap(feed as DOMRect, farSprite as DOMRect) : 0,
         plateOverlap: plates.reduce((sum, plate) => sum + overlap(feed as DOMRect, plate as DOMRect), 0),
         documentWidth: document.documentElement.scrollWidth,
@@ -247,6 +330,7 @@ test('Battle and Replay use the renderer while private audit stays collapsed', a
     expect(geometry.feed.right).toBeLessThanOrEqual(geometry.stage.right);
     expect(geometry.farSpriteOverlap).toBe(0);
     expect(geometry.plateOverlap).toBe(0);
+    expect(geometry.visibleTurns).toBeGreaterThanOrEqual(viewport.width >= 1000 ? 2 : 1);
     expect(geometry.documentWidth).toBeLessThanOrEqual(geometry.viewportWidth);
   }
   expect(consoleErrors).toEqual([]);

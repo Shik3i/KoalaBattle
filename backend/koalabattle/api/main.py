@@ -26,6 +26,7 @@ from koalabattle.branding import (
     UploadBrandAsset,
 )
 from koalabattle.challenges import (
+    ChallengeDefinitionSummary,
     ChallengeRepository,
     ChallengeRunSummary,
     ChallengeRunView,
@@ -758,6 +759,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             limit=min(max(limit, 1), 250), offset=max(offset, 0)
         )
 
+    @app.get(
+        "/api/challenges/definitions",
+        response_model=tuple[ChallengeDefinitionSummary, ...],
+    )
+    async def list_challenge_definitions() -> tuple[ChallengeDefinitionSummary, ...]:
+        return ChallengeService.definition_summaries()
+
     @app.post(
         "/api/challenges",
         response_model=ChallengeRunView,
@@ -766,6 +774,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def create_challenge(payload: CreateChallengeRun, request: Request) -> ChallengeRunView:
         try:
             return await _challenges(request).create(payload)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="challenge definition not found") from error
         except (RuntimeError, ValueError) as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
 

@@ -1,0 +1,209 @@
+{
+  "id": "kalos-gym-gauntlet",
+  "version": "1.0.0",
+  "name": "Kalos Gym Gauntlet",
+  "description": "Viola through Champion Diantha with canonical Kalos story teams.",
+  "format": "gen9natdexdraft",
+  "region": "Kalos",
+  "generation": 6,
+  "campaign_kind": "regional",
+  "stage_count_label": "13 story stages",
+  "mechanics_assumptions": [
+    "Canonical story-mode species and order are preserved in Original teams mode",
+    "The pinned Gen 9 NatDex Draft validator supplies legal modern move and ability details",
+    "Regional campaign levels are normalized to the shared 25-to-100 progression"
+  ],
+  "source": {
+    "game": "Pokémon Kalos story campaign",
+    "generation": 6,
+    "variant": "Canonical Gym/Trial, Elite Four and Champion story rosters",
+    "references": [
+      "https://bulbapedia.bulbagarden.net/wiki/Kalos_Gym_Leaders"
+    ],
+    "compatibility_note": "Story rosters are presented in the current NatDex Draft battle format."
+  },
+  "draft_rules": {
+    "roster_size": 6,
+    "rerolls": 3,
+    "type_rerolls": 1,
+    "generation_rerolls": 1,
+    "choice_count": 3,
+    "species_clause": true,
+    "draft_pool_mode": "all-forms"
+  },
+  "training_rules": {
+    "per_pokemon_max": 510,
+    "per_stat_max": 252
+  },
+  "stages": [
+    {
+      "id": "viola",
+      "name": "Viola",
+      "title": "Santalune Gym Leader",
+      "theme": "bug",
+      "level": 25,
+      "specialty": "Bug",
+      "visual_accent": "#7bf0a2",
+      "full_heal_before": true,
+      "opponent_team": "Surskit\nLevel: 25\n\nVivillon\nLevel: 25",
+      "filled_opponent_team": "Surskit\nLevel: 25\n\nVivillon\nLevel: 25\n\nHeracross\nLevel: 25\n\nScizor\nLevel: 25\n\nVolcarona\nLevel: 25\n\nRibombee\nLevel: 25",
+      "trainer_asset_id": null
+    },
+    {
+      "id": "grant",
+      "name": "Grant",
+      "title": "Cyllage Gym Leader",
+      "theme": "rock",
+      "level": 31,
+      "specialty": "Rock",
+      "visual_accent": "#7bf0a2",
+      "full_heal_before": true,
+      "opponent_team": "Amaura\nLevel: 31\n\nTyrunt\nLevel: 31",
+      "filled_opponent_team": "Amaura\nLevel: 31\n\nTyrunt\nLevel: 31\n\nGolem\nLevel: 31\n\nRhyperior\nLevel: 31\n\nTyranitar\nLevel: 31\n\nLycanroc\nLevel: 31",
+      "trainer_asset_id": null
+    },
+    {
+      "id": "korrina",
+      "name": "Korrina",
+      "title": "Shalour Gym Leader",
+      "theme": "fighting",
+      "level": 38,
+      "specialty": "Fighting",
+      "visual_accent": "#7bf0a2",
+      "full_heal_before": true,
+      "opponent_team": "Mienfoo\nLevel: 38\n\nMachoke\nLevel: 38\n\nHawlucha\nLevel: 38",
+      "filled_opponent_team": "Mienfoo\nLevel: 38\n\nMachoke\nLevel: 38\n\nHawlucha\nLevel: 38\n\nMachamp\nLevel: 38\n\nHariyama\nLevel: 38\n\nLucario\nLevel: 38",
+      "trainer_asset_id": null
+    },
+    {
+      "id": "ramos",
+      "name": "Ramos",
+      "title": "Coumarine Gym Leader",
+      "theme": "grass",
+      "level": 44,
+      "specialty": "Grass",
+      "visual_accent": "#7bf0a2",
+      "full_heal_before": true,
+      "opponent_team": "Jumpluff\nLevel: 44\n\nGogoat\nLevel: 44\n\nWeepinbell\nLevel: 44",
+      "filled_opponent_team": "Jumpluff\nLevel: 44\n\nGogoat\nLevel: 44\n\nWeepinbell\nLevel: 44\n\nVenusaur\nLevel: 44\n\nRoserade\nLevel: 44\n\nBreloom\nLevel: 44",
+      "trainer_asset_id": null
+    },
+    {
+      "id": "clemont",
+      "name": "Clemont",
+      "title": "Lumiose Gym Leader",
+      "theme": "electric",
+      "level": 50,
+      "specialty": "Electric",
+      "visual_accent": "#7bf0a2",
+      "full_heal_before": true,
+      "opponent_team": "Emolga\nLevel: 50\n\nMagneton\nLevel: 50\n\nHeliolisk\nLevel: 50",
+      "filled_opponent_team": "Emolga\nLevel: 50\n\nMagneton\nLevel: 50\n\nHeliolisk\nLevel: 50\n\nJolteon\nLevel: 50\n\nElectivire\nLevel: 50\n\nMagnezone\nLevel: 50",
+      "trainer_asset_id": null
+    },
+    {
+      "id": "valerie",
+      "name": "Valerie",
+      "title": "Laverre Gym Leader",
+      "theme": "fairy",
+      "level": 56,
+      "specialty": "Fairy",
+      "visual_accent": "#7bf0a2",
+      "full_heal_before": true,
+      "opponent_team": "Mawile\nLevel: 56\n\nMr. Mime\nLevel: 56\n\nSylveon\nLevel: 56",
+      "filled_opponent_team": "Mawile\nLevel: 56\n\nMr. Mime\nLevel: 56\n\nSylveon\nLevel: 56\n\nAzumarill\nLevel: 56\n\nGardevoir\nLevel: 56\n\nGrimmsnarl\nLevel: 56",
+      "trainer_asset_id": null
+    },
+    {
+      "id": "olympia",
+      "name": "Olympia",
+      "title": "Anistar Gym Leader",
+      "theme": "psychic",
+      "level": 62,
+      "specialty": "Psychic",
+      "visual_accent": "#7bf0a2",
+      "full_heal_before": true,
+      "opponent_team": "Sigilyph\nLevel: 62\n\nSigilyph\nLevel: 62\n\nMeowstic\nLevel: 62",
+      "filled_opponent_team": "Sigilyph\nLevel: 62\n\nMeowstic\nLevel: 62\n\nAlakazam\nLevel: 62\n\nEspeon\nLevel: 62\n\nMetagross\nLevel: 62\n\nGardevoir\nLevel: 62",
+      "trainer_asset_id": null
+    },
+    {
+      "id": "wulfric",
+      "name": "Wulfric",
+      "title": "Snowbelle Gym Leader",
+      "theme": "ice",
+      "level": 69,
+      "specialty": "Ice",
+      "visual_accent": "#7bf0a2",
+      "full_heal_before": true,
+      "opponent_team": "Cryogonal\nLevel: 69\n\nAbomasnow\nLevel: 69\n\nAvalugg\nLevel: 69",
+      "filled_opponent_team": "Cryogonal\nLevel: 69\n\nAbomasnow\nLevel: 69\n\nAvalugg\nLevel: 69\n\nLapras\nLevel: 69\n\nMamoswine\nLevel: 69\n\nWeavile\nLevel: 69",
+      "trainer_asset_id": null
+    },
+    {
+      "id": "malva",
+      "name": "Malva",
+      "title": "Elite Four",
+      "theme": "fire",
+      "level": 75,
+      "specialty": "Fire",
+      "visual_accent": "#7bf0a2",
+      "full_heal_before": true,
+      "opponent_team": "Pyroar\nLevel: 75\n\nTorkoal\nLevel: 75\n\nChandelure\nLevel: 75\n\nTalonflame\nLevel: 75",
+      "filled_opponent_team": "Pyroar\nLevel: 75\n\nTorkoal\nLevel: 75\n\nChandelure\nLevel: 75\n\nTalonflame\nLevel: 75\n\nArcanine\nLevel: 75\n\nMagmortar\nLevel: 75",
+      "trainer_asset_id": null
+    },
+    {
+      "id": "wikstrom",
+      "name": "Wikstrom",
+      "title": "Elite Four",
+      "theme": "steel",
+      "level": 81,
+      "specialty": "Steel",
+      "visual_accent": "#7bf0a2",
+      "full_heal_before": false,
+      "opponent_team": "Klefki\nLevel: 81\n\nProbopass\nLevel: 81\n\nScizor\nLevel: 81\n\nAegislash\nLevel: 81",
+      "filled_opponent_team": "Klefki\nLevel: 81\n\nProbopass\nLevel: 81\n\nScizor\nLevel: 81\n\nAegislash\nLevel: 81\n\nMetagross\nLevel: 81\n\nExcadrill\nLevel: 81",
+      "trainer_asset_id": null
+    },
+    {
+      "id": "drasna",
+      "name": "Drasna",
+      "title": "Elite Four",
+      "theme": "dragon",
+      "level": 88,
+      "specialty": "Dragon",
+      "visual_accent": "#7bf0a2",
+      "full_heal_before": false,
+      "opponent_team": "Dragalge\nLevel: 88\n\nDruddigon\nLevel: 88\n\nAltaria\nLevel: 88\n\nNoivern\nLevel: 88",
+      "filled_opponent_team": "Dragalge\nLevel: 88\n\nDruddigon\nLevel: 88\n\nAltaria\nLevel: 88\n\nNoivern\nLevel: 88\n\nDragonite\nLevel: 88\n\nSalamence\nLevel: 88",
+      "trainer_asset_id": null
+    },
+    {
+      "id": "siebold",
+      "name": "Siebold",
+      "title": "Elite Four",
+      "theme": "water",
+      "level": 94,
+      "specialty": "Water",
+      "visual_accent": "#7bf0a2",
+      "full_heal_before": false,
+      "opponent_team": "Clawitzer\nLevel: 94\n\nGyarados\nLevel: 94\n\nStarmie\nLevel: 94\n\nBarbaracle\nLevel: 94",
+      "filled_opponent_team": "Clawitzer\nLevel: 94\n\nGyarados\nLevel: 94\n\nStarmie\nLevel: 94\n\nBarbaracle\nLevel: 94\n\nLapras\nLevel: 94\n\nLudicolo\nLevel: 94",
+      "trainer_asset_id": null
+    },
+    {
+      "id": "diantha",
+      "name": "Diantha",
+      "title": "Champion",
+      "theme": "mixed",
+      "level": 100,
+      "specialty": "Mixed",
+      "visual_accent": "#7bf0a2",
+      "full_heal_before": false,
+      "opponent_team": "Hawlucha\nLevel: 100\n\nTyrantrum\nLevel: 100\n\nGourgeist\nLevel: 100\n\nGoodra\nLevel: 100\n\nAurorus\nLevel: 100\n\nGardevoir\nLevel: 100",
+      "filled_opponent_team": "Hawlucha\nLevel: 100\n\nTyrantrum\nLevel: 100\n\nGourgeist\nLevel: 100\n\nGoodra\nLevel: 100\n\nAurorus\nLevel: 100\n\nGardevoir\nLevel: 100",
+      "trainer_asset_id": null
+    }
+  ]
+}

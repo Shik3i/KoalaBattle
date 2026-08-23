@@ -38,6 +38,7 @@ from .models import (
     BattleControllerSnapshot,
     ChallengeBattleSummary,
     ChallengeDefinition,
+    ChallengeDefinitionSummary,
     ChallengeDifficulty,
     ChallengeMegaOption,
     ChallengeMegaSelection,
@@ -55,6 +56,7 @@ from .models import (
     DraftOffer,
     DraftPick,
     DraftPoolSnapshot,
+    DraftRules,
     EvolutionEvent,
     EvolutionTrigger,
     EvSpread,
@@ -160,6 +162,120 @@ def _definition(definition_id: str) -> ChallengeDefinition:
     if not path.is_file():
         raise KeyError(definition_id)
     return ChallengeDefinition.model_validate_json(path.read_text(encoding="utf-8"))
+
+
+def _definition_summaries() -> tuple[ChallengeDefinitionSummary, ...]:
+    summaries: list[ChallengeDefinitionSummary] = []
+    for path in sorted(CONTENT_ROOT.glob("*.json")):
+        try:
+            definition = ChallengeDefinition.model_validate_json(path.read_text(encoding="utf-8"))
+        except (ValueError, TypeError):
+            continue
+        summaries.append(
+            ChallengeDefinitionSummary(
+                id=definition.id,
+                name=definition.name,
+                description=definition.description,
+                region=definition.region,
+                generation=definition.generation,
+                campaign_kind=definition.campaign_kind,
+                stage_count=len(definition.stages),
+                stage_count_label=definition.stage_count_label,
+                specialties=tuple(
+                    dict.fromkeys(
+                        stage.specialty for stage in definition.stages if stage.specialty
+                    )
+                ),
+            )
+        )
+    return tuple(
+        sorted(
+            summaries,
+            key=lambda item: (
+                item.campaign_kind != "multi-generation",
+                item.generation,
+                item.name,
+            ),
+        )
+    )
+
+
+def _eligible_draft_candidates(
+    candidates: tuple[DraftCandidate, ...], draft_rules: DraftRules
+) -> tuple[DraftCandidate, ...]:
+    if draft_rules.draft_pool_mode != "base-forms-only":
+        return candidates
+    return tuple(candidate for candidate in candidates if candidate.evolution_stage == 0)
+
+
+def _opponent_stage_team(stage: ChallengeStage, mode: Literal["original", "filled"]) -> str:
+    if mode == "filled" and stage.filled_opponent_team is not None:
+        return stage.filled_opponent_team
+    return stage.opponent_team
+
+
+def _prepare_opponent_stage_team(
+    team_export: str, species_by_id: dict[str, SpeciesMetadata]
+) -> str:
+    """Complete a canonical roster with pinned, validator-legal battle details.
+
+    Regional content deliberately stores the source-game roster (species and order) instead
+    of copying modern competitive sets into every pack.  At launch, the pinned Dex supplies
+    an ability, a neutral-confirmation EV line, a nature, and its authoritative recommended
+    moves only when the source block does not already specify them.  Existing Kanto sets and
+    any future hand-authored set therefore remain untouched.
+    """
+    fallback_moves: dict[str, tuple[str, ...]] = {
+        "gogoat": ("Horn Leech", "Earthquake", "Bulk Up", "Milk Drink"),
+        "aegislash": ("Shadow Sneak", "King's Shield", "Sacred Sword", "Iron Head"),
+        "mudsdale": ("Earthquake", "Heavy Slam", "Rock Slide", "Body Press"),
+        "centiskorch": ("Fire Lash", "Leech Life", "Coil", "Power Whip"),
+        "coalossal": ("Stealth Rock", "Rock Blast", "Heat Crash", "Will-O-Wisp"),
+        "espathra": ("Lumina Crash", "Dazzling Gleam", "Calm Mind", "Roost"),
+        "copperajah": ("Heavy Slam", "Earthquake", "Power Whip", "Stealth Rock"),
+        "tinkaton": ("Gigaton Hammer", "Play Rough", "Knock Off", "Swords Dance"),
+        "grimmsnarl": ("Spirit Break", "Play Rough", "Sucker Punch", "Reflect"),
+        "sandaconda": ("Earthquake", "Glare", "Coil", "Rock Slide"),
+        "glimmora": ("Power Gem", "Sludge Wave", "Earth Power", "Stealth Rock"),
+    }
+    blocks: list[str] = []
+    for raw_block in (item.strip() for item in team_export.strip().split("\n\n") if item.strip()):
+        lines = raw_block.splitlines()
+        if not lines:
+            continue
+        heading = lines[0].split("@", 1)[0].strip()
+        species_match = re.search(r"\(([^()]+)\)\s*$", heading)
+        species = species_match.group(1) if species_match else heading
+        metadata = species_by_id.get(showdown_id(species))
+        if metadata is None:
+            blocks.append(raw_block)
+            continue
+        competitive = metadata.showdown_set
+        details = list(lines[1:])
+        if not any(line.startswith("Ability:") for line in details) and metadata.abilities:
+            ability = competitive.ability if competitive else metadata.abilities[0].name
+            ability_name = next(
+                (
+                    item.name
+                    for item in metadata.abilities
+                    if showdown_id(item.id) == showdown_id(ability)
+                ),
+                metadata.abilities[0].name,
+            )
+            details.insert(0, f"Ability: {ability_name}")
+        if not any(line.startswith("EVs:") for line in details):
+            details.append("EVs: 1 HP")
+        if not any(line.endswith(" Nature") for line in details):
+            details.append(f"{competitive.nature if competitive else 'Serious'} Nature")
+        if not any(line.startswith("-") for line in details):
+            moves = (
+                metadata.recommended_moves
+                or (competitive.moves if competitive else ())
+                or fallback_moves.get(showdown_id(species), ())
+            )
+            details.extend(f"- {move}" for move in moves[:4])
+        blocks.append("\n".join([lines[0], *details]))
+    return "\n\n".join(blocks)
 
 
 def _public_stage(stage: ChallengeStage, difficulty: ChallengeDifficulty) -> PublicChallengeStage:
@@ -641,6 +757,10 @@ class ChallengeService:
         self._auto_tasks: dict[UUID, asyncio.Task[None]] = {}
         self._agent_tasks: dict[tuple[UUID, int], asyncio.Task[ChallengeRun]] = {}
 
+    @staticmethod
+    def definition_summaries() -> tuple[ChallengeDefinitionSummary, ...]:
+        return _definition_summaries()
+
     async def _species_by_id(self, format_id: str) -> dict[str, SpeciesMetadata]:
         """Evolution is a layer on top of a working draft/battle flow, not a precondition
         for one: an unreachable species catalog degrades to "nothing evolves this attempt"
@@ -842,6 +962,7 @@ class ChallengeService:
             abilities_supported=species_snapshot.abilities_supported,
             draft_points=points_snapshot,
         )
+        candidates = _eligible_draft_candidates(candidates, definition.draft_rules)
         identities = {
             candidate.base_species_id
             if definition.draft_rules.species_clause
@@ -886,6 +1007,7 @@ class ChallengeService:
             opponent_controller=payload.opponent_controller,
             battle_experience=payload.battle_experience,
             difficulty=payload.difficulty,
+            opponent_team_mode=payload.opponent_team_mode,
             rerolls_remaining=definition.draft_rules.rerolls,
             type_rerolls_remaining=definition.draft_rules.type_rerolls,
             generation_rerolls_remaining=definition.draft_rules.generation_rerolls,
@@ -1788,6 +1910,8 @@ class ChallengeService:
             available = _with_evolutions(
                 _without_downed(source.normalized_export, run), run, species_by_id
             )
+            opponent_team = _opponent_stage_team(stage, run.opponent_team_mode)
+            opponent_team = _prepare_opponent_stage_team(opponent_team, species_by_id)
             if run.mega_selection is not None and run.current_stage_index == len(
                 run.definition.stages
             ) - 1:
@@ -1797,10 +1921,8 @@ class ChallengeService:
                     run.mega_selection.required_item,
                 )
                 opponent_team = _with_selected_item(
-                    stage.opponent_team, "Charizard", "Charizardite Y"
+                    opponent_team, "Charizard", "Charizardite Y"
                 )
-            else:
-                opponent_team = stage.opponent_team
             player_validation = await self.battles.team_validator.validate(
                 _with_level(available, player_level), run.definition.format
             )

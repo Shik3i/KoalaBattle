@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- added canonical regional challenge packs for Johto, Hoenn, Sinnoh, Unova, Kalos, Alola,
+  Galar and Paldea plus an All Generations route that reuses one persistent draft; the Custom
+  route picker now exposes each generation and labels Alola's Grand Trials and Galar's missing
+  Elite Four explicitly; source rosters are completed with pinned Showdown Dex details at launch;
+- made Quick Start use only base-form and single-stage draft candidates plus the original
+  Red/Blue trainer teams; Custom Draft can independently choose the all-forms pool and six-Pokémon
+  filled teams. Evolved forms are removed from base-only pools rather than replaced, so the frozen
+  candidate snapshot remains explicit and Pokémon can progress naturally during the campaign;
 - completed the release UI polish across Draft and battle control: long battle decisions now live
   in one collapsed, lazy-rendered audit drawer; opponent, battle, Draft, and saved-run histories
   default closed; desktop rerolls share one grouped icon language; mobile Draft choices use a
@@ -22,9 +30,8 @@
 - updated DeepSeek for the current `deepseek-v4-flash` and `deepseek-v4-pro` API models after
   retirement of the legacy aliases, with explicit web selectors, documented JSON mode, and V4
   thinking-effort mapping;
-- gave every Kanto trainer six Pokémon, all of them species that trainer actually uses
-  (content V11). The player always brings six, so an opening gym with three was a free numbers
-  advantage, not a difficulty curve. Filling to six had first pulled in Pokémon the trainers never
+- added optional six-Pokémon filled Kanto teams, all of them species that trainer actually uses
+  (content V11). Filling to six had first pulled in Pokémon the trainers never
   use (Nosepass and Boldore for Brock, Cloyster for Misty, Jolteon for Lt. Surge, Salamence and
   Garchomp for Lance, Alolan forms for Koga and Agatha); every one is now replaced from that
   trainer's own mainline teams — Brock fields his HGSS six, Bruno's second Onix becomes Steelix,

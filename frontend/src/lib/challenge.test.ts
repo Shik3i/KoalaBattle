@@ -21,8 +21,25 @@ import {
   generationRomanNumeral,
   legalEvValue,
   pokemonTypeColor,
-  recommendedEvPresets
+  recommendedEvPresets,
+  STANDARD_CHALLENGE_SETTINGS,
+  standardChallengePayload
 } from './challenge.ts';
+
+test('one-click Draft uses the visible standard settings and complete saved rules', () => {
+  const payload = standardChallengePayload(20260823);
+
+  assert.equal(payload.seed, 20260823);
+  assert.equal(payload.battle_controller.agent_type, STANDARD_CHALLENGE_SETTINGS.battleType);
+  assert.equal(payload.opponent_controller.agent_type, 'tactical-auto');
+  assert.equal(payload.battle_experience, 'fast-watch');
+  assert.equal(payload.difficulty, 'normal');
+  assert.equal(payload.opponent_team_mode, 'original');
+  assert.equal(payload.draft_rules.choice_count, 3);
+  assert.equal(payload.draft_rules.roster_size, 6);
+  assert.equal(payload.draft_rules.draft_pool_mode, 'base-forms-only');
+  assert.notEqual(payload.battle_controller.configuration, payload.opponent_controller.configuration);
+});
 
 test('empty EV spreads are independent zeroed records', () => {
   const first = emptyEvSpread();

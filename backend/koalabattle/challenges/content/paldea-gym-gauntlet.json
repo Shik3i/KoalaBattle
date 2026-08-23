@@ -1,0 +1,209 @@
+{
+  "id": "paldea-gym-gauntlet",
+  "version": "1.0.0",
+  "name": "Paldea Gym Gauntlet",
+  "description": "Paldea's eight Gym Leaders, Elite Four and Champion Geeta.",
+  "format": "gen9natdexdraft",
+  "region": "Paldea",
+  "generation": 9,
+  "campaign_kind": "regional",
+  "stage_count_label": "13 story stages",
+  "mechanics_assumptions": [
+    "Canonical story-mode species and order are preserved in Original teams mode",
+    "The pinned Gen 9 NatDex Draft validator supplies legal modern move and ability details",
+    "Regional campaign levels are normalized to the shared 25-to-100 progression"
+  ],
+  "source": {
+    "game": "Pokémon Paldea story campaign",
+    "generation": 9,
+    "variant": "Canonical Gym/Trial, Elite Four and Champion story rosters",
+    "references": [
+      "https://bulbapedia.bulbagarden.net/wiki/Paldea_Gym_Leaders"
+    ],
+    "compatibility_note": "Story rosters are presented in the current NatDex Draft battle format."
+  },
+  "draft_rules": {
+    "roster_size": 6,
+    "rerolls": 3,
+    "type_rerolls": 1,
+    "generation_rerolls": 1,
+    "choice_count": 3,
+    "species_clause": true,
+    "draft_pool_mode": "all-forms"
+  },
+  "training_rules": {
+    "per_pokemon_max": 510,
+    "per_stat_max": 252
+  },
+  "stages": [
+    {
+      "id": "katy",
+      "name": "Katy",
+      "title": "Cortondo Gym Leader",
+      "theme": "bug",
+      "level": 25,
+      "specialty": "Bug",
+      "visual_accent": "#7bf0a2",
+      "full_heal_before": true,
+      "opponent_team": "Nymble\nLevel: 25\n\nTarountula\nLevel: 25\n\nTeddiursa\nLevel: 25",
+      "filled_opponent_team": "Nymble\nLevel: 25\n\nTarountula\nLevel: 25\n\nTeddiursa\nLevel: 25\n\nHeracross\nLevel: 25\n\nScizor\nLevel: 25\n\nVolcarona\nLevel: 25",
+      "trainer_asset_id": null
+    },
+    {
+      "id": "brassius",
+      "name": "Brassius",
+      "title": "Artazon Gym Leader",
+      "theme": "grass",
+      "level": 31,
+      "specialty": "Grass",
+      "visual_accent": "#7bf0a2",
+      "full_heal_before": true,
+      "opponent_team": "Petilil\nLevel: 31\n\nSmoliv\nLevel: 31\n\nSudowoodo\nLevel: 31",
+      "filled_opponent_team": "Petilil\nLevel: 31\n\nSmoliv\nLevel: 31\n\nSudowoodo\nLevel: 31\n\nVenusaur\nLevel: 31\n\nRoserade\nLevel: 31\n\nBreloom\nLevel: 31",
+      "trainer_asset_id": null
+    },
+    {
+      "id": "iono",
+      "name": "Iono",
+      "title": "Levincia Gym Leader",
+      "theme": "electric",
+      "level": 38,
+      "specialty": "Electric",
+      "visual_accent": "#7bf0a2",
+      "full_heal_before": true,
+      "opponent_team": "Wattrel\nLevel: 38\n\nBellibolt\nLevel: 38\n\nLuxio\nLevel: 38\n\nMismagius\nLevel: 38",
+      "filled_opponent_team": "Wattrel\nLevel: 38\n\nBellibolt\nLevel: 38\n\nLuxio\nLevel: 38\n\nMismagius\nLevel: 38\n\nJolteon\nLevel: 38\n\nElectivire\nLevel: 38",
+      "trainer_asset_id": null
+    },
+    {
+      "id": "kofu",
+      "name": "Kofu",
+      "title": "Cascarrafa Gym Leader",
+      "theme": "water",
+      "level": 44,
+      "specialty": "Water",
+      "visual_accent": "#7bf0a2",
+      "full_heal_before": true,
+      "opponent_team": "Veluza\nLevel: 44\n\nWugtrio\nLevel: 44\n\nCrabominable\nLevel: 44",
+      "filled_opponent_team": "Veluza\nLevel: 44\n\nWugtrio\nLevel: 44\n\nCrabominable\nLevel: 44\n\nGyarados\nLevel: 44\n\nLapras\nLevel: 44\n\nLudicolo\nLevel: 44",
+      "trainer_asset_id": null
+    },
+    {
+      "id": "larry",
+      "name": "Larry",
+      "title": "Medali Gym Leader",
+      "theme": "normal",
+      "level": 50,
+      "specialty": "Normal",
+      "visual_accent": "#7bf0a2",
+      "full_heal_before": true,
+      "opponent_team": "Komala\nLevel: 50\n\nDudunsparce\nLevel: 50\n\nStaraptor\nLevel: 50",
+      "filled_opponent_team": "Komala\nLevel: 50\n\nDudunsparce\nLevel: 50\n\nStaraptor\nLevel: 50\n\nSnorlax\nLevel: 50\n\nPorygon2\nLevel: 50\n\nTauros\nLevel: 50",
+      "trainer_asset_id": null
+    },
+    {
+      "id": "ryme",
+      "name": "Ryme",
+      "title": "Montenevera Gym Leader",
+      "theme": "ghost",
+      "level": 56,
+      "specialty": "Ghost",
+      "visual_accent": "#7bf0a2",
+      "full_heal_before": true,
+      "opponent_team": "Mimikyu\nLevel: 56\n\nBanette\nLevel: 56\n\nHoundstone\nLevel: 56\n\nToxtricity\nLevel: 56",
+      "filled_opponent_team": "Mimikyu\nLevel: 56\n\nBanette\nLevel: 56\n\nHoundstone\nLevel: 56\n\nToxtricity\nLevel: 56\n\nGengar\nLevel: 56\n\nChandelure\nLevel: 56",
+      "trainer_asset_id": null
+    },
+    {
+      "id": "tulip",
+      "name": "Tulip",
+      "title": "Alfornada Gym Leader",
+      "theme": "psychic",
+      "level": 62,
+      "specialty": "Psychic",
+      "visual_accent": "#7bf0a2",
+      "full_heal_before": true,
+      "opponent_team": "Farigiraf\nLevel: 62\n\nGardevoir\nLevel: 62\n\nEspathra\nLevel: 62\n\nFlorges\nLevel: 62",
+      "filled_opponent_team": "Farigiraf\nLevel: 62\n\nGardevoir\nLevel: 62\n\nEspathra\nLevel: 62\n\nFlorges\nLevel: 62\n\nAlakazam\nLevel: 62\n\nEspeon\nLevel: 62",
+      "trainer_asset_id": null
+    },
+    {
+      "id": "grusha",
+      "name": "Grusha",
+      "title": "Glaseado Gym Leader",
+      "theme": "ice",
+      "level": 69,
+      "specialty": "Ice",
+      "visual_accent": "#7bf0a2",
+      "full_heal_before": true,
+      "opponent_team": "Frosmoth\nLevel: 69\n\nBeartic\nLevel: 69\n\nCetitan\nLevel: 69\n\nAltaria\nLevel: 69",
+      "filled_opponent_team": "Frosmoth\nLevel: 69\n\nBeartic\nLevel: 69\n\nCetitan\nLevel: 69\n\nAltaria\nLevel: 69\n\nLapras\nLevel: 69\n\nMamoswine\nLevel: 69",
+      "trainer_asset_id": null
+    },
+    {
+      "id": "rika",
+      "name": "Rika",
+      "title": "Elite Four",
+      "theme": "ground",
+      "level": 75,
+      "specialty": "Ground",
+      "visual_accent": "#7bf0a2",
+      "full_heal_before": true,
+      "opponent_team": "Whiscash\nLevel: 75\n\nCamerupt\nLevel: 75\n\nDonphan\nLevel: 75\n\nClodsire\nLevel: 75",
+      "filled_opponent_team": "Whiscash\nLevel: 75\n\nCamerupt\nLevel: 75\n\nDonphan\nLevel: 75\n\nClodsire\nLevel: 75\n\nGolem\nLevel: 75\n\nHippowdon\nLevel: 75",
+      "trainer_asset_id": null
+    },
+    {
+      "id": "poppy",
+      "name": "Poppy",
+      "title": "Elite Four",
+      "theme": "steel",
+      "level": 81,
+      "specialty": "Steel",
+      "visual_accent": "#7bf0a2",
+      "full_heal_before": false,
+      "opponent_team": "Copperajah\nLevel: 81\n\nMagnezone\nLevel: 81\n\nBronzong\nLevel: 81\n\nTinkaton\nLevel: 81",
+      "filled_opponent_team": "Copperajah\nLevel: 81\n\nMagnezone\nLevel: 81\n\nBronzong\nLevel: 81\n\nTinkaton\nLevel: 81\n\nMetagross\nLevel: 81\n\nScizor\nLevel: 81",
+      "trainer_asset_id": null
+    },
+    {
+      "id": "larry-elite",
+      "name": "Larry",
+      "title": "Elite Four",
+      "theme": "flying",
+      "level": 88,
+      "specialty": "Flying",
+      "visual_accent": "#7bf0a2",
+      "full_heal_before": false,
+      "opponent_team": "Tropius\nLevel: 88\n\nStaraptor\nLevel: 88\n\nOricorio\nLevel: 88\n\nFlamigo\nLevel: 88",
+      "filled_opponent_team": "Tropius\nLevel: 88\n\nStaraptor\nLevel: 88\n\nOricorio\nLevel: 88\n\nFlamigo\nLevel: 88\n\nCrobat\nLevel: 88\n\nSkarmory\nLevel: 88",
+      "trainer_asset_id": null
+    },
+    {
+      "id": "hassel",
+      "name": "Hassel",
+      "title": "Elite Four",
+      "theme": "dragon",
+      "level": 94,
+      "specialty": "Dragon",
+      "visual_accent": "#7bf0a2",
+      "full_heal_before": false,
+      "opponent_team": "Noivern\nLevel: 94\n\nDragalge\nLevel: 94\n\nFlapple\nLevel: 94\n\nHaxorus\nLevel: 94",
+      "filled_opponent_team": "Noivern\nLevel: 94\n\nDragalge\nLevel: 94\n\nFlapple\nLevel: 94\n\nHaxorus\nLevel: 94\n\nDragonite\nLevel: 94\n\nSalamence\nLevel: 94",
+      "trainer_asset_id": null
+    },
+    {
+      "id": "geeta",
+      "name": "Geeta",
+      "title": "Champion",
+      "theme": "mixed",
+      "level": 100,
+      "specialty": "Mixed",
+      "visual_accent": "#7bf0a2",
+      "full_heal_before": false,
+      "opponent_team": "Espathra\nLevel: 100\n\nAvalugg\nLevel: 100\n\nKingambit\nLevel: 100\n\nVeluza\nLevel: 100\n\nGogoat\nLevel: 100\n\nGlimmora\nLevel: 100",
+      "filled_opponent_team": "Espathra\nLevel: 100\n\nAvalugg\nLevel: 100\n\nKingambit\nLevel: 100\n\nVeluza\nLevel: 100\n\nGogoat\nLevel: 100\n\nGlimmora\nLevel: 100",
+      "trainer_asset_id": null
+    }
+  ]
+}

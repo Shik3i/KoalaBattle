@@ -7,10 +7,12 @@ import pytest
 from koalabattle.challenges.models import ChallengeDifficulty, opponent_stage_level
 from koalabattle.challenges.service import (
     _definition,
+    _opponent_stage_team,
+    _prepare_opponent_stage_team,
     _with_level,
     _with_unique_duplicate_nicknames,
 )
-from koalabattle.challenges.species import ShowdownSpeciesCatalog
+from koalabattle.challenges.species import ShowdownSpeciesCatalog, showdown_id
 from koalabattle.teams import ShowdownTeamValidator
 
 
@@ -34,12 +36,56 @@ async def test_every_kanto_gauntlet_team_is_legal_at_its_stage_level() -> None:
 
     failures: dict[str, tuple[str, ...]] = {}
     for stage in definition.stages:
-        result = await validator.validate(
-            _with_unique_duplicate_nicknames(_with_level(stage.opponent_team, stage.level)),
-            definition.format,
-        )
-        if not result.valid:
-            failures[stage.id] = result.errors
+        for mode in ("original", "filled"):
+            team = _opponent_stage_team(stage, mode)
+            result = await validator.validate(
+                _with_unique_duplicate_nicknames(_with_level(team, stage.level)),
+                definition.format,
+            )
+            if not result.valid:
+                failures[f"{stage.id}/{mode}"] = result.errors
+
+    assert failures == {}
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_every_regional_campaign_team_is_legal_after_dex_enrichment() -> None:
+    """Canonical regional rosters must remain validator-legal in every shipped route."""
+    _skip_unless_showdown()
+    definition_ids = (
+        "johto-gym-gauntlet",
+        "hoenn-gym-gauntlet",
+        "sinnoh-gym-gauntlet",
+        "unova-gym-gauntlet",
+        "kalos-gym-gauntlet",
+        "alola-trial-gauntlet",
+        "galar-gym-gauntlet",
+        "paldea-gym-gauntlet",
+        "all-generations-gauntlet",
+    )
+    validator = _validator()
+    catalog = ShowdownSpeciesCatalog(
+        os.getenv("KOALABATTLE_TEAM_VALIDATOR_URL", "http://127.0.0.1:8002")
+    )
+
+    failures: dict[str, tuple[str, ...]] = {}
+    for definition_id in definition_ids:
+        definition = _definition(definition_id)
+        species_by_id = {
+            showdown_id(entry.id): entry for entry in await catalog.entries(definition.format)
+        }
+        for stage in definition.stages:
+            for mode in ("original", "filled"):
+                team = _prepare_opponent_stage_team(
+                    _opponent_stage_team(stage, mode), species_by_id
+                )
+                result = await validator.validate(
+                    _with_unique_duplicate_nicknames(_with_level(team, stage.level)),
+                    definition.format,
+                )
+                if not result.valid:
+                    failures[f"{definition_id}/{stage.id}/{mode}"] = result.errors
 
     assert failures == {}
 
@@ -53,13 +99,16 @@ async def test_shipped_opponent_sets_keep_their_items_abilities_and_natures() ->
     validator = _validator()
 
     for stage in definition.stages:
+        assert stage.filled_opponent_team is not None
         result = await validator.validate(
-            _with_unique_duplicate_nicknames(_with_level(stage.opponent_team, stage.level)),
+            _with_unique_duplicate_nicknames(
+                _with_level(stage.filled_opponent_team, stage.level)
+            ),
             definition.format,
         )
         assert result.valid, (stage.id, result.errors)
         assert result.structured_team is not None
-        assert len(result.structured_team) == len(stage.opponent_team.split("\n\n"))
+        assert len(result.structured_team) == len(stage.filled_opponent_team.split("\n\n"))
         for entry in result.structured_team:
             label = f"{stage.id}/{entry.get('species') or entry.get('name')}"
             assert entry.get("ability"), label
@@ -80,17 +129,19 @@ async def test_opponent_teams_stay_legal_while_difficulty_raises_their_level() -
     validator = _validator()
 
     for stage in definition.stages:
-        for difficulty in ChallengeDifficulty:
-            opponent_level = opponent_stage_level(stage.level, difficulty)
-            assert opponent_level >= stage.level
-            result = await validator.validate(
-                _with_unique_duplicate_nicknames(_with_level(stage.opponent_team, opponent_level)),
-                definition.format,
-            )
-            assert result.valid, (stage.id, difficulty, result.errors)
-            assert all(
-                entry.get("level") == opponent_level for entry in result.structured_team or ()
-            )
+        for mode in ("original", "filled"):
+            team = _opponent_stage_team(stage, mode)
+            for difficulty in ChallengeDifficulty:
+                opponent_level = opponent_stage_level(stage.level, difficulty)
+                assert opponent_level >= stage.level
+                result = await validator.validate(
+                    _with_unique_duplicate_nicknames(_with_level(team, opponent_level)),
+                    definition.format,
+                )
+                assert result.valid, (stage.id, mode, difficulty, result.errors)
+                assert all(
+                    entry.get("level") == opponent_level for entry in result.structured_team or ()
+                )
 
 
 @pytest.mark.integration

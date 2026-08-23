@@ -1,0 +1,157 @@
+{
+  "id": "alola-trial-gauntlet",
+  "version": "1.0.0",
+  "name": "Alola Grand Trial Gauntlet",
+  "description": "Alola's four Grand Trials, Elite Four and Champion Kukui.",
+  "format": "gen9natdexdraft",
+  "region": "Alola",
+  "generation": 7,
+  "campaign_kind": "regional",
+  "stage_count_label": "9 story stages",
+  "mechanics_assumptions": [
+    "Canonical story-mode species and order are preserved in Original teams mode",
+    "The pinned Gen 9 NatDex Draft validator supplies legal modern move and ability details",
+    "Regional campaign levels are normalized to the shared 25-to-100 progression"
+  ],
+  "source": {
+    "game": "Pokémon Alola story campaign",
+    "generation": 7,
+    "variant": "Canonical Gym/Trial, Elite Four and Champion story rosters",
+    "references": [
+      "https://bulbapedia.bulbagarden.net/wiki/Alola_Grand_Trials"
+    ],
+    "compatibility_note": "Story rosters are presented in the current NatDex Draft battle format."
+  },
+  "draft_rules": {
+    "roster_size": 6,
+    "rerolls": 3,
+    "type_rerolls": 1,
+    "generation_rerolls": 1,
+    "choice_count": 3,
+    "species_clause": true,
+    "draft_pool_mode": "all-forms"
+  },
+  "training_rules": {
+    "per_pokemon_max": 510,
+    "per_stat_max": 252
+  },
+  "stages": [
+    {
+      "id": "hala-trial",
+      "name": "Hala",
+      "title": "Melemele Grand Trial",
+      "theme": "fighting",
+      "level": 25,
+      "specialty": "Fighting",
+      "visual_accent": "#7bf0a2",
+      "full_heal_before": true,
+      "opponent_team": "Machoke\nLevel: 25\n\nMakuhita\nLevel: 25\n\nCrabrawler\nLevel: 25",
+      "filled_opponent_team": "Machoke\nLevel: 25\n\nMakuhita\nLevel: 25\n\nCrabrawler\nLevel: 25\n\nMachamp\nLevel: 25\n\nHariyama\nLevel: 25\n\nLucario\nLevel: 25",
+      "trainer_asset_id": null
+    },
+    {
+      "id": "olivia-trial",
+      "name": "Olivia",
+      "title": "Akala Grand Trial",
+      "theme": "rock",
+      "level": 34,
+      "specialty": "Rock",
+      "visual_accent": "#7bf0a2",
+      "full_heal_before": true,
+      "opponent_team": "Anorith\nLevel: 34\n\nLileep\nLevel: 34\n\nLycanroc\nLevel: 34",
+      "filled_opponent_team": "Anorith\nLevel: 34\n\nLileep\nLevel: 34\n\nLycanroc\nLevel: 34\n\nGolem\nLevel: 34\n\nRhyperior\nLevel: 34\n\nTyranitar\nLevel: 34",
+      "trainer_asset_id": null
+    },
+    {
+      "id": "nanu-trial",
+      "name": "Nanu",
+      "title": "Ulaula Grand Trial",
+      "theme": "dark",
+      "level": 44,
+      "specialty": "Dark",
+      "visual_accent": "#7bf0a2",
+      "full_heal_before": true,
+      "opponent_team": "Sableye\nLevel: 44\n\nKrokorok\nLevel: 44\n\nPersian\nLevel: 44",
+      "filled_opponent_team": "Sableye\nLevel: 44\n\nKrokorok\nLevel: 44\n\nPersian\nLevel: 44\n\nUmbreon\nLevel: 44\n\nHoundoom\nLevel: 44\n\nBisharp\nLevel: 44",
+      "trainer_asset_id": null
+    },
+    {
+      "id": "hapus-trial",
+      "name": "Hapu",
+      "title": "Poni Grand Trial",
+      "theme": "ground",
+      "level": 53,
+      "specialty": "Ground",
+      "visual_accent": "#7bf0a2",
+      "full_heal_before": true,
+      "opponent_team": "Dugtrio\nLevel: 53\n\nMudsdale\nLevel: 53\n\nFlygon\nLevel: 53",
+      "filled_opponent_team": "Dugtrio\nLevel: 53\n\nMudsdale\nLevel: 53\n\nFlygon\nLevel: 53\n\nGolem\nLevel: 53\n\nHippowdon\nLevel: 53\n\nKrookodile\nLevel: 53",
+      "trainer_asset_id": null
+    },
+    {
+      "id": "hala-elite",
+      "name": "Hala",
+      "title": "Elite Four",
+      "theme": "fighting",
+      "level": 62,
+      "specialty": "Fighting",
+      "visual_accent": "#7bf0a2",
+      "full_heal_before": true,
+      "opponent_team": "Hariyama\nLevel: 62\n\nPoliwrath\nLevel: 62\n\nBewear\nLevel: 62\n\ncrabrawler\nLevel: 62",
+      "filled_opponent_team": "Hariyama\nLevel: 62\n\nPoliwrath\nLevel: 62\n\nBewear\nLevel: 62\n\ncrabrawler\nLevel: 62\n\nMachamp\nLevel: 62\n\nLucario\nLevel: 62",
+      "trainer_asset_id": null
+    },
+    {
+      "id": "olivia-elite",
+      "name": "Olivia",
+      "title": "Elite Four",
+      "theme": "rock",
+      "level": 72,
+      "specialty": "Rock",
+      "visual_accent": "#7bf0a2",
+      "full_heal_before": false,
+      "opponent_team": "Relicanth\nLevel: 72\n\nCarbink\nLevel: 72\n\nProbopass\nLevel: 72\n\nLycanroc\nLevel: 72",
+      "filled_opponent_team": "Relicanth\nLevel: 72\n\nCarbink\nLevel: 72\n\nProbopass\nLevel: 72\n\nLycanroc\nLevel: 72\n\nGolem\nLevel: 72\n\nRhyperior\nLevel: 72",
+      "trainer_asset_id": null
+    },
+    {
+      "id": "acerola-elite",
+      "name": "Acerola",
+      "title": "Elite Four",
+      "theme": "ghost",
+      "level": 81,
+      "specialty": "Ghost",
+      "visual_accent": "#7bf0a2",
+      "full_heal_before": false,
+      "opponent_team": "Sableye\nLevel: 81\n\nDrifblim\nLevel: 81\n\nDhelmise\nLevel: 81\n\nPalossand\nLevel: 81",
+      "filled_opponent_team": "Sableye\nLevel: 81\n\nDrifblim\nLevel: 81\n\nDhelmise\nLevel: 81\n\nPalossand\nLevel: 81\n\nGengar\nLevel: 81\n\nChandelure\nLevel: 81",
+      "trainer_asset_id": null
+    },
+    {
+      "id": "kahili-elite",
+      "name": "Kahili",
+      "title": "Elite Four",
+      "theme": "flying",
+      "level": 91,
+      "specialty": "Flying",
+      "visual_accent": "#7bf0a2",
+      "full_heal_before": false,
+      "opponent_team": "Skarmory\nLevel: 91\n\nCrobat\nLevel: 91\n\nOricorio\nLevel: 91\n\nToucannon\nLevel: 91",
+      "filled_opponent_team": "Skarmory\nLevel: 91\n\nCrobat\nLevel: 91\n\nOricorio\nLevel: 91\n\nToucannon\nLevel: 91\n\nTogekiss\nLevel: 91\n\nGliscor\nLevel: 91",
+      "trainer_asset_id": null
+    },
+    {
+      "id": "kukui",
+      "name": "Kukui",
+      "title": "Champion",
+      "theme": "mixed",
+      "level": 100,
+      "specialty": "Mixed",
+      "visual_accent": "#7bf0a2",
+      "full_heal_before": false,
+      "opponent_team": "Lycanroc\nLevel: 100\n\nNinetales\nLevel: 100\n\nBraviary\nLevel: 100\n\nSnorlax\nLevel: 100\n\nMagnezone\nLevel: 100\n\nIncineroar\nLevel: 100",
+      "filled_opponent_team": "Lycanroc\nLevel: 100\n\nNinetales\nLevel: 100\n\nBraviary\nLevel: 100\n\nSnorlax\nLevel: 100\n\nMagnezone\nLevel: 100\n\nIncineroar\nLevel: 100",
+      "trainer_asset_id": null
+    }
+  ]
+}
