@@ -511,55 +511,6 @@
 
 <section class="preview">
   <BattleRenderer presentation={snapshot?.state || null} {config} campaign={match?.config.campaign || null} />
-  <!-- Every control here edits the renderer above as you touch it, and the same settings
-       drive the battle-view tab and the OBS source, so what you tune is what gets captured.
-       Collapsed by default so the battle, not the mixing desk, owns the screen. -->
-  <details class="preview-settings">
-  <summary><i class="ph ph-faders" aria-hidden="true"></i>Presentation settings</summary>
-  <div class="preview-tools">
-    <div class="tool-group">
-      <span class="tool-label">Frame</span>
-      <label>Layout<select value={config.layout} on:change={(event) => updateConfig({ layout: event.currentTarget.value as RendererLayout })}><option value="standard-landscape">Landscape</option><option value="standard-vertical">Vertical</option><option value="overlay-landscape">Overlay</option></select></label>
-      <label>Theme<select value={config.theme} on:change={(event) => updateConfig({ theme: event.currentTarget.value as RendererTheme })}><option value="pokemon-route">Pokémon Route</option><option value="pokemon-stadium">Pokémon Stadium</option><option value="koala-dark">Koala Dark</option><option value="koala-light">Koala Light</option></select></label>
-      <label>Your side<select value={config.nearSide} on:change={(event) => updateConfig({ nearSide: event.currentTarget.value as Side })}><option value="p1">P1 in front</option><option value="p2">P2 in front</option></select></label>
-    </div>
-
-    <div class="tool-group">
-      <span class="tool-label">Readability</span>
-      <label class="range">HUD size <b>{Math.round(config.hudScale * 100)}%</b>
-        <input
-          type="range"
-          min={HUD_SCALE_RANGE.min}
-          max={HUD_SCALE_RANGE.max}
-          step={HUD_SCALE_RANGE.step}
-          value={config.hudScale}
-          on:input={(event) => updateConfig({ hudScale: Number(event.currentTarget.value) })}
-        />
-      </label>
-      <label class="check"><input type="checkbox" checked={config.showTeamRoster} on:change={(event) => updateConfig({ showTeamRoster: event.currentTarget.checked })} />Team roster</label>
-      <label class="check"><input type="checkbox" checked={config.showTurn} on:change={(event) => updateConfig({ showTurn: event.currentTarget.checked })} />Turn counter</label>
-      <label class="check"><input type="checkbox" checked={config.showBattleLog} on:change={(event) => updateConfig({ showBattleLog: event.currentTarget.checked })} />Battle feed</label>
-      <label class="check"><input type="checkbox" checked={config.showAgentState} on:change={(event) => updateConfig({ showAgentState: event.currentTarget.checked })} />Agent state</label>
-      <label class="check"><input type="checkbox" checked={config.showDamageNumbers} on:change={(event) => updateConfig({ showDamageNumbers: event.currentTarget.checked })} />Damage numbers</label>
-    </div>
-
-    <div class="tool-group">
-      <span class="tool-label">Motion</span>
-      <label>Watch speed<select value={String(config.playbackSpeed)} on:change={(event) => updateConfig({ playbackSpeed: event.currentTarget.value === 'instant' ? 'instant' : Number(event.currentTarget.value) as PlaybackSpeed })}><option value="1">1×</option><option value="2">2×</option><option value="4">4×</option><option value="instant">Max</option></select></label>
-      <label>Effects<select value={config.effects} on:change={(event) => updateConfig({ effects: event.currentTarget.value as EffectQuality })}><option value="off">Off</option><option value="low">Low</option><option value="standard">Standard</option><option value="high">High</option></select></label>
-      <label>Move style<select value={config.moveEffectSkin} on:change={(event) => updateConfig({ moveEffectSkin: event.currentTarget.value as MoveEffectSkin })}><option value="broadcast">Broadcast</option><option value="retro">Retro</option><option value="procedural">Procedural</option></select></label>
-      <label>Commentary<select value={config.commentaryMode} on:change={(event) => updateConfig({ commentaryMode: event.currentTarget.value as CommentaryMode })}><option value="latest">Latest only</option><option value="last-3">Last three</option><option value="full">Full detail</option><option value="hidden">Hidden</option></select></label>
-      <label class="check"><input type="checkbox" checked={config.animatedSprites} on:change={(event) => updateConfig({ animatedSprites: event.currentTarget.checked })} />Animated sprites</label>
-      <label class="check"><input type="checkbox" checked={config.reducedMotion} on:change={(event) => updateConfig({ reducedMotion: event.currentTarget.checked })} />Reduced motion</label>
-      <label class="check"><input type="checkbox" checked={config.transparentBackground} on:change={(event) => updateConfig({ transparentBackground: event.currentTarget.checked })} />Transparent (OBS)</label>
-    </div>
-
-    <div class="tool-foot">
-      <button type="button" class="link-button" on:click={() => updateConfig(defaultRendererConfig())}>Reset to defaults</button>
-      <span class:sync-error={configSyncError} class="preview-note" role={configSyncError ? 'alert' : undefined}>{configSyncError || 'Live preview. The battle-view tab and the OBS source use these same settings.'}</span>
-    </div>
-  </div>
-  </details>
 </section>
 
 <!--
@@ -776,6 +727,57 @@
     </details>
   </div>
 {/if}
+
+<!-- Every control here edits the renderer above as you touch it, and the same settings
+     drive the battle-view tab and the OBS source, so what you tune is what gets captured.
+     Collapsed by default and pushed to the very bottom of the page, below everything else,
+     so the battle - not the mixing desk - owns the screen. -->
+<details class="preview-settings">
+<summary><i class="ph ph-faders" aria-hidden="true"></i>Presentation settings</summary>
+<div class="preview-tools">
+  <div class="tool-group">
+    <span class="tool-label">Frame</span>
+    <label>Layout<select value={config.layout} on:change={(event) => updateConfig({ layout: event.currentTarget.value as RendererLayout })}><option value="standard-landscape">Landscape</option><option value="standard-vertical">Vertical</option><option value="overlay-landscape">Overlay</option></select></label>
+    <label>Theme<select value={config.theme} on:change={(event) => updateConfig({ theme: event.currentTarget.value as RendererTheme })}><option value="pokemon-route">Pokémon Route</option><option value="pokemon-stadium">Pokémon Stadium</option><option value="koala-dark">Koala Dark</option><option value="koala-light">Koala Light</option></select></label>
+    <label>Your side<select value={config.nearSide} on:change={(event) => updateConfig({ nearSide: event.currentTarget.value as Side })}><option value="p1">P1 in front</option><option value="p2">P2 in front</option></select></label>
+  </div>
+
+  <div class="tool-group">
+    <span class="tool-label">Readability</span>
+    <label class="range">HUD size <b>{Math.round(config.hudScale * 100)}%</b>
+      <input
+        type="range"
+        min={HUD_SCALE_RANGE.min}
+        max={HUD_SCALE_RANGE.max}
+        step={HUD_SCALE_RANGE.step}
+        value={config.hudScale}
+        on:input={(event) => updateConfig({ hudScale: Number(event.currentTarget.value) })}
+      />
+    </label>
+    <label class="check"><input type="checkbox" checked={config.showTeamRoster} on:change={(event) => updateConfig({ showTeamRoster: event.currentTarget.checked })} />Team roster</label>
+    <label class="check"><input type="checkbox" checked={config.showTurn} on:change={(event) => updateConfig({ showTurn: event.currentTarget.checked })} />Turn counter</label>
+    <label class="check"><input type="checkbox" checked={config.showBattleLog} on:change={(event) => updateConfig({ showBattleLog: event.currentTarget.checked })} />Battle feed</label>
+    <label class="check"><input type="checkbox" checked={config.showAgentState} on:change={(event) => updateConfig({ showAgentState: event.currentTarget.checked })} />Agent state</label>
+    <label class="check"><input type="checkbox" checked={config.showDamageNumbers} on:change={(event) => updateConfig({ showDamageNumbers: event.currentTarget.checked })} />Damage numbers</label>
+  </div>
+
+  <div class="tool-group">
+    <span class="tool-label">Motion</span>
+    <label>Watch speed<select value={String(config.playbackSpeed)} on:change={(event) => updateConfig({ playbackSpeed: event.currentTarget.value === 'instant' ? 'instant' : Number(event.currentTarget.value) as PlaybackSpeed })}><option value="1">1×</option><option value="2">2×</option><option value="4">4×</option><option value="instant">Max</option></select></label>
+    <label>Effects<select value={config.effects} on:change={(event) => updateConfig({ effects: event.currentTarget.value as EffectQuality })}><option value="off">Off</option><option value="low">Low</option><option value="standard">Standard</option><option value="high">High</option></select></label>
+    <label>Move style<select value={config.moveEffectSkin} on:change={(event) => updateConfig({ moveEffectSkin: event.currentTarget.value as MoveEffectSkin })}><option value="broadcast">Broadcast</option><option value="retro">Retro</option><option value="procedural">Procedural</option></select></label>
+    <label>Commentary<select value={config.commentaryMode} on:change={(event) => updateConfig({ commentaryMode: event.currentTarget.value as CommentaryMode })}><option value="latest">Latest only</option><option value="last-3">Last three</option><option value="full">Full detail</option><option value="hidden">Hidden</option></select></label>
+    <label class="check"><input type="checkbox" checked={config.animatedSprites} on:change={(event) => updateConfig({ animatedSprites: event.currentTarget.checked })} />Animated sprites</label>
+    <label class="check"><input type="checkbox" checked={config.reducedMotion} on:change={(event) => updateConfig({ reducedMotion: event.currentTarget.checked })} />Reduced motion</label>
+    <label class="check"><input type="checkbox" checked={config.transparentBackground} on:change={(event) => updateConfig({ transparentBackground: event.currentTarget.checked })} />Transparent (OBS)</label>
+  </div>
+
+  <div class="tool-foot">
+    <button type="button" class="link-button" on:click={() => updateConfig(defaultRendererConfig())}>Reset to defaults</button>
+    <span class:sync-error={configSyncError} class="preview-note" role={configSyncError ? 'alert' : undefined}>{configSyncError || 'Live preview. The battle-view tab and the OBS source use these same settings.'}</span>
+  </div>
+</div>
+</details>
 
 <style>
   /* One compact identity row. Everything technical lives in the tools menu. */

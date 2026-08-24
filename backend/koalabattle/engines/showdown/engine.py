@@ -4,15 +4,20 @@ import asyncio
 import hashlib
 import json
 import logging
+import re
 from collections.abc import Coroutine
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 from uuid import uuid4
 
 from poke_env import AccountConfiguration, ServerConfiguration
-from poke_env.battle import AbstractBattle, DoubleBattle, Pokemon
+from poke_env.battle import AbstractBattle, DoubleBattle, Move, Pokemon, Target
 from poke_env.player import BattleOrder, Player
-from poke_env.player.battle_order import DoubleBattleOrder, ForfeitBattleOrder
+from poke_env.player.battle_order import (
+    DoubleBattleOrder,
+    ForfeitBattleOrder,
+    SingleBattleOrder,
+)
 
 from koalabattle.agents import AgentForfeitError
 from koalabattle.agents.base import Agent
@@ -49,6 +54,56 @@ def _viable_doubles_order(battle: DoubleBattle, order: DoubleBattleOrder) -> boo
     )
 
 
+_NEEDS_TARGET_ERROR = re.compile(r"Can't move: (.+) needs a target")
+
+
+def _move_id_from_display_name(name: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", name.lower())
+
+
+def _explicit_target_siblings(
+    per_slot_orders: list[list[SingleBattleOrder]],
+    battle: DoubleBattle,
+    ambiguous_moves: frozenset[str] = frozenset(),
+) -> list[list[SingleBattleOrder]]:
+    """Add explicit-foe-target variants for moves poke-env only offers with an
+    implicit/random target (Target.RANDOM_NORMAL - Outrage, Thrash, Petal Dance,
+    ...). A fresh use of such a move lets Showdown auto-pick a target, but a
+    *continuing* multi-turn lock whose original target has since left the field
+    demands an explicit one and rejects the implicit choice ("<Move> needs a
+    target") - an edge case poke-env's target enumeration doesn't model.
+
+    A move only reaches `ambiguous_moves` after Showdown has actually rejected
+    its implicit form this request (see `_NEEDS_TARGET_ERROR`); until then the
+    implicit form stays in the pool too; scored identically to its explicit
+    siblings, `max()` keeps preferring it, matching Showdown's own default
+    auto-target behavior for a fresh use. Once flagged, the implicit form is
+    dropped so a rejected choice can never be recomputed identically - forcing
+    selection onto an explicit target instead of a fallback to a worse move.
+    """
+    live_targets = [target for target in (1, 2) if _doubles_target_is_live(battle, target)]
+    if len(live_targets) < 2:
+        return per_slot_orders
+    expanded: list[list[SingleBattleOrder]] = []
+    for slot_orders in per_slot_orders:
+        kept: list[SingleBattleOrder] = []
+        siblings: list[SingleBattleOrder] = []
+        for order in slot_orders:
+            is_ambiguous_random_normal = (
+                order.move_target == 0
+                and isinstance(order.order, Move)
+                and order.order.target is Target.RANDOM_NORMAL
+            )
+            if not is_ambiguous_random_normal:
+                kept.append(order)
+                continue
+            siblings.extend(replace(order, move_target=target) for target in live_targets)
+            if order.order.id not in ambiguous_moves:
+                kept.append(order)
+        expanded.append([*kept, *siblings])
+    return expanded
+
+
 def _doubles_order_power(order: DoubleBattleOrder) -> int:
     """Prefer strong attacks at opponents, never strong attacks at an ally by accident."""
     total = 0
@@ -72,6 +127,12 @@ class DecisionSubmissionGuard:
     progress_signature: str | None = None
     pending_action: str | None = None
     rejected_actions: set[str] = field(default_factory=set)
+    # Moves Showdown has told us can't resolve their target implicitly right now
+    # (e.g. a continuing Outrage/Thrash/Petal Dance lock whose original target
+    # left the field). Keyed by move id, not by full action string, since the
+    # ambiguity is a property of the move itself, not of whatever else was
+    # bundled with it in the rejected choice.
+    ambiguous_moves: set[str] = field(default_factory=set)
     submission_counts: dict[str, int] = field(default_factory=dict)
     retry_requested: bool = False
 
@@ -85,6 +146,7 @@ class DecisionSubmissionGuard:
         self.progress_signature = progress_signature
         self.pending_action = None
         self.rejected_actions.clear()
+        self.ambiguous_moves.clear()
         self.submission_counts.clear()
         self.retry_requested = False
         return True
@@ -99,10 +161,13 @@ class DecisionSubmissionGuard:
         self.submission_counts[action] = count
         self.pending_action = action
 
-    def reject_pending(self) -> str | None:
+    def reject_pending(self, error: str = "") -> str | None:
         action = self.pending_action
         if action is not None:
             self.rejected_actions.add(action)
+        target_error = _NEEDS_TARGET_ERROR.search(error)
+        if target_error is not None:
+            self.ambiguous_moves.add(_move_id_from_display_name(target_error.group(1)))
         self.retry_requested = True
         return action
 
@@ -276,8 +341,19 @@ class _KoalaPlayer(Player):
         if isinstance(battle, DoubleBattle):
             orders = [
                 order
-                for order in DoubleBattleOrder.join_orders(*battle.valid_orders)
+                for order in DoubleBattleOrder.join_orders(
+                    *_explicit_target_siblings(
+                        battle.valid_orders,
+                        battle,
+                        frozenset(self.submission_guard.ambiguous_moves),
+                    )
+                )
                 if _viable_doubles_order(battle, order)
+                # Mirror the singles path: once Showdown has rejected an order for this
+                # request, never resubmit it verbatim. Without this, a rejected "best"
+                # order is recomputed identically every retry and the submission guard's
+                # no-progress circuit breaker forfeits the match instead of adapting.
+                and order.message not in self.submission_guard.rejected_actions
             ]
             if not self.context.config.allow_terastallization:
                 orders = [
@@ -459,7 +535,7 @@ class _KoalaPlayer(Player):
             error = parts[2]
             if not error.startswith(("[Invalid choice]", "[Unavailable choice]")):
                 continue
-            rejected = self.submission_guard.reject_pending()
+            rejected = self.submission_guard.reject_pending(error)
             await _bridge(
                 self.app_loop,
                 self.context.sink.emit(
