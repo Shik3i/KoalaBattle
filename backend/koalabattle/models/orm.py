@@ -5,6 +5,7 @@ from typing import Any
 
 from sqlalchemy import (
     Boolean,
+    LargeBinary,
     DateTime,
     Float,
     ForeignKey,
@@ -105,7 +106,13 @@ class BattleEventRow(Base):
     event_type: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     logical_offset_ms: Mapped[int] = mapped_column(Integer, nullable=False)
-    payload_json: Mapped[str] = mapped_column(Text, nullable=False)
+    #: zlib-compressed payload JSON. Snapshots re-serialize both full teams and made
+    #: up 82% of this table, so payloads are stored compressed and — unless this row
+    #: is a keyframe — against the previous payload of the same event type as the
+    #: dictionary. See `koalabattle.storage.payloads` for why that is safe here.
+    payload_z: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    #: True when `payload_z` decodes on its own. The bytes do not reveal this.
+    payload_keyframe: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     schema_version: Mapped[str] = mapped_column(String(20), nullable=False)
 
     match: Mapped[MatchRow] = relationship(back_populates="events")

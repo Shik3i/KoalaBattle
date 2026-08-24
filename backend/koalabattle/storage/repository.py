@@ -28,6 +28,7 @@ from koalabattle.models.orm import AgentDecisionRow, BattleEventRow, MatchRow, P
 from koalabattle.orchestration.lifecycle import ACTIVE_MATCH_STATUSES, validate_transition
 
 from .database import Database
+from .payloads import ChainDecoder, ChainEncoder
 
 LOGGER = logging.getLogger(__name__)
 
@@ -36,6 +37,13 @@ def _json(value: object) -> str:
     if isinstance(value, BaseModel):
         return value.model_dump_json()
     return json.dumps(value, separators=(",", ":"), sort_keys=True)
+
+
+def _encoded_payload(
+    encoder: ChainEncoder, event_type: str, payload: object
+) -> dict[str, object]:
+    blob, keyframe = encoder.encode(event_type, _json(payload).encode())
+    return {"payload_z": blob, "payload_keyframe": keyframe}
 
 
 def _decision_record(decision: AgentDecisionRow) -> DecisionRecord:
@@ -61,6 +69,9 @@ class BattleRepository:
     def __init__(self, database: Database) -> None:
         self.database = database
         self._event_locks: defaultdict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
+        #: Compression chain state per match. Purely an optimization: a missing entry
+        #: makes the next payload a keyframe, which is always valid to write.
+        self._event_encoders: defaultdict[str, ChainEncoder] = defaultdict(ChainEncoder)
         self._production_event_hook: Callable[[BattleEvent], Awaitable[None]] | None = None
         self._production_completion_hook: Callable[[UUID], Awaitable[None]] | None = None
 
@@ -77,6 +88,7 @@ class BattleRepository:
         lock = self._event_locks.get(str(match_id))
         if lock is not None and not lock.locked():
             self._event_locks.pop(str(match_id), None)
+            self._event_encoders.pop(str(match_id), None)
 
     async def create_match(
         self,
@@ -215,7 +227,9 @@ class BattleRepository:
                     event_type=stored.event_type,
                     created_at=stored.created_at,
                     logical_offset_ms=stored.logical_offset_ms,
-                    payload_json=_json(stored.payload),
+                    **_encoded_payload(
+                        self._event_encoders[match_key], stored.event_type, stored.payload
+                    ),
                     schema_version=stored.schema_version,
                 )
                 session.add(row)
@@ -501,6 +515,8 @@ class BattleRepository:
     @staticmethod
     def _archive(row: MatchRow) -> MatchArchive:
         config = MatchConfig.model_validate_json(row.config_json)
+        # Sequence order is what the chain was built in, so one pass decodes it.
+        decoder = ChainDecoder()
         events = tuple(
             BattleEvent(
                 id=event.id,
@@ -510,7 +526,9 @@ class BattleRepository:
                 event_type=event.event_type,
                 created_at=event.created_at.replace(tzinfo=event.created_at.tzinfo or UTC),
                 logical_offset_ms=event.logical_offset_ms,
-                payload=json.loads(event.payload_json),
+                payload=json.loads(
+                    decoder.decode(event.event_type, event.payload_z, event.payload_keyframe)
+                ),
                 schema_version=event.schema_version,
             )
             for event in sorted(row.events, key=lambda item: item.sequence)
