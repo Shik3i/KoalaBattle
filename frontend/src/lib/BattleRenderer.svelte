@@ -2,6 +2,7 @@
   import { pokemonAssetUrl } from './presentation/assets';
   import { apiBase } from './api';
   import { moveEffectAssetUrl, resolveMoveEffect } from './move-effects';
+  import { readableInk } from './challenge';
   import {
     defaultRendererConfig,
     type BattlePresentationState,
@@ -278,7 +279,18 @@
     return Math.round(active.hp_fraction * 100);
   }
 
+  /** Screen-reader wording that never claims HP points the app does not have. */
+  function hpLabel(active: NonNullable<BattleSide['active']>) {
+    return active.hp_is_exact === false
+      ? `${hpPercent(active)}%`
+      : `${formatExactHp(active)} HP (${hpPercent(active)}%)`;
+  }
+
   function formatExactHp(active: NonNullable<BattleSide['active']>) {
+    // Showdown only reveals real HP points for the side it is talking to; the other
+    // side arrives as a percentage. Rendering that as "2 / 100" claimed a 100 HP bar,
+    // so a percentage-only reading is shown as the percentage it actually is.
+    if (active.hp_is_exact === false) return `${hpPercent(active)}%`;
     if (active.current_hp != null && active.max_hp) {
       // Older normalized snapshots can carry a stale absolute value next to the authoritative
       // fraction. Never render a mathematically impossible pair such as 303 / 303 (19%).
@@ -336,7 +348,7 @@
             data-field-slot={slot.fieldSlot}
             style={switchPlateStyle(slot.side)}
             role="region"
-            aria-label={`${slot.active.name}, ${formatExactHp(slot.active)} (${hpPercent(slot.active)}%) health`}
+            aria-label={`${slot.active.name}, ${hpLabel(slot.active)} health`}
           >
             <div class={`gen5-box gen5-${slot.place}-box`}>
               <!-- Top Row: Name | Level | Gender | Types | Status -->
@@ -355,7 +367,7 @@
                 {/if}
                 <div class="gen5-types-row">
                   {#each slot.active.types as type}
-                    <span class="gen5-type-badge" style={`--type-bg:${typeColor(type)}`}>{type}</span>
+                    <span class="gen5-type-badge" style={`--type-bg:${typeColor(type)};--type-ink:${readableInk(typeColor(type))}`}>{type}</span>
                   {/each}
                 </div>
                 {#if slot.active.status}
@@ -384,7 +396,10 @@
                 <div class="gen5-hp-label">HP</div>
                 <div class="gen5-exact-hp-wrap">
                   <b class="gen5-exact-hp">{formatExactHp(slot.active)}</b>
-                  <span class="gen5-hp-pct">({hpPercent(slot.active)}%)</span>
+                  <!-- Suppressed when the bar is already a percentage: "2% (2%)". -->
+                  {#if slot.active.hp_is_exact !== false}
+                    <span class="gen5-hp-pct">({hpPercent(slot.active)}%)</span>
+                  {/if}
                 </div>
               </div>
             </div>
@@ -403,7 +418,7 @@
             data-field-slot={slot.fieldSlot}
             data-fainted={slot.active.fainted}
             data-switching={Boolean(transition)}
-            aria-label={`${slot.active.name}: ${formatExactHp(slot.active)} HP (${hpPercent(slot.active)}%)`}
+            aria-label={`${slot.active.name}: ${hpLabel(slot.active)}`}
           >
             <div class="sprite-slot">
               <div class="platform" aria-hidden="true"><i class="pedestal-surface"></i><i class="pedestal-rim"></i></div>
@@ -658,7 +673,7 @@
 
   /* Prominent Type Badges */
   .gen5-types-row{display:flex;gap:5px;align-items:center}
-  .gen5-type-badge{display:inline-flex;align-items:center;padding:2px 8px;border-radius:4px;background:var(--type-bg,#788a80);color:#fff;font-family:var(--mono);font-size:calc(var(--hud-scale,1) * clamp(.62rem,.8cqw,.82rem));font-weight:900;text-transform:uppercase;letter-spacing:.06em;text-shadow:0 1px 2px rgba(0,0,0,.8);box-shadow:0 1px 3px rgba(0,0,0,.5)}
+  .gen5-type-badge{display:inline-flex;align-items:center;padding:2px 8px;border-radius:4px;background:var(--type-bg,#788a80);color:var(--type-ink,#fff);font-family:var(--mono);font-size:calc(var(--hud-scale,1) * clamp(.62rem,.8cqw,.82rem));font-weight:900;text-transform:uppercase;letter-spacing:.06em;box-shadow:0 1px 3px rgba(0,0,0,.5)}
 
   /* Distinct Status Badges */
   .gen5-status-badge{padding:2px 7px;border-radius:3px;font-family:var(--mono);font-size:.68rem;font-weight:900;letter-spacing:.06em;text-transform:uppercase;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.85)}

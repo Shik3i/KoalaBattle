@@ -11,6 +11,7 @@
   import { configFromQuery, sanitizeRendererConfig } from '$lib/presentation/config';
   import { styleToRendererConfig } from '$lib/production/style';
   import { connectLiveSocket } from '$lib/presentation/live-socket';
+  import { fullscreenSupported, isFullscreen, onFullscreenChange, toggleFullscreen } from '$lib/fullscreen';
   import { PresentationTimeline } from '$lib/presentation/timeline';
   import {
     defaultRendererConfig,
@@ -29,6 +30,9 @@
   let productionClockActive = false;
   let speaking: ProductionPlaybackState['speaking'] = [];
   let connection: 'connecting' | 'live' | 'reconnecting' = 'connecting';
+  let viewElement: HTMLElement | null = null;
+  let viewFullscreen = false;
+  const canFullscreen = fullscreenSupported();
 
   interface StreamMessage {
     kind: string; match?: MatchArchive; event?: BattleEvent; error?: string;
@@ -43,8 +47,28 @@
     // left alone rather than approximated with a parallel theme system.
     void applyStyle(query.get('style'));
     void connect();
-    return () => { stopSocket?.(); timeline?.destroy(); };
+    // "f" toggles; Escape/F11 leave without going through the button.
+    const onKey = (event: KeyboardEvent) => {
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      if (event.key !== 'f' && event.key !== 'F') return;
+      event.preventDefault();
+      void toggleViewFullscreen();
+    };
+    window.addEventListener('keydown', onKey);
+    const stopFullscreenSync = onFullscreenChange(() => {
+      viewFullscreen = isFullscreen(viewElement);
+    });
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      stopFullscreenSync();
+      stopSocket?.();
+      timeline?.destroy();
+    };
   });
+
+  async function toggleViewFullscreen() {
+    viewFullscreen = await toggleFullscreen(viewElement);
+  }
 
   async function applyStyle(styleId: string | null) {
     if (!styleId) return;
@@ -116,7 +140,7 @@
 
 <svelte:head><title>KoalaBattle · Battle view</title></svelte:head>
 
-<div class="battle-view">
+<div class="battle-view" bind:this={viewElement}>
   <BattleRenderer presentation={snapshot?.state || null} {config} overlay {speaking} campaign={match?.config.campaign || null} />
   <!-- Keeps narration audio available on the viewer tab; no battle controls are exposed. -->
   <ProductionConsole
@@ -126,6 +150,15 @@
     followLive
     on:playback={syncProductionPlayback}
   />
+  {#if canFullscreen}
+    <button
+      type="button"
+      class="fullscreen-toggle"
+      on:click={toggleViewFullscreen}
+      aria-label={viewFullscreen ? 'Exit fullscreen' : 'Enter fullscreen (F)'}
+      title={viewFullscreen ? 'Exit fullscreen (F)' : 'Fullscreen (F)'}
+    ><i class={`ph ${viewFullscreen ? 'ph-corners-in' : 'ph-corners-out'}`} aria-hidden="true"></i></button>
+  {/if}
   {#if connection !== 'live'}
     <p class="connection" role="status">{connection === 'connecting' ? 'Connecting…' : 'Reconnecting…'}</p>
   {/if}
@@ -134,5 +167,10 @@
 <style>
   /* Fills the viewport exactly; the battle must never require scrolling. */
   .battle-view{position:fixed;inset:0;overflow:hidden;background:#050a08}
+  /* Sits over the arena, fades back until hovered so it never competes with the
+     battle on a capture source. */
+  .fullscreen-toggle{position:absolute;z-index:20;right:1rem;top:1rem;display:grid;place-items:center;width:40px;height:40px;border:1px solid rgba(255,255,255,.18);border-radius:.55rem;background:rgba(6,14,10,.7);color:#e9fff4;font-size:1.05rem;cursor:pointer;opacity:.35;transition:opacity .16s ease,background .16s ease}
+  .fullscreen-toggle:hover,.fullscreen-toggle:focus-visible{opacity:1;background:rgba(6,14,10,.92)}
+  @media(prefers-reduced-motion:reduce){.fullscreen-toggle{transition:none}}
   .connection{position:absolute;right:1rem;bottom:1rem;margin:0;padding:.42rem .7rem;border:1px solid rgba(255,255,255,.16);border-radius:999px;background:rgba(6,14,10,.82);color:#ffd26a;font:.65rem var(--mono)}
 </style>

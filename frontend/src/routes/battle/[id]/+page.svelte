@@ -10,6 +10,7 @@
   import type { AgentLifecycleState, AgentRequest, BattleAction, BattleEvent, ChallengeRunView, MatchArchive, Side } from '$lib/types';
   import { actionIndexForKey, actionPreview, isForcedSwitch, shortcutFor } from '$lib/manual-action';
   import { campaignOpponentHeading, challengeErrorMessage } from '$lib/challenge';
+  import { fullscreenSupported, isFullscreen, onFullscreenChange, toggleFullscreen } from '$lib/fullscreen';
 
   export let data: { id: string };
   let match: MatchArchive | null = null;
@@ -33,6 +34,9 @@
   let activeTab: Side | null = null;
   let toolMenu: HTMLDetailsElement | null = null;
   let auditOpen = false;
+  let arenaElement: HTMLElement | null = null;
+  let arenaFullscreen = false;
+  const canFullscreen = fullscreenSupported();
   let auditLoaded = false;
   let auditLoading = false;
 
@@ -133,11 +137,16 @@
     window.addEventListener('keydown', handleManualShortcut);
     window.addEventListener('keydown', closeToolMenu);
     window.addEventListener('pointerdown', closeToolMenu);
+    // Escape, F11 and OS gestures all leave fullscreen without touching our button.
+    const stopFullscreenSync = onFullscreenChange(() => {
+      arenaFullscreen = isFullscreen(arenaElement);
+    });
     void connect();
     return () => {
       window.removeEventListener('keydown', handleManualShortcut);
       window.removeEventListener('keydown', closeToolMenu);
       window.removeEventListener('pointerdown', closeToolMenu);
+      stopFullscreenSync();
       stopSocket?.(); timeline?.destroy();
       if (copyTimer) clearTimeout(copyTimer);
       if (configBroadcastTimer) clearTimeout(configBroadcastTimer);
@@ -379,10 +388,21 @@
       submitting = { ...submitting, [side]: false };
     }
   }
+  async function toggleArenaFullscreen() {
+    arenaFullscreen = await toggleFullscreen(arenaElement);
+  }
+
   function handleManualShortcut(event: KeyboardEvent) {
     const target = event.target as HTMLElement | null;
     if (target?.matches('input, textarea, select, [contenteditable="true"]')) return;
-    if (!activeTab || event.metaKey || event.ctrlKey || event.altKey) return;
+    if (event.metaKey || event.ctrlKey || event.altKey) return;
+    // Digits 1-9 pick a legal action, so "f" is free for the arena toggle.
+    if (event.key === 'f' || event.key === 'F') {
+      event.preventDefault();
+      void toggleArenaFullscreen();
+      return;
+    }
+    if (!activeTab) return;
     const index = actionIndexForKey(event.key);
     const request = activeTab ? pending[activeTab] : null;
     if (index == null || !isHuman(activeTab) || !request?.legal_actions[index] || submitting[activeTab]) return;
@@ -509,7 +529,7 @@
   }
 </script>
 
-<section class="preview">
+<section class="preview" class:arena-fullscreen={arenaFullscreen} bind:this={arenaElement}>
   <BattleRenderer presentation={snapshot?.state || null} {config} campaign={match?.config.campaign || null} />
 </section>
 
@@ -532,6 +552,10 @@
       <summary title="Battle view, OBS and streaming tools"><i class="ph ph-sliders-horizontal" aria-hidden="true"></i><span>Tools</span></summary>
       <!-- Activating an item closes the menu; leaving it open hides the battle. -->
       <div class="tool-menu-panel" on:click={() => toolMenu && (toolMenu.open = false)} role="none">
+        <span class="tool-menu-label">Arena</span>
+        {#if canFullscreen}
+          <button type="button" class="tool-menu-item" on:click={toggleArenaFullscreen}><i class={`ph ${arenaFullscreen ? 'ph-corners-in' : 'ph-corners-out'}`} aria-hidden="true"></i>{arenaFullscreen ? 'Exit fullscreen' : 'Fullscreen'}<kbd>F</kbd></button>
+        {/if}
         <span class="tool-menu-label">Battle view</span>
         <a class="tool-menu-item" href={`/watch/${data.id}`} target="_blank" rel="noopener"><i class="ph ph-monitor-play" aria-hidden="true"></i>Open battle view</a>
         <button type="button" class="tool-menu-item" on:click={() => copyText('watch', battleViewUrl)}><i class="ph ph-copy" aria-hidden="true"></i>{copied === 'watch' ? 'Copied' : 'Copy battle view URL'}</button>
@@ -543,6 +567,27 @@
     </details>
   </div>
 </div>
+
+<!--
+  A battle that stopped looks exactly like one that is thinking: the arena keeps the
+  last frame and the feed keeps its last line. Say so where the battle is, instead of
+  leaving the only clue in a status pill and a collapsed drawer further down.
+-->
+{#if match && ['failed','cancelled','interrupted'].includes(match.status)}
+  <section class="battle-stopped panel" role="alert">
+    <i class={`ph ${match.status === 'cancelled' ? 'ph-prohibit' : 'ph-warning-circle'}`} aria-hidden="true"></i>
+    <div>
+      <strong>
+        {match.status === 'cancelled' ? 'This battle was cancelled' : match.status === 'failed' ? 'This battle failed' : 'This battle was interrupted'}
+      </strong>
+      <small>{match.error || (match.status === 'interrupted' ? 'The backend restarted while the battle was running. It stopped where you see it and can be continued.' : 'It stopped where you see it.')}</small>
+    </div>
+    <div class="battle-stopped-actions">
+      <button class="button" disabled={resuming || rematching} on:click={handleResume}>{resuming ? 'Continuing…' : 'Continue'}</button>
+      <button class="button secondary" disabled={resuming || rematching} on:click={handleRematch}>{rematching ? 'Rematching…' : 'Rematch'}</button>
+    </div>
+  </section>
+{/if}
 
 {#if match && humanSides.length && !pendingSides.some((side) => isHuman(side)) && !['completed','failed','cancelled','interrupted'].includes(match.status)}
   <section class="human-wait panel" role="status">
@@ -799,6 +844,7 @@
   .tool-menu-label{margin:.3rem .35rem .1rem;color:var(--accent);font:700 .58rem var(--mono);letter-spacing:.13em;text-transform:uppercase}
   .tool-menu-item{display:flex;min-height:44px;align-items:center;gap:.5rem;width:100%;padding:.45rem .55rem;border:0;border-radius:.5rem;background:transparent;color:var(--text);font:600 .8rem var(--display);text-align:left;cursor:pointer}
   .tool-menu-item:hover{background:var(--surface)}
+  .tool-menu-item kbd{margin-left:auto;padding:.1rem .35rem;border:1px solid var(--border);border-radius:.3rem;background:var(--surface);color:var(--muted);font:600 .6rem var(--mono)}
   .tool-menu-note{margin:.35rem .35rem 0;color:var(--muted);font-size:.68rem;line-height:1.45}
   .preview-settings{margin-top:.7rem;border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--panel)}
   .preview-settings>summary{display:flex;min-height:44px;align-items:center;gap:.45rem;padding:.6rem .9rem;color:var(--muted);font:650 .78rem var(--display);cursor:pointer}
@@ -807,6 +853,17 @@
   .human-wait>div{flex:1}.human-wait h2{margin:.2rem 0;font-size:1rem}.human-wait p{margin:.2rem 0;color:var(--muted);font-size:.72rem}
   .wait-pulse{width:12px;aspect-ratio:1;border-radius:50%;background:var(--accent);box-shadow:0 0 0 6px color-mix(in srgb,var(--accent) 14%,transparent);animation:wait-pulse 1.6s ease-in-out infinite}@keyframes wait-pulse{50%{opacity:.4}}
   .preview{margin-top:0}
+  .battle-stopped{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:.9rem;margin-top:.6rem;padding:.85rem 1rem;border-color:color-mix(in srgb,var(--danger) 55%,var(--border));background:color-mix(in srgb,var(--danger) 8%,var(--panel))}
+  .battle-stopped>i{color:var(--danger);font-size:1.4rem}
+  .battle-stopped div{display:grid;gap:.15rem;min-width:0}
+  .battle-stopped strong{font-size:.92rem}
+  .battle-stopped small{color:var(--muted);font-size:.72rem;line-height:1.45}
+  .battle-stopped-actions{display:flex;flex-wrap:wrap;gap:.45rem}
+  @media(max-width:700px){.battle-stopped{grid-template-columns:auto minmax(0,1fr)}.battle-stopped-actions{grid-column:1/-1}.battle-stopped-actions .button{flex:1}}
+  /* The arena fills the fullscreen surface; the collapsed settings and any page
+     chrome stay out of the way until fullscreen is left again. */
+  .preview.arena-fullscreen{display:grid;place-items:center;width:100vw;height:100vh;background:var(--surface)}
+  .preview.arena-fullscreen :global(.battle-renderer){width:100%;height:100%;max-height:100vh}
   .preview-tools{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:1rem;padding:0 1.1rem 1rem;border-top:1px solid var(--border);padding-top:1rem}
   .tool-group{display:grid;align-content:start;gap:.5rem;min-width:0}
   .tool-label{color:var(--accent);font:700 .62rem var(--mono);letter-spacing:.14em;text-transform:uppercase}

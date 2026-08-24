@@ -316,6 +316,30 @@ export function pokemonTypeColor(type: string): string {
   return TYPE_COLORS[type.toLowerCase()] || '#7f8c9a';
 }
 
+/**
+ * Readable ink for text sitting on `background`.
+ *
+ * The canonical type colours are recognisable and must not change, but several of
+ * them are far too light for white text: white on Grass or Normal measures about
+ * 1.45:1, well under the 4.5:1 WCAG AA needs at badge size. Choosing the ink per
+ * background keeps the type colour and makes the label legible.
+ */
+export function readableInk(background: string): string {
+  const hex = background.replace('#', '').trim();
+  const full = hex.length === 3 ? hex.split('').map((part) => part + part).join('') : hex;
+  if (full.length !== 6) return '#ffffff';
+  const channels = [0, 2, 4].map((offset) => {
+    const value = Number.parseInt(full.slice(offset, offset + 2), 16) / 255;
+    return value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+  });
+  const luminance = 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
+  // Contrast against black is (L+0.05)/0.05; against white 1.05/(L+0.05). They cross
+  // at L ≈ 0.179, so this picks whichever side actually has more headroom. Pure black
+  // rather than a near-black: the mid-luminance types (Dark, Dragon) have so little
+  // headroom that even #101614 leaves them just under 4.5:1.
+  return luminance > 0.179 ? '#000000' : '#ffffff';
+}
+
 export function legalEvValue(
   allocations: Record<string, EvSpread>,
   entryId: string,

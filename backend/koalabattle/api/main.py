@@ -177,6 +177,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         try:
             await service.start()
             await challenges.reconcile()
+            if resolved.decision_audit_retention_matches:
+                matches, decisions = await repository.prune_decision_audits(
+                    keep_recent_matches=resolved.decision_audit_retention_matches
+                )
+                if decisions:
+                    LOGGER.info(
+                        "Pruned the prompt/decision audit of %s match(es) (%s decisions), "
+                        "keeping the newest %s. Replays and results are unaffected.",
+                        matches,
+                        decisions,
+                        resolved.decision_audit_retention_matches,
+                    )
             await production.start()
             await video.start()
             yield
@@ -1289,6 +1301,31 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/api/admin/overview")
     async def admin_overview(request: Request) -> dict[str, object]:
         return await _service(request).admin_overview()
+
+    @app.post("/api/admin/maintenance/prune-audits", dependencies=require_auth)
+    async def prune_decision_audits(
+        request: Request, keep_recent_matches: int, dry_run: bool = True
+    ) -> dict[str, object]:
+        """Drop the prompt/decision audit of older matches.
+
+        Defaults to a dry run: this deletes an operator's own history, so the
+        destructive call has to be asked for explicitly. Replays, results and
+        per-stage campaign costs live elsewhere and are not touched.
+        """
+        if keep_recent_matches < 1:
+            raise HTTPException(
+                status_code=422, detail="keep_recent_matches must be at least 1"
+            )
+        repository: BattleRepository = request.app.state.repository
+        matches, decisions = await repository.prune_decision_audits(
+            keep_recent_matches=keep_recent_matches, dry_run=dry_run
+        )
+        return {
+            "dry_run": dry_run,
+            "keep_recent_matches": keep_recent_matches,
+            "matches_affected": matches,
+            "decisions_removed": decisions,
+        }
 
     @app.post("/api/admin/prompts/render", dependencies=require_auth)
     async def render_historical_prompt(

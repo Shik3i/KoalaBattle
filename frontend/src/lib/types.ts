@@ -129,6 +129,13 @@ export interface PokemonState {
   hp_fraction: number;
   current_hp?: number | null;
   max_hp?: number | null;
+  /**
+   * Whether `current_hp`/`max_hp` are real HP points. Showdown reveals those only for
+   * the side it is talking to and reports the other side as a percentage (`x/100`), so
+   * without this a 2%-health Pokemon renders as "2 / 100" — indistinguishable from a
+   * 100 HP bar. Optional so archives saved before the flag keep their meaning.
+   */
+  hp_is_exact?: boolean;
   status: string | null;
   types: string[];
   item?: string | null;

@@ -601,3 +601,183 @@ test('the recap keeps duplicate opponent species as separate Pokemon', () => {
     ['p2: Gengar', 'p2: Gengar 2']
   );
 });
+
+test('a real HP reading is never downgraded by a later percentage-only snapshot', () => {
+  // Both engine players stream snapshots: each reports its own side in real HP points
+  // and the other side as a percentage. Taking whichever arrived last made one bar
+  // flip between "0 / 34" and "2 / 100" mid-battle, which is what a viewer sees as
+  // "my Pokemon always has 100 HP but the opponent does not".
+  const exact = {
+    id: 'p1a: Wattrel', name: 'Wattrel', species: 'Wattrel', hp_fraction: 1,
+    current_hp: 34, max_hp: 34, hp_is_exact: true,
+    status: null, types: ['Electric'], active: true, fainted: false
+  };
+  const asPercent = { ...exact, current_hp: 100, max_hp: 100, hp_is_exact: false };
+  const opponent = {
+    id: 'p2a: Staryu', name: 'Staryu', species: 'Staryu', hp_fraction: 1,
+    current_hp: 100, max_hp: 100, hp_is_exact: false,
+    status: null, types: ['Water'], active: true, fainted: false
+  };
+
+  const fromOwnSide = {
+    ...battle,
+    player: { side: 'p1', display_name: 'Alpha', active: exact, team: [exact] },
+    opponent: { side: 'p2', display_name: 'Beta', active: opponent, team: [opponent] }
+  } satisfies BattleState;
+  const fromOtherSide = {
+    ...battle,
+    player: { side: 'p1', display_name: 'Alpha', active: asPercent, team: [asPercent] },
+    opponent: { side: 'p2', display_name: 'Beta', active: opponent, team: [opponent] }
+  } satisfies BattleState;
+
+  const state = reduceEvents(createPresentationState(match), [
+    event(1, 'state_snapshot', { state: fromOwnSide }),
+    event(2, 'state_snapshot', { state: fromOtherSide })
+  ]);
+
+  assert.equal(state.battle?.player.active?.max_hp, 34, 'the real 34 HP bar must survive');
+  assert.equal(state.battle?.player.active?.hp_is_exact, true);
+  assert.equal(state.battle?.player.team[0].max_hp, 34, 'and on the bench entry too');
+});
+
+test('a percentage-only reading is upgraded once real HP points arrive', () => {
+  const asPercent = {
+    id: 'p1a: Wattrel', name: 'Wattrel', species: 'Wattrel', hp_fraction: 1,
+    current_hp: 100, max_hp: 100, hp_is_exact: false,
+    status: null, types: ['Electric'], active: true, fainted: false
+  };
+  const exact = { ...asPercent, current_hp: 34, max_hp: 34, hp_is_exact: true };
+  const side = (active: typeof asPercent) => ({
+    ...battle,
+    player: { side: 'p1', display_name: 'Alpha', active, team: [active] },
+    opponent: { side: 'p2', display_name: 'Beta', active: null, team: [] }
+  }) satisfies BattleState;
+
+  const state = reduceEvents(createPresentationState(match), [
+    event(1, 'state_snapshot', { state: side(asPercent) }),
+    event(2, 'state_snapshot', { state: side(exact) })
+  ]);
+
+  assert.equal(state.battle?.player.active?.max_hp, 34);
+  assert.equal(state.battle?.player.active?.hp_is_exact, true);
+});
+
+test('legacy archives without the flag still resolve a 100-point bar as the percentage', () => {
+  // Matches recorded before `hp_is_exact` existed carry no flag, so both readings look
+  // exact. A percentage always arrives as x/100, so the differing non-100 bar is real.
+  const asPercent = {
+    id: 'p1a: Wattrel', name: 'Wattrel', species: 'Wattrel', hp_fraction: 1,
+    current_hp: 100, max_hp: 100,
+    status: null, types: ['Electric'], active: true, fainted: false
+  };
+  const real = { ...asPercent, current_hp: 34, max_hp: 34 };
+  const side = (active: typeof asPercent) => ({
+    ...battle,
+    player: { side: 'p1', display_name: 'Alpha', active, team: [active] },
+    opponent: { side: 'p2', display_name: 'Beta', active: null, team: [] }
+  }) satisfies BattleState;
+
+  const percentFirst = reduceEvents(createPresentationState(match), [
+    event(1, 'state_snapshot', { state: side(asPercent) }),
+    event(2, 'state_snapshot', { state: side(real) })
+  ]);
+  assert.equal(percentFirst.battle?.player.active?.max_hp, 34);
+
+  // And the other arrival order reaches the same conclusion.
+  const realFirst = reduceEvents(createPresentationState(match), [
+    event(1, 'state_snapshot', { state: side(real) }),
+    event(2, 'state_snapshot', { state: side(asPercent) })
+  ]);
+  assert.equal(realFirst.battle?.player.active?.max_hp, 34);
+});
+
+test('real HP revealed while a Pokemon is benched reaches its active plate too', () => {
+  // The active Pokemon is tracked separately from the team, so a snapshot that reveals
+  // a benched mon's real HP used to leave the arena plate on the percentage it entered
+  // with — the "10 / 100" a viewer sees next to an opponent's honest "0 / 37".
+  const benchPercent = {
+    id: 'p1: Zygarde', name: 'Zygarde', species: 'Zygarde', hp_fraction: 0.25,
+    current_hp: 100, max_hp: 100, hp_is_exact: false,
+    status: null, types: ['Dragon'], active: false, fainted: false
+  };
+  const other = {
+    id: 'p1: Chi-Yu', name: 'Chi-Yu', species: 'Chi-Yu', hp_fraction: 1,
+    current_hp: 41, max_hp: 41, hp_is_exact: true,
+    status: null, types: ['Fire'], active: true, fainted: false
+  };
+  const benchExact = { ...benchPercent, current_hp: 10, max_hp: 41, hp_is_exact: true };
+
+  const state = reduceEvents(createPresentationState(match), [
+    // Zygarde arrives as a percentage from the other player's perspective...
+    event(1, 'state_snapshot', { state: {
+      ...battle,
+      player: { side: 'p1', display_name: 'Alpha', active: other, team: [other, benchPercent] },
+      opponent: { side: 'p2', display_name: 'Beta', active: null, team: [] }
+    } satisfies BattleState }),
+    // ...becomes active, still carrying that percentage...
+    event(2, 'pokemon_switched', { actor: 'p1a: Zygarde', hp: '10/41' }),
+    // ...and only afterwards does its own side reveal the real 41 HP bar.
+    event(3, 'state_snapshot', { state: {
+      ...battle,
+      player: { side: 'p1', display_name: 'Alpha', active: other, team: [other, benchExact] },
+      opponent: { side: 'p2', display_name: 'Beta', active: null, team: [] }
+    } satisfies BattleState })
+  ]);
+
+  assert.equal(state.battle?.player.active?.name, 'Zygarde');
+  assert.equal(state.battle?.player.active?.max_hp, 41, 'the arena plate must show the real bar');
+  assert.equal(state.battle?.player.active?.hp_is_exact, true);
+});
+
+test('the action feed narrates weather without leaking protocol identifiers', () => {
+  const arena = {
+    ...battle,
+    player: { side: 'p1', display_name: 'Alpha', active: {
+      id: 'p1a: Ninetales', name: 'Ninetales', species: 'Ninetales', hp_fraction: 1,
+      status: null, types: ['Fire'], active: true, fainted: false }, team: [] },
+    opponent: { side: 'p2', display_name: 'Beta', active: null, team: [] }
+  } satisfies BattleState;
+
+  const state = reduceEvents(createPresentationState(match), [
+    event(1, 'state_snapshot', { state: arena }),
+    // An ability bringing weather in names the Pokemon and the ability.
+    event(2, 'weather_changed', {
+      weather: 'SunnyDay', source: 'ability: Drought', source_actor: 'p1a: Ninetales',
+      raw: '|-weather|SunnyDay|[from] ability: Drought|[of] p1a: Ninetales'
+    }),
+    // The per-turn residual tick must not add a line of its own.
+    event(3, 'weather_changed', { weather: 'SunnyDay', upkeep: true, raw: '|-weather|SunnyDay|[upkeep]' }),
+    // `none` is Showdown's "weather ended", not an actor called none.
+    event(4, 'weather_changed', { weather: 'none', raw: '|-weather|none' })
+  ]);
+
+  const headlines = state.actionFeed.map((entry) => entry.headline);
+  assert.deepEqual(headlines, [
+    "Ninetales's Drought whipped up Sunny Day",
+    'The weather cleared'
+  ]);
+  assert.ok(!headlines.some((line) => /none|SunnyDay/.test(line)));
+});
+
+test('a replacement after a faint is not narrated as the fainted Pokemon switching out', () => {
+  const pikachu = {
+    id: 'p1a: Pikachu', name: 'Pikachu', species: 'Pikachu', hp_fraction: 0.1,
+    status: null, types: ['Electric'], active: true, fainted: false
+  };
+  const state = reduceEvents(createPresentationState(match), [
+    event(1, 'state_snapshot', { state: {
+      ...battle,
+      player: { side: 'p1', display_name: 'Alpha', active: pikachu, team: [pikachu] },
+      opponent: { side: 'p2', display_name: 'Beta', active: null, team: [] }
+    } satisfies BattleState }),
+    event(2, 'pokemon_fainted', { target: 'p1a: Pikachu' }),
+    event(3, 'pokemon_switched', { actor: 'p1a: Raichu', hp: '100/100', forced: true })
+  ]);
+
+  const headlines = state.actionFeed.map((entry) => entry.headline);
+  assert.deepEqual(headlines, ['Pikachu fainted', 'Raichu entered the battle']);
+  assert.ok(
+    !headlines.some((line) => /Pikachu (switched out|was forced out)/.test(line)),
+    'a fainted Pokemon never walks off the field'
+  );
+});

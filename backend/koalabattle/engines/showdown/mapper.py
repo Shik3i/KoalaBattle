@@ -108,7 +108,13 @@ def _move_state(move: Move) -> MoveState:
     )
 
 
-def _pokemon_state(identifier: str, pokemon: Pokemon, *, revealed: bool = True) -> PokemonState:
+def _pokemon_state(
+    identifier: str,
+    pokemon: Pokemon,
+    *,
+    revealed: bool = True,
+    hp_is_exact: bool = True,
+) -> PokemonState:
     types = tuple(
         value for value in (_enum_name(item) for item in getattr(pokemon, "types", [])) if value
     )
@@ -122,6 +128,11 @@ def _pokemon_state(identifier: str, pokemon: Pokemon, *, revealed: bool = True) 
         level=getattr(pokemon, "level", None),
         current_hp=getattr(pokemon, "current_hp", None),
         max_hp=getattr(pokemon, "max_hp", None),
+        # Showdown only reveals real HP points for the side whose team it is
+        # talking to; the other side arrives as a percentage, which poke-env
+        # surfaces as `x/100`. Without this flag the UI cannot tell "2 HP left
+        # out of 100" from "2% left", and shows the latter as the former.
+        hp_is_exact=hp_is_exact,
         hp_fraction=max(0.0, min(1.0, float(pokemon.current_hp_fraction))),
         status=_enum_name(pokemon.status),
         types=types,
@@ -244,7 +255,7 @@ def battle_state(
         _pokemon_state(identifier, pokemon) for identifier, pokemon in sorted(battle.team.items())
     )
     opponent_team = tuple(
-        _pokemon_state(identifier, pokemon)
+        _pokemon_state(identifier, pokemon, hp_is_exact=False)
         for identifier, pokemon in sorted(battle.opponent_team.items())
     )
     own_active_slots = tuple(pokemon for pokemon in own_team if pokemon.active)

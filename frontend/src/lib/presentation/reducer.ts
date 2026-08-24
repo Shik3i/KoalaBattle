@@ -662,6 +662,36 @@ function updateBattleActive(
   };
 }
 
+/**
+ * Keep the more precise of two HP readings for the same Pokemon.
+ *
+ * Both engine players stream snapshots, each of which reports its own side in real
+ * HP points and the other side as a percentage. Taking whichever arrived last made
+ * a Pokemon's bar flip between "0 / 34" and "2 / 100" mid-battle. Exact readings
+ * win, and once one is known a later percentage never downgrades it.
+ */
+function preferExactHp(
+  previous: { current_hp?: number | null; max_hp?: number | null; hp_is_exact?: boolean },
+  next: { current_hp?: number | null; max_hp?: number | null; hp_is_exact?: boolean }
+): { current_hp?: number | null; max_hp?: number | null; hp_is_exact?: boolean } {
+  const take = (from: typeof previous, exact?: boolean) => ({
+    current_hp: from.current_hp,
+    max_hp: from.max_hp,
+    hp_is_exact: exact ?? from.hp_is_exact
+  });
+  const previousExact = previous.hp_is_exact !== false && previous.max_hp != null;
+  const nextExact = next.hp_is_exact !== false && next.max_hp != null;
+  if (nextExact && !previousExact) return take(next, true);
+  // Archives recorded before `hp_is_exact` existed carry no flag, so both readings
+  // look exact. A percentage always arrives as `x/100`, so when two differ and only
+  // one is a 100-point bar, the other is the real one.
+  if (previousExact && nextExact && previous.max_hp !== next.max_hp) {
+    if (previous.max_hp === 100 && next.max_hp !== 100) return take(next, true);
+    if (next.max_hp === 100 && previous.max_hp !== 100) return take(previous, true);
+  }
+  return take(previous);
+}
+
 function mergeBattleSnapshot(
   current: BattlePresentationState['battle'],
   incoming: BattleState
@@ -686,8 +716,7 @@ function mergeBattleSnapshot(
     const active = sameActive && previousActive && nextActive
       ? {
           ...nextActive,
-          current_hp: previousActive.current_hp,
-          max_hp: previousActive.max_hp,
+          ...preferExactHp(previousActive, nextActive),
           hp_fraction: previousActive.hp_fraction,
           status: previousActive.status,
           fainted: previousActive.fainted,
@@ -706,8 +735,7 @@ function mergeBattleSnapshot(
       return samePokemon
         ? {
             ...next,
-            current_hp: previous.current_hp,
-            max_hp: previous.max_hp,
+            ...preferExactHp(previous, next),
             hp_fraction: previous.hp_fraction,
             status: previous.status,
             fainted: previous.fainted,
@@ -715,10 +743,32 @@ function mergeBattleSnapshot(
           }
         : previous;
     });
+    // A Pokemon on the bench still appears in `team`, so a snapshot from its own
+    // side can reveal its real HP while it is not the active one. The active object
+    // is tracked separately and would otherwise keep the percentage it entered with,
+    // so let the (already reconciled) team entry hand its better reading over.
+    const withTeamHp = <
+      T extends {
+        id: string;
+        name: string;
+        current_hp?: number | null;
+        max_hp?: number | null;
+        hp_is_exact?: boolean;
+      }
+    >(member: T): T => {
+      const entry = team.find(
+        (candidate) =>
+          candidate.id === member.id
+          || candidate.name.toLocaleLowerCase() === member.name.toLocaleLowerCase()
+      );
+      return entry ? { ...member, ...preferExactHp(member, entry) } : member;
+    };
+    const reconciledSlots = activeSlots.map(withTeamHp);
+    const reconciledActive = activeSlots[0] || active;
     return {
       ...nextSide,
-      active: activeSlots[0] || active,
-      active_slots: activeSlots,
+      active: reconciledActive ? withTeamHp(reconciledActive) : null,
+      active_slots: reconciledSlots,
       team
     };
   };
@@ -743,9 +793,9 @@ function mergeTeam(previous: BattleState['player']['team'], incoming: BattleStat
     const existing = merged[index];
     merged[index] = {
       ...member,
-      // Keep event-driven combat facts when a future snapshot reports the same Pokémon.
-      current_hp: existing.current_hp,
-      max_hp: existing.max_hp,
+      // Keep event-driven combat facts when a future snapshot reports the same Pokémon,
+      // but let a snapshot that knows real HP points replace a percentage-only reading.
+      ...preferExactHp(existing, member),
       hp_fraction: existing.hp_fraction,
       status: existing.status,
       active: existing.active,
@@ -823,6 +873,8 @@ function actionPayload(event: BattleEvent): { type: string; payload: Record<stri
   for (const token of parts) {
     if (token.startsWith('[from] ') && !payload.source) payload.source = token.slice(7);
     if (token.startsWith('[of] ') && !payload.source_actor) payload.source_actor = token.slice(5);
+    // Archives recorded before the backend marked upkeep still carry it in `raw`.
+    if (token === '[upkeep]' && payload.upkeep === undefined) payload.upkeep = true;
   }
   if (event.event_type !== 'showdown_message') return { type: event.event_type, payload };
   const command = stringValue(payload.command) || parts[1] || '';
@@ -956,7 +1008,11 @@ function sourceLabel(value: unknown) {
 }
 
 function fieldLabel(value: unknown) {
-  return stringValue(value).replace(/^(?:move|ability):\s*/i, '') || 'Field effect';
+  const label = stringValue(value).replace(/^(?:move|ability):\s*/i, '');
+  if (!label) return 'Field effect';
+  // Showdown sends weather and field conditions as identifiers: `SunnyDay`,
+  // `RainDance`, `ElectricTerrain`. Split the words so the feed reads as prose.
+  return label.replace(/([a-z0-9])([A-Z])/g, '$1 $2');
 }
 
 function reduceActionFeed(
@@ -1071,7 +1127,21 @@ function reduceActionFeed(
     case 'stat_reset':
       return appendActionFeed(feed, feedEntry(event, 'stat', payload.target === 'all' ? 'All stat changes were cleared' : `${target}'s stat changes were cleared`, [], 'field', null, targetSide));
     case 'weather_changed': {
-      const detail = `${fieldLabel(payload.weather)} changed the weather`;
+      // `|-weather|Sandstorm|[upkeep]` repeats every turn the weather merely lasts;
+      // narrating it would add an identical line per turn.
+      if (payload.upkeep) return feed;
+      const weather = fieldLabel(payload.weather);
+      // `|-weather|none` is Showdown's way of saying the weather ended — read
+      // literally it produced "none changed the weather".
+      const cleared = weather.toLowerCase() === 'none';
+      // `[of]` names the Pokemon whose ability brought it in, `[from]` the ability.
+      const cause = actorName(payload.source_actor);
+      const ability = fieldLabel(payload.source);
+      const detail = cleared
+        ? 'The weather cleared'
+        : payload.source_actor && payload.source
+          ? `${cause}'s ${ability} whipped up ${weather}`
+          : `${weather} set in`;
       updated = updateLatestMove(feed, event, (entry) => addDetail(entry, detail, 'field'));
       return updated || appendActionFeed(feed, feedEntry(event, 'field', detail, [], 'field'));
     }
@@ -1092,15 +1162,23 @@ function reduceActionFeed(
     }
     case 'pokemon_switched': {
       const side = actorSide;
-      const outgoing = activeIdentity(state.battle, side)?.name;
+      const previous = activePokemon(state.battle, side);
+      const outgoing = previous?.name;
       const entering = actor;
       const forced = payload.forced === true || stringValue(payload.command) === 'drag';
+      // A Pokemon that just fainted did not "switch out" — the feed already said it
+      // fainted, and repeating it as a switch read as if it had walked off the field.
+      // Its replacement is simply sent in.
+      const replacing = Boolean(previous?.fainted);
+      const departed = Boolean(outgoing && outgoing !== entering && !replacing);
       return appendActionFeed(feed, feedEntry(
         event,
         'switch',
-        outgoing && outgoing !== entering ? `${outgoing} ${forced ? 'was forced out' : 'switched out'}` : `${entering} entered the battle`,
-        outgoing && outgoing !== entering ? [`→ ${entering} entered the battle`] : [],
-        forced ? 'critical' : 'field',
+        departed
+          ? `${outgoing} ${forced ? 'was forced out' : 'switched out'}`
+          : `${entering} entered the battle`,
+        departed ? [`→ ${entering} entered the battle`] : [],
+        forced && departed ? 'critical' : 'field',
         side,
         null
       ));

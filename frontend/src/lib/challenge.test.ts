@@ -1,31 +1,33 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { readFileSync } from 'node:fs';
 import type { ChallengeDefinitionSummary } from './types.ts';
 
 import {
+  DRAFT_POKEMON_ROLL_DURATION_MS,
+  DRAFT_REEL_FRAMES,
+  DRAFT_ROLL_DURATION_MS,
+  STANDARD_CHALLENGE_SETTINGS,
   campaignBattleLabel,
   campaignOpponentHeading,
   challengeErrorMessage,
   challengeStatusLabel,
+  difficultyLabel,
   draftChoiceIndexForKey,
   draftEvolutionChoices,
+  draftRollDuration,
   draftRollFrames,
   draftRollTransitionMode,
-  DRAFT_POKEMON_ROLL_DURATION_MS,
-  DRAFT_REEL_FRAMES,
-  DRAFT_ROLL_DURATION_MS,
-  difficultyLabel,
-  draftRollDuration,
-  opponentStageLevel,
   emptyEvSpread,
   evAllocationTotal,
   evSpreadTotal,
   formatDuration,
   generationRomanNumeral,
   legalEvValue,
+  opponentStageLevel,
   pokemonTypeColor,
+  readableInk,
   recommendedEvPresets,
-  STANDARD_CHALLENGE_SETTINGS,
   standardChallengeDefinition,
   standardChallengePayload
 } from './challenge.ts';
@@ -275,4 +277,48 @@ test('status and duration labels are user-facing', () => {
   assert.equal(challengeStatusLabel('completed'), 'Draft run complete');
   assert.equal(formatDuration(0), '0s');
   assert.equal(formatDuration(3670), '1h 1m');
+});
+
+test('type badge ink meets WCAG AA against every canonical type colour', () => {
+  // The type colours are recognisable and must not change, but white text on the
+  // lighter ones (Grass, Normal) measured about 1.45:1 — far under the 4.5:1 that
+  // badge-sized text needs. The ink adapts instead.
+  const luminance = (hex: string) => {
+    const channels = [0, 2, 4].map((offset) => {
+      const value = Number.parseInt(hex.replace('#', '').slice(offset, offset + 2), 16) / 255;
+      return value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+    });
+    return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
+  };
+  const contrast = (a: string, b: string) => {
+    const [high, low] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+    return (high + 0.05) / (low + 0.05);
+  };
+  const types = [
+    'normal', 'fire', 'water', 'electric', 'grass', 'ice', 'fighting', 'poison', 'ground',
+    'flying', 'psychic', 'bug', 'rock', 'ghost', 'dragon', 'dark', 'steel', 'fairy'
+  ];
+
+  for (const type of types) {
+    const background = pokemonTypeColor(type);
+    const ratio = contrast(background, readableInk(background));
+    assert.ok(ratio >= 4.5, `${type}: ${ratio.toFixed(2)}:1 is below WCAG AA (4.5:1)`);
+  }
+
+  // The arena keeps its own brighter palette in BattleRenderer.svelte. Checking only
+  // the palette above once let Dark ship at 4.33:1, so the real source is read here.
+  const renderer = readFileSync(
+    new URL('./BattleRenderer.svelte', import.meta.url),
+    'utf8'
+  );
+  const block = renderer.match(
+    /function typeColor[^{]*\{\s*const colors: Record<string, string> = \{([\s\S]*?)\};/
+  );
+  assert.ok(block, 'BattleRenderer no longer exposes a typeColor map to check');
+  const arena = [...block[1].matchAll(/(\w+)\s*:\s*'(#[0-9a-fA-F]{6})'/g)];
+  assert.equal(arena.length, types.length, 'arena palette should cover every type');
+  for (const [, type, background] of arena) {
+    const ratio = contrast(background, readableInk(background));
+    assert.ok(ratio >= 4.5, `arena ${type}: ${ratio.toFixed(2)}:1 is below WCAG AA (4.5:1)`);
+  }
 });

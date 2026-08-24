@@ -77,6 +77,11 @@ label small,.field-hint { color:var(--muted); font-family:var(--display); font-s
 input,select,textarea { width:100%; min-height:44px; padding:.75rem .85rem; border:1px solid var(--border); border-radius:.65rem; outline:none; background:var(--panel-strong); color:var(--text);transition:border-color .16s ease,box-shadow .16s ease,background .16s ease; }
 input:focus,select:focus,textarea:focus { border-color:var(--accent); box-shadow:var(--focus); }
 button:focus-visible,a:focus-visible,summary:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+/* A bare <summary> is only as tall as its line box — roughly 18px at the sizes used
+   here, under the 24px minimum target size. `display` is deliberately left alone:
+   setting it to flex drops the disclosure triangle. This only raises the floor, so
+   components that already give theirs a larger hit area are unaffected. */
+summary{min-height:24px}
 .error { color:var(--danger); }
 .status-pill { display:inline-flex; align-items:center; gap:.4rem; padding:.32rem .55rem; border-radius:999px; background:var(--surface); color:var(--muted); font:500 .68rem var(--mono); text-transform:uppercase; }
 .status-pill::before { content:''; width:.45rem; aspect-ratio:1; border-radius:50%; background:currentColor;box-shadow:0 0 0 0 currentColor; }

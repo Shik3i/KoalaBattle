@@ -128,11 +128,12 @@ class AgentDecisionRow(Base):
     side: Mapped[str] = mapped_column(String(2), nullable=False)
     turn: Mapped[int] = mapped_column(Integer, nullable=False)
     decision_sequence: Mapped[int] = mapped_column(Integer, nullable=False)
+    #: The full `AgentRequest`, including its state, legal actions and rendered
+    #: prompt. Those three used to be mirrored into `state_json`,
+    #: `legal_actions_json` and `generated_prompt` columns as well; the copies had
+    #: no reader and cost ~380MB across a modest history (migration 0013).
     request_json: Mapped[str] = mapped_column(Text, nullable=False)
     decision_json: Mapped[str] = mapped_column(Text, nullable=False)
-    state_json: Mapped[str] = mapped_column(Text, nullable=False)
-    legal_actions_json: Mapped[str] = mapped_column(Text, nullable=False)
-    generated_prompt: Mapped[str] = mapped_column(Text, nullable=False)
     raw_response: Mapped[str | None] = mapped_column(Text)
     parsed_response_json: Mapped[str | None] = mapped_column(Text)
     selected_action: Mapped[str] = mapped_column(String(80), nullable=False)

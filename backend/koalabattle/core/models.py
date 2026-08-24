@@ -249,6 +249,11 @@ class PokemonState(FrozenModel):
     level: int | None = None
     current_hp: int | float | None = Field(default=None, ge=0)
     max_hp: int | float | None = Field(default=None, ge=0)
+    #: Whether `current_hp`/`max_hp` are real HP points. Showdown reveals those only
+    #: for the side it is talking to and reports the other side as a percentage
+    #: (`x/100`), which reads as a 100 HP bar unless the difference is recorded.
+    #: Defaults true so saved archives from before the flag keep their meaning.
+    hp_is_exact: bool = True
     hp_fraction: float = Field(ge=0, le=1)
     status: str | None = None
     types: tuple[str, ...] = ()

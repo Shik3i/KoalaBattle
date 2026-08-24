@@ -37,10 +37,17 @@ def _markup(path: Path) -> str:
     return source[source.index("</script>") : source.index("<style>")]
 
 
+def _preview_section_start(markup: str) -> int:
+    """Index of the renderer section, tolerant of extra attributes on the tag."""
+    match = re.search(r'<section class="preview"[ >]', markup)
+    assert match, "battle page no longer has a <section class=\"preview\"> block"
+    return match.start()
+
+
 def test_battle_renderer_is_the_first_block_and_the_identity_row_follows_it() -> None:
     markup = _markup(BATTLE_PAGE)
 
-    preview = markup.index('<section class="preview">')
+    preview = _preview_section_start(markup)
     head = markup.index('<div class="live-head">')
     # The battle (and its team bar) owns the top of the screen; the run's identity/
     # progress reads as a caption underneath it, not a bar pushing the arena down.
@@ -68,7 +75,7 @@ def test_presentation_controls_are_collapsed_below_the_renderer() -> None:
     settings = markup.index('<details class="preview-settings">')
     tools = markup.index('<div class="preview-tools">')
 
-    assert markup.index('<section class="preview">') < settings < tools
+    assert _preview_section_start(markup) < settings < tools
     assert "<summary>" in markup[settings:tools] or "<summary" in markup[settings:tools]
 
 
@@ -396,3 +403,21 @@ def test_the_roster_never_marks_pokemon_as_out_across_battles() -> None:
     assert "downed_entry_ids" not in source
     assert "class:downed" not in markup
     assert "stayed down" not in markup
+
+
+def test_a_stopped_battle_says_so_next_to_the_arena() -> None:
+    """A failed, cancelled or interrupted battle looks identical to one that is still
+    thinking: the arena holds its last frame and the feed its last line. The only
+    signals used to be a status pill and a collapsed drawer, both below the arena."""
+    markup = _markup(BATTLE_PAGE)
+
+    banner = markup.index('class="battle-stopped panel"')
+    assert _preview_section_start(markup) < banner, "the notice belongs with the battle"
+    assert "'failed','cancelled','interrupted'" in markup[:banner].split("{#if match &&")[-1]
+    block = markup[banner : markup.index("</section>", banner)]
+    # It has to be announced, and it has to offer the way out.
+    open_tag = markup[markup.rindex("<section", 0, banner) : markup.index(">", banner)]
+    assert 'role="alert"' in open_tag
+    assert "handleResume" in block
+    assert "handleRematch" in block
+    assert "match.error" in block, "show what actually went wrong when the backend knows"

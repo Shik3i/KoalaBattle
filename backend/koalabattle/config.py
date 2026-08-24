@@ -58,6 +58,12 @@ class Settings(BaseSettings):
     provider_credentials_file: Path | None = None
     enable_fake_provider: bool = False
     max_concurrent_matches: int = Field(default=2, ge=1, le=64)
+    #: Keep the full prompt/decision audit for this many of the most recent matches
+    #: and drop it for older ones. Zero (the default) keeps everything: pruning
+    #: deletes an operator's own history, so it is opt-in rather than a surprise on
+    #: some later startup. Replays, results and per-stage campaign costs live in
+    #: `battle_events` and the challenge run, so they survive pruning either way.
+    decision_audit_retention_matches: int = Field(default=0, ge=0, le=100_000)
     pricing_version: str = "unconfigured"
     pricing_table_json: str = "{}"
     speech_provider: str = "system"

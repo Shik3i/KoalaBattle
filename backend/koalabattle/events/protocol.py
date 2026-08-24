@@ -107,4 +107,9 @@ def normalize_showdown_message(parts: list[str]) -> tuple[str, dict[str, Any]] |
             payload["source"] = token.removeprefix("[from] ")
         elif token.startswith("[of] "):
             payload["source_actor"] = token.removeprefix("[of] ")
+        elif token == "[upkeep]":
+            # Showdown repeats `|-weather|Sandstorm|[upkeep]` every turn the weather
+            # merely persists. Without this marker the presentation cannot tell a
+            # genuine change from the residual tick and narrates it once per turn.
+            payload["upkeep"] = True
     return event_type, payload

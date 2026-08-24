@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 from pydantic import BaseModel
-from sqlalchemy import func, or_, select, text
+from sqlalchemy import delete, func, or_, select, text
 from sqlalchemy.orm import selectinload
 
 from koalabattle.core.models import (
@@ -36,6 +36,25 @@ def _json(value: object) -> str:
     if isinstance(value, BaseModel):
         return value.model_dump_json()
     return json.dumps(value, separators=(",", ":"), sort_keys=True)
+
+
+def _decision_record(decision: AgentDecisionRow) -> DecisionRecord:
+    """Rebuild an audit record from its row.
+
+    `generated_prompt` is read back off the request rather than its own column:
+    the two were always the same string, and storing it twice cost ~110MB across
+    a modest history.
+    """
+    request = AgentRequest.model_validate_json(decision.request_json)
+    return DecisionRecord(
+        id=decision.id,
+        request=request,
+        decision=AgentDecision.model_validate_json(decision.decision_json),
+        generated_prompt=request.prompt,
+        raw_response=decision.raw_response,
+        parsed_response=json.loads(decision.parsed_response_json or "null"),
+        validation_errors=tuple(json.loads(decision.validation_json)),
+    )
 
 
 class BattleRepository:
@@ -241,13 +260,11 @@ class BattleRepository:
             side=request.side.value,
             turn=request.turn,
             decision_sequence=request.decision_sequence,
+            # `request_json` already carries the state, the legal actions and the
+            # rendered prompt. Writing them to their own columns as well duplicated
+            # ~380MB across a modest history without a single reader for the copies.
             request_json=_json(request),
             decision_json=_json(decision),
-            state_json=_json(request.state),
-            legal_actions_json=_json(
-                [action.model_dump(mode="json") for action in request.legal_actions]
-            ),
-            generated_prompt=request.prompt,
             raw_response=decision.raw_response,
             parsed_response_json=_json(parsed),
             selected_action=decision.action,
@@ -363,6 +380,47 @@ class BattleRepository:
             )
             return self._archive(row) if row else None
 
+    async def prune_decision_audits(
+        self, *, keep_recent_matches: int, dry_run: bool = False
+    ) -> tuple[int, int]:
+        """Drop the prompt/decision audit for all but the newest `keep_recent_matches`.
+
+        The audit is by far the largest thing this database stores — a single
+        decision carries the rendered prompt, the full game state, the knowledge
+        and context snapshots and the raw provider response. Replays, results and
+        per-stage campaign costs live in `battle_events` and the challenge run, so
+        they are unaffected; what is lost is the ability to inspect *why* an old
+        match's agent chose what it chose.
+
+        Returns `(matches_affected, decisions_removed)`. With `dry_run` the counts
+        are reported without deleting anything.
+        """
+        if keep_recent_matches <= 0:
+            return (0, 0)
+        async with self.database.sessions() as session:
+            keep = (
+                select(MatchRow.id)
+                .order_by(MatchRow.created_at.desc())
+                .limit(keep_recent_matches)
+            ).scalar_subquery()
+            targets = (
+                await session.execute(
+                    select(
+                        AgentDecisionRow.match_id, func.count(AgentDecisionRow.id)
+                    )
+                    .where(AgentDecisionRow.match_id.not_in(keep))
+                    .group_by(AgentDecisionRow.match_id)
+                )
+            ).all()
+            matches = len(targets)
+            decisions = sum(count for _, count in targets)
+            if not dry_run and decisions:
+                await session.execute(
+                    delete(AgentDecisionRow).where(AgentDecisionRow.match_id.not_in(keep))
+                )
+                await session.commit()
+        return (matches, decisions)
+
     async def list_matches(
         self,
         limit: int = 100,
@@ -458,15 +516,7 @@ class BattleRepository:
             for event in sorted(row.events, key=lambda item: item.sequence)
         )
         decisions = tuple(
-            DecisionRecord(
-                id=decision.id,
-                request=AgentRequest.model_validate_json(decision.request_json),
-                decision=AgentDecision.model_validate_json(decision.decision_json),
-                generated_prompt=decision.generated_prompt,
-                raw_response=decision.raw_response,
-                parsed_response=json.loads(decision.parsed_response_json or "null"),
-                validation_errors=tuple(json.loads(decision.validation_json)),
-            )
+            _decision_record(decision)
             for decision in sorted(row.decisions, key=lambda item: item.decision_sequence)
         )
         return MatchArchive(

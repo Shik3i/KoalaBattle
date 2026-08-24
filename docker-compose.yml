@@ -46,6 +46,7 @@ services:
       # 127.0.0.1. Set it in .env before binding to anything wider, and enter the same
       # value under Settings -> Operator access in the browser.
       KOALABATTLE_API_TOKEN: ${KOALABATTLE_API_TOKEN:-}
+      KOALABATTLE_DECISION_AUDIT_RETENTION_MATCHES: ${KOALABATTLE_DECISION_AUDIT_RETENTION_MATCHES:-0}
       KOALABATTLE_ASSET_ROOT: /assets
       KOALABATTLE_OPENAI_API_KEY: ${KOALABATTLE_OPENAI_API_KEY:-}
       KOALABATTLE_GEMINI_API_KEY: ${KOALABATTLE_GEMINI_API_KEY:-}
