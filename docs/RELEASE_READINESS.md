@@ -74,12 +74,20 @@ the target deployment environment before making a performance-score claim.
 
 ## Security expectations
 
-KoalaBattle has no application authentication. Admin, team, prompt, provider, match-control,
-tournament-control, production, and renderer APIs are trusted-operator surfaces. Do not expose
-them directly to the public Internet; use an authenticating reverse proxy and request-size limits.
+Admin, team, prompt, provider, match-control, tournament-control, production, and renderer APIs
+are trusted-operator surfaces. Setting `KOALABATTLE_API_TOKEN` requires
+`Authorization: Bearer <token>` on every mutating and audit-exposing endpoint, and `?token=` on
+the websocket streams; the operator enters the same value once per browser under
+**Settings → Operator access**. It is deliberately not a `PUBLIC_` build variable, because the
+frontend bundle is served to anyone who can reach its port. Unset (the default) leaves the API
+open and logs a warning at startup, which is fine while every published port stays on
+`127.0.0.1` — the compose default. Set the token before widening `KOALABATTLE_BIND_HOST`, and
+still prefer a reverse proxy for TLS and request-size limits.
+
 Public presentation DTOs remove prompts, raw provider responses, context, and fixed-team exports,
-but generic match APIs are part of the local control plane. Local/loopback compatible-provider
-URLs are intentional for self-hosted models.
+but generic match APIs are part of the local control plane. Provider base URLs reject non-HTTP(S)
+schemes and the link-local metadata range; loopback and LAN URLs stay allowed because
+self-hosted models are the intended use.
 
 ## Known limitations
 

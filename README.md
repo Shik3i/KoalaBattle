@@ -66,7 +66,11 @@ Requirements: Docker with Compose v2.
 
 ```bash
 cp .env.example .env
-mkdir -p data && touch data/provider-credentials.env && chmod 600 data/provider-credentials.env
+# Create the bind-mount targets first. Docker would create the missing asset directory
+# itself, but on Linux it does so as root, and the optional sprite installer below then
+# cannot write into it.
+mkdir -p data/assets
+touch data/provider-credentials.env && chmod 600 data/provider-credentials.env
 docker compose up --build
 ```
 
