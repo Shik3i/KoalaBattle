@@ -89,14 +89,49 @@ but generic match APIs are part of the local control plane. Provider base URLs r
 schemes and the link-local metadata range; loopback and LAN URLs stay allowed because
 self-hosted models are the intended use.
 
+## Storage growth
+
+The prompt/decision audit is by far the largest thing KoalaBattle stores. Measured on a
+827-match development database: **~1.9 MB of audit per battle**, against ~0.45 MB of replay
+events. The audit holds the rendered prompt, the game state, the knowledge and context
+snapshots and the raw provider response for every single decision — it is what makes the
+prompt inspector work, and it is only worth keeping for battles you might still inspect.
+
+`KOALABATTLE_DECISION_AUDIT_RETENTION_MATCHES` keeps that audit for the newest N matches and
+drops it for older ones, at startup and on demand. Replays, results, statistics and per-stage
+campaign costs live in `battle_events` and the challenge run, so a pruned match still opens,
+replays and reports its result — only "why did the agent choose this" is gone.
+
+| Setting | Audit retained | Suited to |
+| --- | --- | --- |
+| `0` (default) | everything | you want a complete decision archive and will manage disk yourself |
+| `200` | ~380 MB | **recommended** for a long-running self-hosted install |
+| `50` | ~95 MB | small disk, or you only ever inspect recent battles |
+
+The default is `0` on purpose: pruning deletes the operator's own history, and doing that
+unannounced on some later restart is not a reasonable default. Preview before committing —
+the endpoint is a dry run unless told otherwise:
+
+```bash
+curl -X POST "http://127.0.0.1:8001/api/admin/maintenance/prune-audits?keep_recent_matches=200"
+curl -X POST "http://127.0.0.1:8001/api/admin/maintenance/prune-audits?keep_recent_matches=200&dry_run=false"
+```
+
+SQLite keeps freed pages for reuse rather than returning them to the filesystem. To actually
+shrink the file after a large prune, stop the backend and run `VACUUM` once; it needs free
+space roughly equal to the resulting database and rolls back cleanly if interrupted.
+
 ## Known limitations
 
 - Real OBS integration is environment-dependent; use the browser-source protocol tests and
   Chromium overlay QA when OBS is unavailable.
 - Edge neural TTS is an unofficial online service integration without an availability SLA; the
   fully offline system fallback has visibly lower voice quality.
-- Only two-player singles formats are supported. Doubles, triples, multi and free-for-all are
-  listed in the format selector with an explicit unsupported reason.
+- Two-player singles formats are supported everywhere. Doubles is limited to one deliberately
+  whitelisted format, `gen9koalabattlecanonicalnatdexdraftdoubles`, used by the Doubles Draft
+  campaign (Quick Draft Duo, or `battle_mode: doubles` on a run); standalone matches and
+  tournaments remain singles. The other 69 doubles descriptors, and every triples, multi and
+  free-for-all format, are listed in the selector with an explicit unsupported reason.
 - The isolated pinned Showdown tree has documented upstream dependency findings; compatibility
   upgrades require the real-engine integration gate rather than a blind major audit fix.
 - Native WebCodecs capability differs by host/container. The renderer probes actual encoding and
