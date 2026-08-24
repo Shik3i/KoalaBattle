@@ -2093,3 +2093,130 @@ async def test_stage_launch_restores_legacy_downed_entries_and_matches_opponent_
     assert "Mon 1" in player_text
     assert launched.downed_entry_ids == ()
     await database.close()
+
+
+@pytest.mark.asyncio
+async def test_run_list_never_reads_state_json(tmp_path: Path) -> None:
+    """The list endpoint renders ~10 fields per row. It used to reach them by fully
+    validating every run's `state_json` (hundreds of KB each), which made
+    `GET /api/challenges` take seconds on a real history. Those fields are columns
+    now, so poisoning `state_json` must not affect the listing at all."""
+    from sqlalchemy import update as sql_update
+
+    from koalabattle.models.orm import ChallengeRunRow
+
+    url = f"sqlite+aiosqlite:///{tmp_path / 'summary.db'}"
+    database = Database(url)
+    await database.create_schema()
+    repository = ChallengeRepository(database)
+    run = _picked_run()
+    await repository.create(run)
+
+    # Unparseable state: any code path that still read it would raise here.
+    async with database.sessions() as session:
+        await session.execute(
+            sql_update(ChallengeRunRow)
+            .where(ChallengeRunRow.id == str(run.id))
+            .values(state_json="{ this is not json")
+        )
+        await session.commit()
+
+    summaries = await repository.list()
+
+    assert len(summaries) == 1
+    summary = summaries[0]
+    assert summary.id == run.id
+    assert summary.name == run.name
+    assert summary.definition_name == run.definition.name
+    assert summary.difficulty == run.difficulty
+    assert summary.stage_count == len(run.definition.stages)
+    assert summary.stages_cleared == 0
+    await database.close()
+
+
+@pytest.mark.asyncio
+async def test_run_list_summary_columns_track_progress(tmp_path: Path) -> None:
+    url = f"sqlite+aiosqlite:///{tmp_path / 'summary-progress.db'}"
+    database = Database(url)
+    await database.create_schema()
+    repository = ChallengeRepository(database)
+    run = _picked_run()
+    await repository.create(run)
+
+    now = datetime.now(UTC)
+    won = ChallengeStageResult(
+        stage_index=0,
+        stage_id=run.definition.stages[0].id,
+        status="won",
+        match_id=uuid4(),
+        winner="p1",
+        turns=5,
+        duration_seconds=3,
+        started_at=now,
+        completed_at=now,
+    )
+    await repository.save(
+        run.model_copy(update={"stage_results": (won,)}), expected_revision=run.revision
+    )
+
+    assert (await repository.list())[0].stages_cleared == 1
+    await database.close()
+
+
+def test_damage_statistics_are_percentages_even_when_showdown_reports_absolute_hp() -> None:
+    """Showdown reports your own side's HP in absolute points (`37/157`) and the
+    opponent's as a percentage (`24/100`). Returning the raw delta therefore mixed
+    units inside one stat card — "damage taken" in HP points next to "damage dealt"
+    in percent of the enemy bar. Both must be percentages of the mon's own maximum."""
+    run = _picked_run().model_copy(update={"status": ChallengeStatus.COMPLETED})
+    match_id = uuid4()
+    archive = _won_archive(run, match_id, "stage-one").model_copy(
+        update={
+            "events": (
+                BattleEvent(
+                    match_id=match_id,
+                    sequence=1,
+                    turn=0,
+                    event_type="pokemon_switched",
+                    # 200 max HP: absolute reporting, the shape used for your own side.
+                    payload={"actor": "p1a: Mon 1", "details": "Mon 1, L50", "hp": "200/200"},
+                ),
+                BattleEvent(
+                    match_id=match_id,
+                    sequence=2,
+                    turn=0,
+                    event_type="pokemon_switched",
+                    payload={"actor": "p2a: Enemy", "details": "Enemy, L50", "hp": "100/100"},
+                ),
+                BattleEvent(
+                    match_id=match_id,
+                    sequence=3,
+                    turn=1,
+                    event_type="turn_started",
+                    payload={"turn": 1},
+                ),
+                # Own mon loses 50 of 200 HP: a quarter of its bar, not "50".
+                BattleEvent(
+                    match_id=match_id,
+                    sequence=4,
+                    turn=1,
+                    event_type="damage",
+                    payload={"target": "p1a: Mon 1", "hp": "150/200"},
+                ),
+                # It heals 30 of 200 back: 15%, not "30".
+                BattleEvent(
+                    match_id=match_id,
+                    sequence=5,
+                    turn=1,
+                    event_type="healing",
+                    payload={"target": "p1a: Mon 1", "hp": "180/200"},
+                ),
+            )
+        }
+    )
+
+    stats = derive_pokemon_statistics(run, (archive,))
+
+    assert stats[0].species == "Mon 1"
+    assert stats[0].damage_taken == 25, "50 of 200 HP is 25% of the bar"
+    assert stats[0].healing == 15, "30 of 200 HP is 15% of the bar"

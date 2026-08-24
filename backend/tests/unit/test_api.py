@@ -642,3 +642,32 @@ def test_api_token_gates_mutating_and_sensitive_endpoints(tmp_path: Path) -> Non
         ) as websocket:
             snapshot = websocket.receive_json()
             assert snapshot["kind"] == "snapshot"
+
+
+def test_cors_preflight_allows_the_operator_token_header(tmp_path: Path) -> None:
+    """The browser app is always a different origin than the API (:3000 vs :8001),
+    so an `Authorization` header triggers a CORS preflight. If the middleware does
+    not list that header, every authenticated request fails with "Disallowed CORS
+    headers" and setting KOALABATTLE_API_TOKEN locks the operator out of their own
+    UI — the exact failure this asserts against."""
+    settings = Settings(
+        _env_file=None,
+        database_url=f"sqlite+aiosqlite:///{tmp_path / 'cors.db'}",
+        api_token="operator-secret",
+    )
+    create_test_schema(settings.database_url)
+    origin = settings.cors_origins[0]
+    with TestClient(create_app(settings)) as client:
+        preflight = client.options(
+            "/api/matches",
+            headers={
+                "Origin": origin,
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "authorization,content-type",
+            },
+        )
+
+    assert preflight.status_code == 200, preflight.text
+    allowed = preflight.headers["access-control-allow-headers"].lower()
+    assert "authorization" in allowed
+    assert "content-type" in allowed

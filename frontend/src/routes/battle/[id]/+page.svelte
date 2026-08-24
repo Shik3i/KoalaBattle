@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import BattleRenderer from '$lib/BattleRenderer.svelte';
-  import { api, broadcastRendererConfig, copyText as copyToClipboard, getMatch, getPresentationMatch, rematch, resumeMatch, wsBase } from '$lib/api';
+  import { api, broadcastRendererConfig, copyText as copyToClipboard, getMatch, getPresentationMatch, rematch, resumeMatch, wsUrl } from '$lib/api';
   import { loadRendererConfig, saveRendererConfig } from '$lib/presentation/config';
   import { PresentationTimeline } from '$lib/presentation/timeline';
   import { connectLiveSocket } from '$lib/presentation/live-socket';
@@ -159,7 +159,7 @@
       await refreshLiveState(matchId, generation);
       if (generation !== connectionGeneration || matchId !== data.id) return;
       stopSocket = connectLiveSocket({
-        url: `${wsBase()}/api/matches/${matchId}/stream`,
+        url: wsUrl(`/api/matches/${matchId}/stream`),
         onMessage: (raw) => {
           if (generation === connectionGeneration && matchId === data.id) {
             handleMessage(JSON.parse(raw) as StreamMessage);

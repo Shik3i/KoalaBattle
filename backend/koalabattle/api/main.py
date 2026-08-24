@@ -198,7 +198,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_origins=list(resolved.cors_origins),
         allow_credentials=False,
         allow_methods=["GET", "POST"],
-        allow_headers=["Content-Type"],
+        # `Authorization` carries the operator token. The frontend is always a
+        # different origin than the API (:3000 vs :8001), so without it here the
+        # preflight rejects every authenticated request with "Disallowed CORS
+        # headers" and enabling KOALABATTLE_API_TOKEN would lock out the browser.
+        allow_headers=["Content-Type", "Authorization"],
     )
 
     @app.get("/healthz")

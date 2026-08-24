@@ -377,6 +377,13 @@ class ChallengeRunRow(Base):
         String(36), ForeignKey("matches.id", ondelete="SET NULL"), index=True
     )
     state_json: Mapped[str] = mapped_column(Text, nullable=False)
+    #: Denormalized copies of the few `ChallengeRunSummary` fields that are not already
+    #: columns. The run list renders ~10 fields per row; without these it had to read and
+    #: fully validate every run's `state_json` (hundreds of KB each) just to reach them.
+    definition_name: Mapped[str] = mapped_column(String(120), nullable=False, default="")
+    difficulty: Mapped[str] = mapped_column(String(20), nullable=False, default="normal")
+    stage_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    stages_cleared: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     schema_version: Mapped[str] = mapped_column(String(20), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

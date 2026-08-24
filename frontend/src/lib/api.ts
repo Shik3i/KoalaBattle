@@ -1,4 +1,5 @@
 import { env } from '$env/dynamic/public';
+import { authHeaders, withWebsocketToken } from './auth-token';
 import { errorMessage } from './errors';
 import type { BrandAsset, BrandAssetKind, BrandAssetLibrary, ExportBackend, ExportPreflight, FormatCatalog, FormatDescriptor, FormatGroup, MatchArchive, NarratorProfile, NarratorSettings, ProductionProfile, ProductionStyle, ProductionTimeline, ProviderKind, RenderEngine, RendererCapabilities, StylePreset, VideoExportJob, VideoExportPreset, VoicePersona, VoicePool, VoicePreset } from './types';
 import type { RendererConfig } from './presentation/types';
@@ -11,10 +12,17 @@ export const apiBase = () => {
 };
 export const wsBase = () => env.PUBLIC_WS_URL || apiBase().replace(/^http/, 'ws');
 
+export { apiToken, setApiToken } from './auth-token';
+
+/** WebSocket URL for `path`, carrying the operator token when one is stored. */
+export function wsUrl(path: string): string {
+  return withWebsocketToken(`${wsBase()}${path}`);
+}
+
 export async function api<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`${apiBase()}${path}`, {
     ...options,
-    headers: { 'Content-Type': 'application/json', ...options?.headers }
+    headers: { 'Content-Type': 'application/json', ...authHeaders(), ...options?.headers }
   });
   if (!response.ok) {
     const body = await response.json().catch(() => ({ detail: response.statusText }));

@@ -149,6 +149,16 @@ async def _hydrate_draft_pool(
     return payload
 
 
+def _summary_columns(run: ChallengeRun) -> dict[str, Any]:
+    """Summary fields kept as columns so the run list never reads `state_json`."""
+    return {
+        "definition_name": run.definition.name,
+        "difficulty": run.difficulty.value,
+        "stage_count": len(run.definition.stages),
+        "stages_cleared": sum(1 for item in run.stage_results if item.status == "won"),
+    }
+
+
 class ChallengeRepository:
     def __init__(self, database: Database) -> None:
         self.database = database
@@ -174,6 +184,7 @@ class ChallengeRepository:
                 created_at=run.created_at,
                 updated_at=run.updated_at,
                 completed_at=run.completed_at,
+                **_summary_columns(run),
             )
             session.add(row)
             await session.commit()
@@ -210,6 +221,7 @@ class ChallengeRepository:
                     state_json=json.dumps(payload),
                     updated_at=stored.updated_at,
                     completed_at=stored.completed_at,
+                    **_summary_columns(stored),
                 )
                 .returning(ChallengeRunRow.id)
             )
@@ -236,33 +248,46 @@ class ChallengeRepository:
             return True
 
     async def list(self, *, limit: int = 100, offset: int = 0) -> tuple[ChallengeRunSummary, ...]:
+        """List run summaries without ever touching `state_json`.
+
+        Selecting explicit columns matters as much as the denormalization: pulling
+        whole rows would make SQLite read every run's multi-hundred-KB state blob
+        off disk only to discard it.
+        """
         async with self.database.sessions() as session:
             rows = (
                 await session.execute(
-                    select(ChallengeRunRow)
+                    select(
+                        ChallengeRunRow.id,
+                        ChallengeRunRow.name,
+                        ChallengeRunRow.definition_name,
+                        ChallengeRunRow.definition_version,
+                        ChallengeRunRow.status,
+                        ChallengeRunRow.difficulty,
+                        ChallengeRunRow.current_stage_index,
+                        ChallengeRunRow.stage_count,
+                        ChallengeRunRow.stages_cleared,
+                        ChallengeRunRow.created_at,
+                        ChallengeRunRow.updated_at,
+                    )
                     .order_by(ChallengeRunRow.created_at.desc())
                     .limit(limit)
                     .offset(offset)
                 )
-            ).scalars()
-            result: list[ChallengeRunSummary] = []
-            for row in rows:
-                # Summaries never read draft_pool.candidates, so skip rehydrating it —
-                # avoids pulling the (potentially ~1,200-candidate) pool payload per run.
-                run = ChallengeRun.model_validate(_parse_run_payload(row.state_json))
-                result.append(
-                    ChallengeRunSummary(
-                        id=run.id,
-                        name=run.name,
-                        definition_name=run.definition.name,
-                        definition_version=run.definition.version,
-                        status=run.status,
-                        difficulty=run.difficulty,
-                        current_stage_index=run.current_stage_index,
-                        stage_count=len(run.definition.stages),
-                        stages_cleared=sum(item.status == "won" for item in run.stage_results),
-                        created_at=run.created_at,
-                        updated_at=run.updated_at,
-                    )
+            ).all()
+            return tuple(
+                ChallengeRunSummary(
+                    id=UUID(row.id),
+                    name=row.name,
+                    definition_name=row.definition_name,
+                    definition_version=row.definition_version,
+                    status=row.status,
+                    difficulty=row.difficulty,
+                    current_stage_index=row.current_stage_index,
+                    stage_count=row.stage_count,
+                    stages_cleared=row.stages_cleared,
+                    created_at=row.created_at,
+                    updated_at=row.updated_at,
                 )
-            return tuple(result)
+                for row in rows
+            )

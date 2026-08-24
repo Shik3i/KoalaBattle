@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import MatchCard from '$lib/MatchCard.svelte';
-  import { api, wsBase } from '$lib/api';
+  import { api, wsUrl } from '$lib/api';
   import { connectLiveSocket } from '$lib/presentation/live-socket';
   import type { MatchSummary, TournamentArchive, TournamentParticipant } from '$lib/types';
 
@@ -18,7 +18,7 @@
   onMount(() => {
     void load();
     stopSocket = connectLiveSocket({
-      url: `${wsBase()}/api/tournaments/${data.id}/stream`,
+      url: wsUrl(`/api/tournaments/${data.id}/stream`),
       onConnected: load,
       onStatus: (status) => (error = status === 'connected' ? '' : 'Tournament live updates reconnecting…'),
       onMessage: (raw) => {

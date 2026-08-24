@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import BattleRenderer from '$lib/BattleRenderer.svelte';
   import ProductionConsole from '$lib/production/ProductionConsole.svelte';
-  import { getPresentationMatch, getStylePresets, wsBase } from '$lib/api';
+  import { getPresentationMatch, getStylePresets, wsUrl } from '$lib/api';
   import { configFromQuery, sanitizeRendererConfig } from '$lib/presentation/config';
   import { styleToRendererConfig } from '$lib/production/style';
   import { PresentationTimeline } from '$lib/presentation/timeline';
@@ -82,7 +82,7 @@
 
   function connectSocket() {
     socket?.close();
-    socket = new WebSocket(`${wsBase()}/api/matches/${data.id}/stream`);
+    socket = new WebSocket(wsUrl(`/api/matches/${data.id}/stream`));
     socket.onmessage = ({ data: raw }) => handleMessage(JSON.parse(raw) as StreamMessage);
     socket.onopen = () => (error = '');
     socket.onerror = () => (error = 'Overlay reconnecting…');

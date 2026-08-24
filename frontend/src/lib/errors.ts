@@ -8,6 +8,11 @@
  * This lives apart from `api.ts` so it can be tested without SvelteKit's `$env` module.
  */
 export function errorMessage(detail: unknown, status: number): string {
+  // A 401 is never actionable as raw backend text: it always means this browser
+  // has no operator token, or a stale one. Point at the one place that fixes it.
+  if (status === 401) {
+    return 'This backend requires an operator API token. Add it under Settings → Operator access.';
+  }
   if (typeof detail === 'string' && detail.trim()) return detail;
   if (Array.isArray(detail)) {
     const parts = detail

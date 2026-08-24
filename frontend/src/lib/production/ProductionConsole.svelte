@@ -41,6 +41,7 @@
   let playback: ProductionPlaybackState | null = null;
   let error = '';
   let busy = false;
+  let cuesOpen = false;
   let refreshTimer: ReturnType<typeof setInterval> | null = null;
   const dispatch = createEventDispatcher<{ playback: ProductionPlaybackState }>();
   $: mixer = playback?.settings || { master: 1, voice: 1, narrator: 1, sfx: 0.65, music: 0.35 };
@@ -293,13 +294,19 @@
           <button on:click={() => direct(command)}><i class={`ph ${commandIcon(command)}`} aria-hidden="true"></i>{command}</button>
         {/each}
       </div>
-      <details>
+      <!-- Built only while open. A closed <details> still keeps its children in the
+           DOM, and a long match has thousands of cues: rendering them eagerly cost
+           ~18k nodes on every replay, watch and overlay page — the last of which is
+           the OBS capture source, where that weight is least affordable. -->
+      <details bind:open={cuesOpen}>
         <summary>Timeline inspector · {production.cues.length} cues · revision {production.revision}</summary>
-        <div class="cue-list">
-          {#each production.cues as cue}
-            <button on:click={() => engine?.seek(cue.start_ms)}><span>{(cue.start_ms / 1000).toFixed(2)}s</span><strong>{cue.track}</strong><span>{cue.kind}</span><span>{cue.speaker || cue.side || '—'}</span></button>
-          {/each}
-        </div>
+        {#if cuesOpen}
+          <div class="cue-list">
+            {#each production.cues as cue}
+              <button on:click={() => engine?.seek(cue.start_ms)}><span>{(cue.start_ms / 1000).toFixed(2)}s</span><strong>{cue.track}</strong><span>{cue.kind}</span><span>{cue.speaker || cue.side || '—'}</span></button>
+            {/each}
+          </div>
+        {/if}
       </details>
     {/if}
     {#if error}<p class="error" role="alert">{error}</p>{/if}

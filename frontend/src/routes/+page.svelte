@@ -23,7 +23,9 @@
   onMount(() => {
     void Promise.all([
       api<MatchSummary[]>('/api/matches?limit=3').catch(() => []),
-      api<ChallengeRunSummary[]>('/api/challenges').catch(() => []),
+      // The landing page shows four recent runs plus the newest active one. Fetching
+      // the full default page of 100 made the whole history the home page's problem.
+      api<ChallengeRunSummary[]>('/api/challenges?limit=12').catch(() => []),
       api<ChallengeDefinitionSummary[]>('/api/challenges/definitions').catch(() => [])
     ]).then(([savedMatches, savedRuns, availableDefinitions]) => {
       matches = savedMatches;

@@ -7,7 +7,7 @@
   import { onMount } from 'svelte';
   import BattleRenderer from '$lib/BattleRenderer.svelte';
   import ProductionConsole from '$lib/production/ProductionConsole.svelte';
-  import { getPresentationMatch, getStylePresets, wsBase } from '$lib/api';
+  import { getPresentationMatch, getStylePresets, wsUrl } from '$lib/api';
   import { configFromQuery, sanitizeRendererConfig } from '$lib/presentation/config';
   import { styleToRendererConfig } from '$lib/production/style';
   import { connectLiveSocket } from '$lib/presentation/live-socket';
@@ -59,7 +59,7 @@
     // later, genuine reconnect should trigger a second one.
     let firstConnection = true;
     stopSocket = connectLiveSocket({
-      url: `${wsBase()}/api/matches/${data.id}/stream`,
+      url: wsUrl(`/api/matches/${data.id}/stream`),
       onConnected: () => {
         if (firstConnection) {
           firstConnection = false;

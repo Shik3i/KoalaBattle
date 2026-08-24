@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { api, apiBase, configureProvider, uploadVoiceReference, wsBase } from '$lib/api';
+  import { api, apiBase, apiToken, configureProvider, setApiToken, uploadVoiceReference, wsBase } from '$lib/api';
   import { loadRendererConfig, saveRendererConfig } from '$lib/presentation/config';
   import { hydrateStoredProviderSettings, loadProviderSettings, saveProviderSetting, type StoredProviderSetting } from '$lib/provider-settings';
   import { defaultRendererConfig, type EffectQuality, type MoveEffectSkin, type RendererConfig, type RendererTheme } from '$lib/presentation/types';
@@ -31,6 +31,8 @@
   let error = '';
   let providerDrafts: Record<string, StoredProviderSetting> = {};
   let savingProvider = '';
+  let operatorToken = '';
+  let tokenSaved = false;
   let uploadingVoice = '';
 
   $: preset = presets[obsPreset];
@@ -42,8 +44,16 @@
     baseUrl = location.origin;
     appTheme = document.documentElement.dataset.theme === 'light' ? 'light' : 'dark';
     renderer = loadRendererConfig();
+    operatorToken = apiToken();
     void loadData();
   });
+
+  function saveOperatorToken() {
+    setApiToken(operatorToken);
+    operatorToken = apiToken();
+    tokenSaved = true;
+    setTimeout(() => (tokenSaved = false), 2500);
+  }
 
   async function loadData() {
     try {
@@ -223,6 +233,29 @@
   <section class="panel assets"><header><div><span class="section-number">03</span><h2>Local assets</h2></div><button class="button secondary" on:click={rescan}>Rescan assets</button></header><p>Optional user-installed media under <code>{assets?.root || 'data/assets'}</code>. KoalaBattle never downloads or bundles Pokémon media.</p>{#if assets}<div class="asset-summary"><div><strong>{assets.pokemon_species}</strong><span>Pokémon species</span></div><div><strong class:ok={assets.valid}>{assets.valid ? 'VALID' : 'CHECK'}</strong><span>Directory status</span></div><div><strong>{assets.unresolved_species.length}</strong><span>Missing requests</span></div></div><div class="asset-categories">{#each Object.entries(assets.categories) as [name, category]}<div><span class:installed={category.installed}>{category.installed ? '✓' : '—'}</span><strong>{name.replaceAll('_', ' ')}</strong><small>{category.files} files · {category.directory}</small></div>{/each}</div>{#if assets.unresolved_species.length}<details><summary>Missing asset identifiers ({assets.unresolved_species.length})</summary><code>{assets.unresolved_species.join(', ')}</code></details>{/if}{#if assets.invalid_files.length}<details open><summary>Unsupported files</summary><code>{assets.invalid_files.join(', ')}</code></details>{/if}{/if}<div class="asset-debug"><label>Resolve species<input bind:value={assetQuery} placeholder="Mr. Mime" /></label><button class="button secondary" on:click={resolveAsset}>Resolve path</button>{#if resolution}<code>{resolution.found ? resolution.resolved_path : `${resolution.species_id}: polished placeholder`}</code>{/if}</div></section>
 
   <section class="panel obs"><span class="section-number">04</span><h2>OBS Browser Source</h2><p>Read-only overlay URL. No API keys, secrets, or engine controls.</p><div class="form-grid"><label>Match<select bind:value={selectedMatch}>{#each matches as match}<option value={match.id}>{match.config.players[0].display_name} vs {match.config.players[1].display_name}</option>{/each}</select></label><label>Preset<select bind:value={obsPreset}><option value="youtube">YouTube 1080p</option><option value="twitch">Twitch 1080p</option><option value="vertical">Vertical 1080×1920</option></select></label></div><div class="obs-spec"><span><strong>{preset.width}×{preset.height}</strong>browser source</span><span><strong>{preset.fps} FPS</strong>recommended</span><span><strong>{renderer.transparentBackground ? 'ON' : 'OFF'}</strong>transparency</span></div><label>Overlay URL<div class="copy-row"><input readonly value={overlayUrl} /><button class="button" on:click={copyOverlay} disabled={!selectedMatch}>{copied ? 'Copied' : 'Copy URL'}</button></div></label>{#if selectedMatch}<a class="preview-link" href={overlayUrl}>Open overlay preview →</a>{/if}</section>
+
+  <section class="panel operator-access">
+    <span class="section-number"><i class="ph ph-key" aria-hidden="true"></i> Operator access</span>
+    <h2>Operator API token</h2>
+    <p>
+      Only needed when the backend runs with <code>KOALABATTLE_API_TOKEN</code> set — the recommended
+      setup before reaching KoalaBattle from anywhere but this machine. Without a matching token the
+      app still loads, but starting, cancelling and configuring anything is refused. Stored in this
+      browser only; it is never written into the page bundle or an overlay URL.
+    </p>
+    <label>Token
+      <input
+        type="password"
+        autocomplete="off"
+        placeholder={operatorToken ? 'Saved in this browser · enter a replacement' : 'Leave empty when the backend has no token'}
+        bind:value={operatorToken}
+      />
+    </label>
+    <div class="provider-actions">
+      <button class="button" type="button" on:click={saveOperatorToken}>{tokenSaved ? 'Saved' : 'Save token'}</button>
+      {#if operatorToken}<button class="button secondary" type="button" on:click={() => { operatorToken = ''; saveOperatorToken(); }}>Clear token</button>{/if}
+    </div>
+  </section>
 
   <section class="panel connection"><span class="section-number">05</span><h2>Connection</h2><dl><dt>API</dt><dd>{apiBase()}</dd><dt>WebSocket</dt><dd>{wsBase()}</dd><dt>Renderer config</dt><dd>v{renderer.version}</dd></dl></section>
 </div>

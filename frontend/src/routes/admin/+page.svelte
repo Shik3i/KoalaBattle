@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import MatchCard from '$lib/MatchCard.svelte';
-  import { api, wsBase } from '$lib/api';
+  import { api, wsUrl } from '$lib/api';
   import { connectLiveSocket } from '$lib/presentation/live-socket';
   import type { AdminOverview, MatchSummary, ProviderStatus, TournamentSummary } from '$lib/types';
 
@@ -23,7 +23,7 @@
   onMount(() => {
     void load();
     stopSocket = connectLiveSocket({
-      url: `${wsBase()}/api/admin/stream`,
+      url: wsUrl('/api/admin/stream'),
       onMessage: scheduleRefresh,
       onConnected: load,
       onStatus: (connection) => {

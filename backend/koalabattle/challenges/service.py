@@ -259,13 +259,21 @@ def derive_pokemon_statistics(
             return parsed
 
         def amount(previous: tuple[int, int | None] | None, current: tuple[int, int | None]) -> int:
+            """HP change as a percentage of the Pokemon's own maximum.
+
+            Showdown reports your own side's HP in absolute points (`37/157`) but the
+            opponent's as a percentage (`24/100`). Reporting the raw delta therefore
+            mixed units inside a single stat card: "damage taken" counted HP points
+            while "damage dealt" counted percent of the enemy bar. Normalizing here
+            keeps both comparable, and matches what the browser recap already shows.
+            """
             if previous is None:
                 return 0
             delta = max(0, previous[0] - current[0])
-            if current[1] or previous[1]:
-                maximum = current[1] or previous[1] or 100
-                return round(delta / maximum * maximum)
-            return delta
+            maximum = current[1] or previous[1]
+            if not maximum:
+                return delta
+            return round(delta / maximum * 100)
 
         for event in archive.events:
             payload = event.payload
