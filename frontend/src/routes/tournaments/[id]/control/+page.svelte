@@ -9,6 +9,7 @@
   let tournament: TournamentArchive | null = null;
   let matches: MatchSummary[] = [];
   let error = '';
+  let matchesStale = '';
   let copied = false;
   let stopSocket: (() => void) | null = null;
 
@@ -33,7 +34,17 @@
     try { tournament = await api<TournamentArchive>(`/api/tournaments/${data.id}`); await loadMatches(); }
     catch (caught) { error = caught instanceof Error ? caught.message : String(caught); }
   }
-  async function loadMatches() { matches = await api<MatchSummary[]>(`/api/matches?tournament_id=${data.id}&limit=250`).catch(() => matches); }
+  // Keeping the last known good list is right for an operations screen that polls, but the
+  // operator could not tell a live board from a frozen one. The rows stay; the staleness is
+  // now stated.
+  async function loadMatches() {
+    try {
+      matches = await api<MatchSummary[]>(`/api/matches?tournament_id=${data.id}&limit=250`);
+      matchesStale = '';
+    } catch (caught) {
+      matchesStale = caught instanceof Error ? caught.message : String(caught);
+    }
+  }
   function participant(id: string | null): TournamentParticipant | null { return id ? participantMap.get(id) || null : null; }
   async function tournamentAction(action: 'start' | 'pause' | 'resume' | 'cancel') {
     if (action === 'cancel' && !confirm('Cancel this tournament and all queued/active matches?')) return;
@@ -57,6 +68,7 @@
   {#if tournament}<div class="head-actions"><span class={`status-pill ${tournament.status}`}>{tournament.status}</span><a class="button secondary" href={`/overlay/tournament/${tournament.id}`}>OBS preview</a><button class="button secondary" on:click={copyOverlay}>{copied ? 'Copied' : 'Copy OBS URL'}</button>{#if ['draft','ready'].includes(tournament.status)}<button class="button" on:click={() => tournamentAction('start')}>Start</button>{:else if tournament.status === 'running'}<button class="button secondary" on:click={() => tournamentAction('pause')}>Pause scheduling</button>{:else if tournament.status === 'paused'}<button class="button" on:click={() => tournamentAction('resume')}>Resume scheduling</button>{/if}{#if !['completed','cancelled','failed'].includes(tournament.status)}<button class="button danger" on:click={() => tournamentAction('cancel')}>Cancel</button>{/if}</div>{/if}
 </div>
 {#if error}<p class="error" role="alert">{error}</p>{/if}
+{#if matchesStale}<p class="stale-notice" role="status"><i class="ph ph-wifi-slash" aria-hidden="true"></i>Match board is not refreshing — showing the last state received. {matchesStale}</p>{/if}
 
 {#if tournament}
   <section class="stats-strip">
@@ -83,5 +95,7 @@
 {/if}
 
 <style>
+  .stale-notice{display:flex;align-items:center;gap:.5rem;margin:0 0 1rem;padding:.6rem .8rem;border:1px solid color-mix(in srgb,var(--warning) 45%,var(--border));border-radius:.6rem;background:var(--warning-soft);color:var(--warning);font-size:var(--meta-strong)}
+  .stale-notice .ph{flex:none;font-size:1.05rem}
   .tournament-head{align-items:center}.head-actions{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:.5rem}.button.danger{border-color:var(--danger);background:transparent;color:var(--danger)}.stats-strip{display:grid;grid-template-columns:repeat(6,1fr);gap:1px;overflow:hidden;border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--border)}.stats-strip span{display:grid;padding:1rem;background:var(--panel);color:var(--muted);font:0.72rem var(--mono)}.stats-strip strong{color:var(--text);font:700 1.05rem var(--display)}.section-head{display:flex;align-items:end;justify-content:space-between;margin:3rem 0 1rem}.section-head h2{margin:.25rem 0}.section-head>span{color:var(--muted);font:.75rem var(--mono)}.bracket{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(250px,1fr);align-items:center;gap:1rem;overflow-x:auto;padding-bottom:1rem}.bracket>section{display:grid;align-content:center;gap:.7rem}.bracket>section>header{color:var(--muted);font:0.72rem var(--mono);text-transform:uppercase}.bracket article{overflow:hidden;border:1px solid var(--border);border-radius:.7rem;background:var(--panel)}.bracket article.complete{border-color:color-mix(in srgb,var(--accent) 35%,var(--border))}.bracket article>div{display:grid;grid-template-columns:25px 1fr auto;gap:.5rem;padding:.65rem .8rem;border-bottom:1px solid var(--border)}.bracket article>div span,.bracket footer small{color:var(--muted);font:0.72rem var(--mono)}.bracket footer{display:flex;align-items:center;justify-content:space-between;padding:.45rem .8rem}.bracket footer button{border:0;background:transparent;color:var(--accent);font-size:0.72rem;cursor:pointer}.standings{overflow:hidden;box-shadow:none}.standings header,.standings>div{display:grid;grid-template-columns:2fr repeat(5,1fr);gap:.5rem;padding:.75rem 1rem;border-bottom:1px solid var(--border)}.standings header{color:var(--muted);font:0.72rem var(--mono)}.standings>div span,.standings>div b{text-align:center}.standings>div b{color:var(--accent)}.manual-series,.match-grid{display:grid;gap:.7rem}.manual-series{grid-template-columns:repeat(2,1fr);margin-top:1rem}.match-grid:empty:after{content:'No matches in this section.';color:var(--muted);font-size:.8rem}@media(max-width:900px){.tournament-head{align-items:stretch;flex-direction:column}.head-actions{justify-content:flex-start}.stats-strip{grid-template-columns:repeat(3,1fr)}}@media(max-width:620px){.stats-strip{grid-template-columns:1fr 1fr}.head-actions{display:grid;grid-template-columns:1fr 1fr}.head-actions .status-pill{grid-column:1/-1}.standings{overflow-x:auto}.standings header,.standings>div{min-width:620px}.manual-series{grid-template-columns:1fr}}
 </style>

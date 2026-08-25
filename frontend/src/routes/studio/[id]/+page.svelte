@@ -259,7 +259,16 @@
 
   async function removePreset(presetId: string) {
     if (!confirm('Delete this saved style preset?')) return;
-    await deleteStylePreset(presetId).catch(() => undefined);
+    // The failure used to be swallowed *and* the preset dropped from the list anyway, so a
+    // delete the server rejected still looked like it worked — until a reload brought the
+    // preset back. Only drop it once it is actually gone.
+    error = '';
+    try {
+      await deleteStylePreset(presetId);
+    } catch (caught) {
+      error = `Could not delete the preset: ${caught instanceof Error ? caught.message : String(caught)}`;
+      return;
+    }
     presets = presets.filter((item) => item.id !== presetId);
   }
 
@@ -613,7 +622,7 @@
       <details open={open.advanced} on:toggle={(event) => toggle('advanced', event)}>
         <summary>Advanced</summary>
         <div class="fields">
-          <h3>Typography</h3>
+          <h2>Typography</h2>
           <div class="grid2">
             <label>Display <select value={style.typography.display} on:change={(event) => patch('typography', { display: event.currentTarget.value as 'system' })}>{#each ['system', 'geometric', 'grotesk', 'serif', 'mono', 'pixel'] as value (value)}<option {value}>{value}</option>{/each}</select></label>
             <label>Body <select value={style.typography.body} on:change={(event) => patch('typography', { body: event.currentTarget.value as 'system' })}>{#each ['system', 'geometric', 'grotesk', 'serif', 'mono', 'pixel'] as value (value)}<option {value}>{value}</option>{/each}</select></label>
@@ -633,12 +642,12 @@
           <label class="check"><input type="checkbox" checked={style.typography.outline} on:change={(event) => patch('typography', { outline: event.currentTarget.checked })} /> Outline</label>
           <label class="check"><input type="checkbox" checked={style.typography.shadow} on:change={(event) => patch('typography', { shadow: event.currentTarget.checked })} /> Shadow</label>
 
-          <h3>Move callout</h3>
+          <h2>Move callout</h2>
           <label>Layout <select value={style.move.layout} on:change={(event) => patch('move', { layout: event.currentTarget.value as 'banner' })}>{#each ['banner', 'impact', 'minimal', 'lower-third', 'centered', 'off'] as value (value)}<option {value}>{value}</option>{/each}</select></label>
           <label class="check"><input type="checkbox" checked={style.move.show_type} on:change={(event) => patch('move', { show_type: event.currentTarget.checked })} /> Show type</label>
           <label class="check"><input type="checkbox" checked={style.move.show_archetype} on:change={(event) => patch('move', { show_archetype: event.currentTarget.checked })} /> Show archetype</label>
 
-          <h3>Damage callouts</h3>
+          <h2>Damage callouts</h2>
           <label>Intensity <select value={style.damage.intensity} on:change={(event) => patch('damage', { intensity: event.currentTarget.value as 'standard' })}>{#each ['off', 'minimal', 'standard', 'dramatic'] as value (value)}<option {value}>{value}</option>{/each}</select></label>
           <label class="check"><input type="checkbox" checked={style.damage.show_damage} on:change={(event) => patch('damage', { show_damage: event.currentTarget.checked })} /> Damage %</label>
           <label class="check"><input type="checkbox" checked={style.damage.show_healing} on:change={(event) => patch('damage', { show_healing: event.currentTarget.checked })} /> Healing %</label>
@@ -647,7 +656,7 @@
           <label class="check"><input type="checkbox" checked={style.damage.show_miss} on:change={(event) => patch('damage', { show_miss: event.currentTarget.checked })} /> Miss</label>
           <label class="check"><input type="checkbox" checked={style.damage.show_immune} on:change={(event) => patch('damage', { show_immune: event.currentTarget.checked })} /> Immune</label>
 
-          <h3>Assets</h3>
+          <h2>Assets</h2>
           <ul class="asset-list">
             {#each assets as asset (asset.id)}
               <li><span>{asset.display_name}</span><small>{asset.kind} · {(asset.byte_size / 1024).toFixed(0)} KB</small><button class="ghost danger" on:click={() => removeAsset(asset.id)}>Delete</button></li>
@@ -734,7 +743,7 @@
   .fields fieldset{border:1px solid var(--border);border-radius:.55rem;padding:.6rem;display:grid;gap:.5rem}
   .fields legend{font:0.72rem var(--mono);padding:0 .3rem}
   .fields .grid2{display:grid;grid-template-columns:1fr 1fr;gap:.5rem}
-  .fields h3{margin:.6rem 0 0;font-size:.85rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+  .fields h2{margin:.6rem 0 0;font-size:.85rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
   .fields button{min-height:36px;padding:.4rem .7rem;border:1px solid var(--border);border-radius:.5rem;background:var(--panel-strong);color:var(--text);cursor:pointer}
   .fields .danger{border-color:#a8464f;color:#ffb0b6}
   .fields .row{display:flex;gap:.5rem}

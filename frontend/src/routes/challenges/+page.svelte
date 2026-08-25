@@ -1,6 +1,7 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
   import { onMount } from 'svelte';
+  import Skeleton from '$lib/Skeleton.svelte';
   import { api } from '$lib/api';
   import { challengeErrorMessage, challengeStatusLabel, difficultyLabel, standardChallengeDefinition, standardChallengePayload } from '$lib/challenge';
   import type { ChallengeDefinitionSummary, ChallengeRunSummary, ChallengeRunView } from '$lib/types';
@@ -161,7 +162,7 @@
 <section class="history" aria-labelledby="history-title">
   <header><div><span class="eyebrow">Durable run history</span><h2 id="history-title">Your Draft runs</h2></div>{#if runs.length}<span>{runs.length}{hasMoreHistory ? '+' : ''} saved {runs.length === 1 ? 'run' : 'runs'}</span>{/if}</header>
   {#if historyLoading}
-    <p class="lede" role="status">Loading Draft history…</p>
+    <Skeleton rows={3} label="Loading Draft history…" />
   {:else if historyError}
     <section class="empty panel" role="alert"><h3>History could not be loaded</h3><p>{historyError}</p><button class="button secondary" on:click={loadHistory}>Retry</button></section>
   {:else if !runs.length}

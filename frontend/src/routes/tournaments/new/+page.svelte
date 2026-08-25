@@ -161,7 +161,7 @@
 
   function addParticipant() { participants = [...participants, participant(participants.length + 1)]; }
   function removeParticipant(index: number) { if (participants.length > 2) participants = participants.filter((_, item) => item !== index); }
-  function next() { step = Math.min(10, step + 1); }
+  function next() { step = Math.min(steps.length, step + 1); }
   function back() { step = Math.max(1, step - 1); }
   function setAgent(index: number, agentType: AgentType) { participants[index].agentType = agentType; participants = [...participants]; }
 
@@ -206,7 +206,7 @@
   }
 </script>
 
-<div class="page-head"><div><span class="eyebrow">Tournament setup · Step {step} of 10</span><h1>{steps[step - 1]}</h1><p class="step-summary">Configure one durable tournament draft. Every choice stays reviewable until launch.</p></div><a class="button ghost compact cancel" href="/tournaments"><i class="ph ph-x" aria-hidden="true"></i>Exit setup</a></div>
+<div class="page-head"><div><span class="eyebrow">Tournament setup · Step {step} of {steps.length}</span><h1>{steps[step - 1]}</h1><p class="step-summary">Configure one durable tournament draft. Every choice stays reviewable until launch.</p></div><a class="button ghost compact cancel" href="/tournaments"><i class="ph ph-x" aria-hidden="true"></i>Exit setup</a></div>
 <div class="progress-rail" role="progressbar" aria-label="Tournament setup progress" aria-valuemin="1" aria-valuemax="10" aria-valuenow={step}><span style={`width:${step * 10}%`}></span></div>
 <ol class="stepper" aria-label="Tournament creation progress">{#each steps as label, index}<li class:active={index + 1 === step} class:complete={index + 1 < step} aria-current={index + 1 === step ? 'step' : undefined}><span>{index + 1 < step ? '✓' : index + 1}</span><small>{label}</small></li>{/each}</ol>
 
@@ -249,7 +249,7 @@
       {/if}</article>{/each}</div></section>
   {:else if step === 7}<section><span class="eyebrow">Seeding</span><h2>Lock the order</h2><label class="check"><input type="checkbox" bind:checked={randomizeSeeds} />Randomize once when created</label>{#if !randomizeSeeds}<div class="seed-list">{#each participants as entry}<label>{entry.name}<input type="number" min="1" bind:value={entry.seed} /></label>{/each}</div>{/if}</section>
   {:else if step === 8}<section><span class="eyebrow">Scheduling</span><h2>Concurrency</h2><label>Maximum active tournament matches<input type="number" min="1" max="64" bind:value={concurrency} /></label><label class="check"><input type="checkbox" bind:checked={manualScheduling} />Game director starts each ready series manually</label><p class="note">Tournament concurrency is always bounded by the server-wide limit.</p></section>
-  {:else if step === 9}<section><span class="eyebrow">Safety envelope</span><h2>Cost, draws, presentation</h2><div class="field-grid"><label>Tournament cost limit (USD)<input type="number" min="0" step="0.01" bind:value={maximumCost} placeholder="No limit" /></label><label>Maximum draw replays<input type="number" min="0" max="25" bind:value={maxDrawReplays} /></label></div><div class="template"><span>Theme<strong>Koala Dark</strong></span><span>Overlay<strong>Bracket + live series</strong></span><span>Model labels<strong>Visible</strong></span><span>Series score<strong>Visible</strong></span></div></section>
+  {:else if step === 9}<section><span class="eyebrow">Limits and presentation</span><h2>Cost, draws, presentation</h2><div class="field-grid"><label>Tournament cost limit (USD)<input type="number" min="0" step="0.01" bind:value={maximumCost} placeholder="No limit" /></label><label>Maximum draw replays<input type="number" min="0" max="25" bind:value={maxDrawReplays} /></label></div><div class="template"><span>Theme<strong>Koala Dark</strong></span><span>Overlay<strong>Bracket + live series</strong></span><span>Model labels<strong>Visible</strong></span><span>Series score<strong>Visible</strong></span></div></section>
   {:else}<section><span class="eyebrow">Final review</span><h2>{name}</h2><div class="review"><span><strong>{format.replace('_', ' ')}</strong>format</span><span><strong>{descriptor?.name || battleFormat}</strong>battle format</span><span><strong>Best of {bestOf}</strong>series</span><span><strong>{rounds}</strong>rounds</span><span><strong>{participants.length}</strong>participants</span><span><strong>{concurrency}</strong>concurrent matches</span><span><strong>{maximumCost || 'No limit'}</strong>tournament cost limit</span><span><strong>{needsCustomTeam ? `${participants.filter((entry) => entry.teamSnapshotId).length}/${participants.length} assigned` : 'Showdown random'}</strong>teams</span></div><p class="note">Creation produces an editable draft. The bracket or round-robin schedule becomes immutable when started.</p></section>{/if}
   {#if error}<p class="error" role="alert">{error}</p>{/if}
   <footer>{#if step > 1}<button type="button" class="button secondary" on:click={back}><i class="ph ph-arrow-left" aria-hidden="true"></i>Back</button>{:else}<span></span>{/if}<button class="button" disabled={loading}>{loading ? 'Creating…' : step === 10 ? 'Create draft' : 'Continue'}{#if !loading}<i class={`ph ${step === 10 ? 'ph-check' : 'ph-arrow-right'}`} aria-hidden="true"></i>{/if}</button></footer>

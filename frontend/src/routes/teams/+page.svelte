@@ -70,6 +70,19 @@
     finally { busy = false; }
   }
 
+  /**
+   * `generation_audit` is only written for teams the AI builder produced, and it is the
+   * only record of which model wrote a given team. It was loaded and typed but never
+   * shown — the disclosure promised a "Generation Audit" tab that displayed nothing.
+   */
+  function provenance(audit: Record<string, unknown> | null): string {
+    if (!audit) return '';
+    const text = (key: string) => (typeof audit[key] === 'string' ? (audit[key] as string) : '');
+    return [text('provider'), text('model'), text('prompt_profile_version') && `profile ${text('prompt_profile_version')}`]
+      .filter(Boolean)
+      .join(' · ');
+  }
+
   async function copy(team: TeamSnapshot) {
     await navigator.clipboard.writeText(team.normalized_export);
   }
@@ -102,9 +115,10 @@
 
 <section class="library"><div class="section-head"><div><span class="eyebrow">Immutable snapshots</span><h2>Saved teams</h2></div><span>{teams.length} local</span></div>
   {#if teams.length === 0}<div class="empty panel">No validated custom teams yet.</div>{/if}
-  <div class="cards">{#each teams as team}<details class="panel team"><summary><div><strong>{team.name}</strong><small>{team.source} · {formatLabel(team.format)} · {new Date(team.created_at).toLocaleString()}</small></div><span>✓ Legal</span></summary><div class="team-body"><p class="team-body-label">Normalized Showdown export{#if team.generation_audit} · AI-generated{/if}</p><textarea readonly aria-label={`${team.name} normalized Showdown export`} value={team.normalized_export}></textarea><button class="button secondary" on:click={() => copy(team)}><i class="ph ph-copy" aria-hidden="true"></i>Copy Showdown team</button></div></details>{/each}</div>
+  <div class="cards">{#each teams as team}<details class="panel team"><summary><div><strong>{team.name}</strong><small>{team.source} · {formatLabel(team.format)} · {new Date(team.created_at).toLocaleString()}</small></div><span>✓ Legal</span></summary><div class="team-body"><p class="team-body-label">Normalized Showdown export</p>{#if provenance(team.generation_audit)}<p class="team-provenance"><i class="ph ph-sparkle" aria-hidden="true"></i>Built by {provenance(team.generation_audit)}</p>{/if}<textarea readonly aria-label={`${team.name} normalized Showdown export`} value={team.normalized_export}></textarea><button class="button secondary" on:click={() => copy(team)}><i class="ph ph-copy" aria-hidden="true"></i>Copy Showdown team</button></div></details>{/each}</div>
 </section>
 
 <style>
-  .page-head,.section-head{display:flex;justify-content:space-between;align-items:end;gap:2rem}.page-head h1{margin:.3rem 0}.page-head p,.builder p{color:var(--muted);max-width:680px}.team-workspace{display:grid;grid-template-columns:1.4fr .8fr;gap:1rem;margin-top:2rem}.editor,.builder{padding:1.3rem;display:grid;gap:1rem;align-content:start}.editor textarea{min-height:390px;font:400 .72rem/1.5 var(--mono)}.builder h2{margin:.2rem 0}.result{padding:.8rem;border:1px solid var(--danger);border-radius:10px;color:var(--danger)}.result.valid{border-color:var(--accent);color:var(--accent)}.result p{margin:.35rem 0;font:0.72rem var(--mono)}.library{margin-top:3rem}.cards{display:grid;gap:.7rem;margin-top:1rem}.team{box-shadow:none}.team summary{display:flex;justify-content:space-between;align-items:center;padding:1rem;cursor:pointer}.team summary div{display:grid}.team small{color:var(--muted);font:0.72rem var(--mono)}.team summary>span{color:var(--accent);font:0.72rem var(--mono)}.team-body{padding:0 1rem 1rem;border-top:1px solid var(--border)}.team-body textarea{width:100%;min-height:300px;font:400 0.72rem/1.5 var(--mono)}.team-body-label{margin:.8rem 0 .5rem;color:var(--muted);font:0.72rem var(--mono);letter-spacing:.06em;text-transform:uppercase}.empty{padding:2rem;color:var(--muted)}@media(max-width:850px){.page-head{align-items:start;flex-direction:column}.team-workspace{grid-template-columns:1fr}}
+  .page-head,.section-head{display:flex;justify-content:space-between;align-items:end;gap:2rem}.page-head h1{margin:.3rem 0}.page-head p,.builder p{color:var(--muted);max-width:680px}.team-workspace{display:grid;grid-template-columns:1.4fr .8fr;gap:1rem;margin-top:2rem}.editor,.builder{padding:1.3rem;display:grid;gap:1rem;align-content:start}.editor textarea{min-height:390px;font:400 .72rem/1.5 var(--mono)}.builder h2{margin:.2rem 0}.result{padding:.8rem;border:1px solid var(--danger);border-radius:10px;color:var(--danger)}.result.valid{border-color:var(--accent);color:var(--accent)}.result p{margin:.35rem 0;font:0.72rem var(--mono)}.library{margin-top:3rem}.cards{display:grid;gap:.7rem;margin-top:1rem}.team{box-shadow:none}.team summary{display:flex;justify-content:space-between;align-items:center;padding:1rem;cursor:pointer}.team summary div{display:grid}.team small{color:var(--muted);font:0.72rem var(--mono)}.team summary>span{color:var(--accent);font:0.72rem var(--mono)}.team-body{padding:0 1rem 1rem;border-top:1px solid var(--border)}.team-body textarea{width:100%;min-height:300px;font:400 0.72rem/1.5 var(--mono)}.team-provenance{display:flex;align-items:center;gap:.4rem;margin:0 0 .6rem;color:var(--accent);font:0.72rem var(--mono)}
+  .team-body-label{margin:.8rem 0 .5rem;color:var(--muted);font:0.72rem var(--mono);letter-spacing:.06em;text-transform:uppercase}.empty{padding:2rem;color:var(--muted)}@media(max-width:850px){.page-head{align-items:start;flex-direction:column}.team-workspace{grid-template-columns:1fr}}
 </style>

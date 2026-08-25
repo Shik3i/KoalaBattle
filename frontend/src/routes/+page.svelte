@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import Skeleton from '$lib/Skeleton.svelte';
   import { api } from '$lib/api';
   import { challengeStatusLabel } from '$lib/challenge';
   import type { ChallengeDefinitionSummary, ChallengeRunSummary, MatchSummary } from '$lib/types';
@@ -105,7 +106,7 @@
 
   <aside class="hero-side" aria-label="Your current state">
     {#if loading}
-      <div class="side-card panel skeleton" aria-hidden="true"><span></span><span></span><span></span></div>
+      <Skeleton rows={1} variant="card" label="Loading your run…" />
     {:else if loadError}
       <div class="side-card panel side-error" role="alert">
         <i class="ph ph-plugs" aria-hidden="true"></i>
@@ -165,9 +166,6 @@
   .side-meta b{color:var(--text);font-size:1rem}
   .side-error{border-color:color-mix(in srgb,var(--danger) 45%,var(--border))}.side-error>.ph{color:var(--danger)}.side-error p{overflow-wrap:anywhere;font-size:var(--meta)}
   .side-error .button,.side-empty .button{justify-self:start;margin-top:.35rem}
-  .skeleton{gap:.7rem}.skeleton span{height:.8rem;border-radius:999px;background:var(--surface)}.skeleton span:first-child{width:40%}.skeleton span:nth-child(2){width:85%;height:1.5rem}.skeleton span:last-child{width:60%}
-  @media(prefers-reduced-motion:no-preference){.skeleton span{animation:skeleton-pulse 1.4s ease-in-out infinite}}
-  @keyframes skeleton-pulse{50%{opacity:.45}}
   .principles { display:grid; grid-template-columns:repeat(3,1fr); border-block:1px solid var(--border); }
   .principles article { padding:2rem; border-right:1px solid var(--border); } .principles article:last-child { border:0; }
   .principles h2 { margin:.7rem 0 .5rem; font-size:1.1rem; } .principles p { margin:0; color:var(--muted); line-height:1.6; }

@@ -26,7 +26,9 @@
 html { scroll-behavior:smooth; font-family:var(--display); background:var(--bg); color:var(--text); -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;text-rendering:optimizeLegibility; }
 body { min-width:320px; margin:0; background:radial-gradient(circle at 90% -10%,color-mix(in srgb,var(--accent) 10%,transparent),transparent 31rem),radial-gradient(circle at -10% 38%,color-mix(in srgb,var(--p2) 5%,transparent),transparent 28rem),var(--bg); }
 :root[data-overlay='true'],:root[data-overlay='true'] body { min-width:0; overflow:hidden; background:transparent; }
-.overlay-shell { width:100vw; height:100vh; overflow:hidden; background:transparent; }
+/* This is a <main>, so the global `main` rule below would give an OBS overlay the
+   ordinary page's centred column and 3.5rem of padding. Full bleed, explicitly. */
+.overlay-shell { width:100vw; max-width:none; height:100vh; min-height:0; margin:0; padding:0; overflow:hidden; background:transparent; }
 button,input,select,textarea { font:inherit; }
 button,a { -webkit-tap-highlight-color:transparent; }
 a { color:inherit; text-decoration:none; }
@@ -41,6 +43,11 @@ a { color:inherit; text-decoration:none; }
 .app-header.focus-route nav a { padding:.34rem .68rem; font-size:.76rem; }
 .app-header.focus-route .icon-button { width:2.35rem; }
 .app-header::before { content:''; position:absolute; z-index:-1; inset:0; background:color-mix(in srgb,var(--bg) 90%,transparent); backdrop-filter:blur(16px); }
+/* Announced but not drawn. Used for the status line that accompanies a loading
+   placeholder, so assistive technology hears "Loading…" once instead of reading out a
+   stack of empty boxes. `clip-path` over the old `clip`, and `white-space:nowrap` so the
+   text is not wrapped into nothing before it is read. */
+.visually-hidden{position:absolute!important;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;border:0;clip-path:inset(50%);white-space:nowrap}
 .skip-link{position:fixed;z-index:100;top:.75rem;left:.75rem;padding:.7rem 1rem;border-radius:.65rem;background:var(--accent);color:var(--accent-ink);font-weight:800;transform:translateY(-160%);transition:transform .18s ease}.skip-link:focus{transform:translateY(0)}
 .brand { display:flex; min-height:44px; align-items:center; gap:.65rem; font-weight:850; letter-spacing:-.04em; }
 .brand img { width:2.35rem; aspect-ratio:1; filter:drop-shadow(0 7px 16px color-mix(in srgb,var(--accent) 24%,transparent)); transition:transform .25s cubic-bezier(.2,.8,.2,1),filter .25s ease; }

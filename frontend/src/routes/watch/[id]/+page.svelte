@@ -140,6 +140,11 @@
 
 <svelte:head><title>KoalaBattle · Battle view</title></svelte:head>
 
+<!-- The viewer is deliberately chrome-free, so the heading is for assistive technology
+     only; without it the page had no heading at all. -->
+<h1 class="visually-hidden">
+  {match ? `${match.config.players[0].display_name} versus ${match.config.players[1].display_name}` : 'Battle view'}
+</h1>
 <div class="battle-view" bind:this={viewElement}>
   <BattleRenderer presentation={snapshot?.state || null} {config} overlay {speaking} campaign={match?.config.campaign || null} />
   <!-- Keeps narration audio available on the viewer tab; no battle controls are exposed. -->

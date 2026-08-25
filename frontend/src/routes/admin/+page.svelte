@@ -97,7 +97,7 @@
   <aside>
     <section class="panel side-panel"><header><span class="eyebrow">Tournaments</span><a href="/tournaments">All →</a></header>{#if tournaments.length}{#each tournaments.slice(0, 8) as tournament}<a class="tournament-row" href={`/tournaments/${tournament.id}/control`}><span><strong>{tournament.name}</strong><small>{tournament.participant_count} participants · {tournament.format.replace('_', ' ')}</small></span><span class={`status-pill ${tournament.status}`}>{tournament.status}</span></a>{/each}{:else}<p class="empty">No tournaments.</p>{/if}</section>
     <section class="panel side-panel"><span class="eyebrow">Provider readiness</span><div class="provider-list">{#each providers as provider}<span><i class:ready={provider.configured}></i><strong>{provider.id === 'fake' ? 'Testing · Fake' : provider.id}</strong><small>{provider.configured ? 'ready' : 'optional'}</small></span>{/each}</div></section>
-    <section class="panel side-panel warning"><span class="eyebrow">Exposure boundary</span><p>Admin and control routes are intended for a protected local network. Spectator and OBS routes are read-only.</p></section>
+    <section class="panel side-panel warning"><span class="eyebrow">What is safe to expose</span><p>Admin and control routes are intended for a protected local network. Spectator and OBS routes are read-only.</p></section>
   </aside>
 </div>
 

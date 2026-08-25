@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import Skeleton from '$lib/Skeleton.svelte';
   import { api } from '$lib/api';
   import type { TournamentSummary } from '$lib/types';
   let tournaments: TournamentSummary[] = [];
@@ -13,11 +14,11 @@
 </script>
 
 <div class="page-head"><div><span class="eyebrow">Competition operations</span><h1>Tournaments</h1></div><a class="button" href="/tournaments/new"><i class="ph ph-plus" aria-hidden="true"></i>Create tournament</a></div>
-{#if loading}<p class="lede">Loading tournaments…</p>{:else if error}<p class="error">{error}</p>{:else if !tournaments.length}<section class="empty panel"><h2>No tournaments yet</h2><p>Create a free Random, Fake, Manual, or hybrid tournament.</p><a class="button" href="/tournaments/new">Create first tournament</a></section>{:else}
+{#if loading}<Skeleton rows={3} label="Loading tournaments…" />{:else if error}<p class="error">{error}</p>{:else if !tournaments.length}<section class="empty panel"><h2>No tournaments yet</h2><p>Create a free Random, Fake, Manual, or hybrid tournament.</p><a class="button" href="/tournaments/new">Create first tournament</a></section>{:else}
   <div class="tournament-list">
     {#each tournaments as tournament}
       <a class="panel" href={`/tournaments/${tournament.id}/control`}>
-        <div><span class="eyebrow">{tournament.format.replace('_', ' ')}</span><h2>{tournament.name}</h2></div>
+        <div><span class="eyebrow">{tournament.format.replaceAll('_', ' ')}</span><h2>{tournament.name}</h2></div>
         <div class="progress"><strong>{tournament.completed_series}/{tournament.series_count}</strong><span>series complete</span></div>
         <div class="progress"><strong>{tournament.participant_count}</strong><span>participants</span></div>
         <span class={`status-pill ${tournament.status}`}>{tournament.status}</span><i class="ph ph-caret-right row-arrow" aria-hidden="true"></i>
