@@ -56,7 +56,12 @@
 
 <section class="hero">
   <span class="eyebrow">A self-hosted Pokémon battle suite</span>
-  <h1>Draft a team. Climb <span class="route-roll" class:rolling={routeRolling} aria-live="polite" aria-atomic="true">{#if activeRoute}<span>{activeRoute.region}</span><small>Gen {activeRoute.generation}</small>{:else}<span>the regions</span>{/if}</span>. Watch it happen.</h1>
+  <!-- The rotating region sits mid-sentence, so it must not change the sentence's
+       shape. It reserves the width of the longest region name and carries its own
+       full stop; a generation badge used to live here too and pushed that full stop
+       away from the word, which read as a typo. The generation is on the route cards
+       below, where it is actually useful. -->
+  <h1>Draft a team. Climb <span class="route-roll" class:rolling={routeRolling} aria-live="polite" aria-atomic="true">{activeRoute ? activeRoute.region : 'every region'}.</span> Watch it happen.</h1>
   <p class="lede">Pick six Pokémon, level and evolve them stage by stage, and fight through authentic regional Gym, Elite Four and Champion routes — every battle a real Pokémon Showdown match, recorded and replayable.</p>
   <div class="actions">
     {#if activeRun}
@@ -82,7 +87,7 @@
 <style>
   .principles article>span{display:flex;align-items:center;gap:.4rem}.principles article>span .ph{font-size:1.05rem;color:var(--accent)}
   .hero { padding:clamp(1rem,7vw,6rem) 0 5rem; }
-  .route-roll{display:inline-flex;align-items:baseline;gap:.35em;min-width:7.2ch;color:var(--accent);white-space:nowrap;will-change:transform,opacity}.route-roll small{font:600 .38em var(--mono);letter-spacing:.08em;color:var(--muted);text-transform:uppercase}.route-roll.rolling{animation:route-roll-in .42s ease both}@keyframes route-roll-in{0%{transform:translateY(.35em);opacity:.15}65%{transform:translateY(-.06em);opacity:1}100%{transform:translateY(0);opacity:1}}
+  .route-roll{display:inline-block;min-width:6.5ch;color:var(--accent);white-space:nowrap;will-change:transform,opacity}.route-roll.rolling{animation:route-roll-in .42s ease both}@keyframes route-roll-in{0%{transform:translateY(.35em);opacity:.15}65%{transform:translateY(-.06em);opacity:1}100%{transform:translateY(0);opacity:1}}
   .principles { display:grid; grid-template-columns:repeat(3,1fr); border-block:1px solid var(--border); }
   .principles article { padding:2rem; border-right:1px solid var(--border); } .principles article:last-child { border:0; }
   .principles h2 { margin:.7rem 0 .5rem; font-size:1.1rem; } .principles p { margin:0; color:var(--muted); line-height:1.6; }

@@ -2220,3 +2220,71 @@ def test_damage_statistics_are_percentages_even_when_showdown_reports_absolute_h
     assert stats[0].species == "Mon 1"
     assert stats[0].damage_taken == 25, "50 of 200 HP is 25% of the bar"
     assert stats[0].healing == 15, "30 of 200 HP is 15% of the bar"
+
+
+@pytest.mark.asyncio
+async def test_pools_are_addressed_by_content_not_by_catalog_hash(tmp_path: Path) -> None:
+    """`catalog_hash` names the Showdown catalog a pool came from, not the pool. The
+    candidate objects built from one catalog changed as their fields did, so a real
+    archive already holds catalog hashes mapping to two different pools. Keying the
+    shared table by it would hand one run another run's roster."""
+    from sqlalchemy import select
+
+    from koalabattle.models.orm import DraftPoolSnapshotRow
+
+    url = f"sqlite+aiosqlite:///{tmp_path / 'pools.db'}"
+    database = Database(url)
+    await database.create_schema()
+    repository = ChallengeRepository(database)
+
+    first = _run(candidates=tuple(_candidate(index) for index in range(1, 4)))
+    # Same catalog_hash, deliberately different candidates — the collision case.
+    second = _run(candidates=tuple(_candidate(index) for index in range(4, 7))).model_copy(
+        update={
+            "id": uuid4(),
+            "draft_pool": _run(
+                candidates=tuple(_candidate(index) for index in range(4, 7))
+            ).draft_pool.model_copy(update={"catalog_hash": first.draft_pool.catalog_hash}),
+        }
+    )
+    assert second.draft_pool.catalog_hash == first.draft_pool.catalog_hash
+    assert second.draft_pool.candidates != first.draft_pool.candidates
+
+    await repository.create(first)
+    await repository.create(second)
+
+    restored_first = await repository.get(first.id)
+    restored_second = await repository.get(second.id)
+    assert restored_first is not None and restored_second is not None
+    assert restored_first.draft_pool.candidates == first.draft_pool.candidates
+    assert restored_second.draft_pool.candidates == second.draft_pool.candidates, (
+        "the colliding run must keep its own pool"
+    )
+
+    async with database.sessions() as session:
+        stored = (await session.execute(select(DraftPoolSnapshotRow))).scalars().all()
+    assert len(stored) == 2, "two different pools must occupy two rows"
+    await database.close()
+
+
+@pytest.mark.asyncio
+async def test_identical_pools_are_stored_once_across_runs(tmp_path: Path) -> None:
+    from sqlalchemy import func as sa_func
+
+    from koalabattle.models.orm import DraftPoolSnapshotRow
+
+    url = f"sqlite+aiosqlite:///{tmp_path / 'shared-pool.db'}"
+    database = Database(url)
+    await database.create_schema()
+    repository = ChallengeRepository(database)
+
+    candidates = tuple(_candidate(index) for index in range(1, 4))
+    for _ in range(4):
+        await repository.create(_run(candidates=candidates).model_copy(update={"id": uuid4()}))
+
+    async with database.sessions() as session:
+        count = (
+            await session.execute(sa_func.count(DraftPoolSnapshotRow.catalog_hash))
+        ).scalar_one()
+    assert count == 1, "four runs sharing a pool must not store it four times"
+    await database.close()

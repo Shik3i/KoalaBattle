@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 from collections import defaultdict
 from datetime import UTC, datetime
@@ -95,28 +96,51 @@ def _parse_run_payload(state_json: str) -> dict[str, Any]:
     return payload
 
 
-async def _store_draft_pool(session: AsyncSession, run: ChallengeRun) -> dict[str, Any]:
-    """Persist the run's draft pool once per distinct `catalog_hash`, and return the
-    run's JSON-mode payload with `draft_pool.candidates` stripped for storage.
+#: Where a stripped run records which stored pool to put back. Kept out of the
+#: `DraftPoolSnapshot` model so the API shape does not gain a storage detail;
+#: `_hydrate_draft_pool` removes it again before validation.
+POOL_REFERENCE_KEY = "__pool_hash"
 
-    The pool is immutable content addressed by that hash, so a repeat save for the
-    same pool (every pick, reroll, and stage transition in a run) is a no-op insert
-    instead of re-writing potentially ~1,200 candidates every time.
+
+def pool_content_hash(candidates: list[Any]) -> str:
+    """Content address for a materialized draft pool.
+
+    Deliberately *not* `catalog_hash`: that identifies the Showdown catalog a pool
+    was generated from, and the candidate objects built from one catalog have
+    changed as their fields did (draft points and rarity, for instance). Three
+    catalog hashes in a real archive already map to two different pools each, so
+    keying the shared table by it would hand one run another run's pool.
     """
-    pool = run.draft_pool
-    if pool.candidates:
-        stmt = (
-            sqlite_insert(DraftPoolSnapshotRow)
-            .values(
-                catalog_hash=pool.catalog_hash,
-                payload_json=pool.model_dump_json(),
-                created_at=datetime.now(UTC),
-            )
-            .on_conflict_do_nothing(index_elements=["catalog_hash"])
-        )
-        await session.execute(stmt)
+    canonical = json.dumps(candidates, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode()).hexdigest()
+
+
+async def _store_draft_pool(session: AsyncSession, run: ChallengeRun) -> dict[str, Any]:
+    """Persist the run's draft pool once per distinct pool, and return the run's
+    JSON-mode payload with `draft_pool.candidates` stripped for storage.
+
+    A pool is immutable, so every pick, reroll and stage transition in a run would
+    otherwise rewrite the same ~1,200 candidates.
+    """
     payload = json.loads(run.model_dump_json())
-    payload["draft_pool"] = {**payload["draft_pool"], "candidates": []}
+    candidates = payload["draft_pool"].get("candidates") or []
+    if not candidates:
+        return payload
+    digest = pool_content_hash(candidates)
+    await session.execute(
+        sqlite_insert(DraftPoolSnapshotRow)
+        .values(
+            catalog_hash=digest,
+            payload_json=json.dumps({"candidates": candidates}),
+            created_at=datetime.now(UTC),
+        )
+        .on_conflict_do_nothing(index_elements=["catalog_hash"])
+    )
+    payload["draft_pool"] = {
+        **payload["draft_pool"],
+        "candidates": [],
+        POOL_REFERENCE_KEY: digest,
+    }
     return payload
 
 
@@ -134,10 +158,14 @@ async def _hydrate_draft_pool(
     content-addressed store. A no-op for legacy payloads that still carry candidates
     inline (see `_parse_run_payload`'s pre-2.0 migration branch)."""
     pool = payload.get("draft_pool")
-    catalog_hash = pool.get("catalog_hash") if isinstance(pool, dict) else None
-    if not isinstance(pool, dict) or pool.get("candidates") or not catalog_hash:
+    if not isinstance(pool, dict) or pool.get("candidates"):
         return payload
-    row = await session.get(DraftPoolSnapshotRow, catalog_hash)
+    # Rows written before pools were addressed by content referenced the catalog
+    # hash instead; both still resolve through the same table.
+    reference = pool.pop(POOL_REFERENCE_KEY, None) or pool.get("catalog_hash")
+    if not reference:
+        return payload
+    row = await session.get(DraftPoolSnapshotRow, reference)
     if row is None:
         # Should never happen — every stored run's pool is written before the run
         # itself. Leave `candidates` empty rather than crash; downstream Pydantic
