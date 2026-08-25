@@ -3,7 +3,7 @@
 
   export let trainerId: string | null = null;
   export let name: string;
-  export let accent = '#7bf0a2';
+  export let accent = 'var(--accent)';
   export let compact = false;
   export let decorative = false;
   let failed = false;
@@ -38,9 +38,9 @@
   .rings{position:absolute;inset:20%;z-index:-2;border:1px solid color-mix(in srgb,var(--trainer-accent) 28%,transparent);border-radius:50%;animation:spin 14s linear infinite}
   .rings::before,.rings::after{content:"";position:absolute;border:1px solid color-mix(in srgb,var(--trainer-accent) 22%,transparent);border-radius:50%}.rings::before{inset:-34%}.rings::after{inset:22%}
   img{display:block;width:92%;height:94%;object-fit:contain;image-rendering:pixelated;filter:drop-shadow(0 10px 8px rgba(0,0,0,.35));animation:stance 3.1s ease-in-out infinite;transform-origin:50% 100%}
-  .fallback{align-self:center;display:grid;place-items:center;width:55%;aspect-ratio:1;border-radius:50%;background:color-mix(in srgb,var(--trainer-accent) 16%,var(--surface));color:color-mix(in srgb,var(--trainer-accent) 50%,white)}
-  .fallback i{font-size:3.2rem}.fallback b{font:.68rem var(--mono)}
-  .compact{width:64px;height:64px;border-radius:.6rem}.compact img{width:96%;height:96%}.compact .fallback i{font-size:1.2rem}.compact .fallback b{font-size:.45rem}
+  .fallback{align-self:center;display:grid;place-items:center;width:55%;aspect-ratio:1;border-radius:50%;background:color-mix(in srgb,var(--trainer-accent) 16%,var(--surface));color:color-mix(in srgb,color-mix(in srgb,var(--trainer-accent) 50%,var(--text)),var(--text) var(--accent-ink-mix))}
+  .fallback i{font-size:3.2rem}.fallback b{font:0.72rem var(--mono)}
+  .compact{width:64px;height:64px;border-radius:.6rem}.compact img{width:96%;height:96%}.compact .fallback{width:64%}.compact .fallback i{display:none}.compact .fallback b{font-size:0.78rem}
   @keyframes stance{0%,100%{transform:translateY(0) rotate(-.25deg)}50%{transform:translateY(-4px) rotate(.25deg)}}
   @keyframes spin{to{transform:rotate(360deg)}}
   @media(prefers-reduced-motion:reduce){img,.rings{animation:none}}

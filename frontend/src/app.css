@@ -1,7 +1,7 @@
 @import '@fontsource-variable/inter';
 @import './phosphor.css';
 :root { color-scheme:dark; --bg:#0b100c; --panel:#111813; --panel-strong:#18211a; --surface:#202a22; --text:#f5f9f6; --muted:#a6b6ab; --border:#2d3a30; --accent:#7ee09a; --accent-strong:#a3f4ba; --accent-ink:#05180c; --p1:#79e098; --p2:#cfabf8; --hp-high:#62d283; --hp-mid:#f5c35f; --hp-low:#f87171; --warning:#f5c35f; --warning-soft:#382e18; --danger:#ff8b87; --danger-ink:#2b0707; --radius:.75rem; --radius-lg:1.2rem; --shadow-sm:0 8px 28px rgb(0 0 0 / .18); --shadow:0 24px 80px rgb(0 0 0 / .35); --focus:0 0 0 3px color-mix(in srgb,var(--accent) 35%,transparent); --display:'Inter Variable',Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; --mono:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,'Liberation Mono',monospace; -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;text-rendering:optimizeLegibility; }
-:root[data-theme='light'] { color-scheme:light; --bg:#f3f6f2; --panel:#ffffff; --panel-strong:#f8faf7; --surface:#e9eee8; --text:#121a14; --muted:#556358; --border:#d0d8cf; --accent:#1e733d; --accent-strong:#145c2f; --accent-ink:#fff; --p1:#2e9e54; --p2:#834ec2; --warning:#7a4d00; --warning-soft:#fff2d6; --danger:#b42318; --danger-ink:#fff; --shadow:0 24px 70px rgb(39 59 43 / .14); }
+:root[data-theme='light'] { --accent-ink-mix:62%; color-scheme:light; --bg:#f3f6f2; --panel:#ffffff; --panel-strong:#f8faf7; --surface:#e9eee8; --text:#121a14; --muted:#556358; --border:#d0d8cf; --accent:#1e733d; --accent-strong:#145c2f; --accent-ink:#fff; --p1:#2e9e54; --p2:#834ec2; --warning:#7a4d00; --warning-soft:#fff2d6; --danger:#b42318; --danger-ink:#fff; --shadow:0 24px 70px rgb(39 59 43 / .14); }
 :root {
   /* Intentional desktop content widths. Nothing is full-bleed unless it earns it. */
   --shell:1360px;          /* application shell */
@@ -9,6 +9,15 @@
   --reading:760px;         /* forms, settings, prose */
   --wide:100%;             /* large data views and production surfaces */
   /* Type scale. Display for headings, sans for UI copy, mono only for data. */
+  /* Metadata floor. Nothing that carries meaning is set below --meta: the app used
+     to render labels down to 6px, which is decoration, not text. Hierarchy below the
+     body size is carried by colour, weight and case — not by shrinking further. */
+  --meta:.72rem; --meta-strong:.78rem;
+  /* Stage and type accents come from the campaign data and are picked to sit on the dark
+     battle stage. Used as *text* on the light theme's near-white panels the same colours
+     land around 1.3:1, so anything that colours text with an arbitrary accent mixes it
+     toward --text by this amount first. 0% in dark leaves the accent exactly as authored. */
+  --accent-ink-mix:0%;
   --step--1:.78rem; --step-0:.92rem; --step-1:1.05rem;
   --step-2:clamp(1.25rem,1.9vw,1.6rem); --step-3:clamp(1.6rem,2.8vw,2.3rem);
   --step-4:clamp(2rem,3.8vw,3rem);
@@ -50,7 +59,7 @@ main.focus-route { padding:.55rem 0 1.5rem; }
 main.wide, main:has(.full-bleed) { width:min(var(--shell),calc(100% - 2.5rem)); }
 .reading-column { width:min(var(--reading),100%); }
 .content-column { width:min(var(--content),100%); }
-.app-footer { display:flex; justify-content:space-between;align-items:center; width:min(var(--content),calc(100% - 2.5rem)); margin:0 auto; padding:1.4rem 0; border-top:1px solid var(--border); color:var(--muted); font:.7rem var(--mono); }.footer-brand{display:flex;align-items:center;gap:.45rem}.footer-brand img{width:1.4rem}
+.app-footer { display:flex; justify-content:space-between;align-items:center; width:min(var(--content),calc(100% - 2.5rem)); margin:0 auto; padding:1.4rem 0; border-top:1px solid var(--border); color:var(--muted); font:0.72rem var(--mono); }.footer-brand{display:flex;align-items:center;gap:.45rem}.footer-brand img{width:1.4rem}
 h1 { max-width:24ch; margin:.2rem 0 1rem; font-size:var(--step-4); line-height:1.02; letter-spacing:-.04em; }
 h2 { font-size:var(--step-2); line-height:1.15; }
 h3 { font-size:var(--step-1); line-height:1.25; }
@@ -77,13 +86,26 @@ label small,.field-hint { color:var(--muted); font-family:var(--display); font-s
 input,select,textarea { width:100%; min-height:44px; padding:.75rem .85rem; border:1px solid var(--border); border-radius:.65rem; outline:none; background:var(--panel-strong); color:var(--text);transition:border-color .16s ease,box-shadow .16s ease,background .16s ease; }
 input:focus,select:focus,textarea:focus { border-color:var(--accent); box-shadow:var(--focus); }
 button:focus-visible,a:focus-visible,summary:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+/* Checkboxes and radios inherit the `input` rule above, whose min-height does nothing
+   for a replaced control: they rendered between 13px and 18px wide, under the 24px
+   minimum target size. Sizing them explicitly also stops a narrow flex column from
+   squashing one to 13px, which is where the worst case came from. */
+input[type='checkbox'],input[type='radio']{flex:none;width:1.5rem;min-width:1.5rem;height:1.5rem;min-height:1.5rem;margin:0;accent-color:var(--accent);cursor:pointer}
+/* Sliders are dragged, so they need the most forgiving target of all, and several
+   rendered 20px tall. The transparent padding grows the hit area without moving the
+   track, and `background-clip:content-box` keeps the visible bar its designed height. */
+input[type='range']{min-height:2.75rem;height:2.75rem;padding:1.15rem 0;border:0;border-radius:0;background:transparent;accent-color:var(--accent);cursor:pointer;-webkit-appearance:none;appearance:none}
+input[type='range']::-webkit-slider-runnable-track{height:.45rem;border-radius:999px;background:var(--surface)}
+input[type='range']::-moz-range-track{height:.45rem;border-radius:999px;background:var(--surface)}
+input[type='range']::-webkit-slider-thumb{margin-top:-.35rem;width:1.15rem;height:1.15rem;border:0;border-radius:50%;background:var(--accent);-webkit-appearance:none;appearance:none}
+input[type='range']::-moz-range-thumb{width:1.15rem;height:1.15rem;border:0;border-radius:50%;background:var(--accent)}
 /* A bare <summary> is only as tall as its line box — roughly 18px at the sizes used
    here, under the 24px minimum target size. `display` is deliberately left alone:
    setting it to flex drops the disclosure triangle. This only raises the floor, so
    components that already give theirs a larger hit area are unaffected. */
 summary{min-height:24px}
 .error { color:var(--danger); }
-.status-pill { display:inline-flex; align-items:center; gap:.4rem; padding:.32rem .55rem; border-radius:999px; background:var(--surface); color:var(--muted); font:500 .68rem var(--mono); text-transform:uppercase; }
+.status-pill { display:inline-flex; align-items:center; gap:.4rem; padding:.32rem .55rem; border-radius:999px; background:var(--surface); color:var(--muted); font:500 var(--meta) var(--mono); text-transform:uppercase; }
 .status-pill::before { content:''; width:.45rem; aspect-ratio:1; border-radius:50%; background:currentColor;box-shadow:0 0 0 0 currentColor; }
 .status-pill.completed { color:var(--accent); } .status-pill.failed,.status-pill.cancelled,.status-pill.interrupted { color:var(--danger); } .status-pill.waiting,.status-pill.paused,.status-pill.queued { color:var(--warning); } .status-pill.running,.status-pill.starting { color:var(--accent); }
 @keyframes button-spin{to{transform:rotate(360deg)}}
@@ -91,4 +113,4 @@ summary{min-height:24px}
 @keyframes live-pulse{50%{box-shadow:0 0 0 5px transparent}}
 @media (prefers-reduced-motion:no-preference){main>*{animation:surface-enter .42s cubic-bezier(.2,.8,.2,1) both}main>*:nth-child(2){animation-delay:.045s}main>*:nth-child(3){animation-delay:.09s}main>*:nth-child(4){animation-delay:.135s}.status-pill.running::before,.status-pill.starting::before{animation:live-pulse 1.8s ease-out infinite;box-shadow:0 0 0 0 color-mix(in srgb,var(--accent) 50%,transparent)}}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition-duration:.001ms!important;animation-duration:.001ms!important;animation-iteration-count:1!important}}
-@media (max-width:840px) { .app-header { grid-template-columns:1fr auto; padding:0 1rem; }.app-header::before{background:color-mix(in srgb,var(--bg) 94%,transparent); backdrop-filter:blur(14px);}.header-actions .button{display:none}.app-header nav { position:fixed; z-index:20; right:.5rem; bottom:max(.5rem,env(safe-area-inset-bottom)); left:.5rem; justify-content:space-around; padding:.35rem;box-shadow:var(--shadow); }.app-header nav a { flex:1;flex-direction:column;gap:.15rem;padding:.48rem .2rem;text-align:center;font-size:.58rem; }.app-header nav a .ph{font-size:1.18rem}.app-footer { padding-bottom:calc(6rem + env(safe-area-inset-bottom)); flex-direction:column;align-items:flex-start; gap:.5rem; } }
+@media (max-width:840px) { .app-header { grid-template-columns:1fr auto; padding:0 1rem; }.app-header::before{background:color-mix(in srgb,var(--bg) 94%,transparent); backdrop-filter:blur(14px);}.header-actions .button{display:none}.app-header nav { position:fixed; z-index:20; right:.5rem; bottom:max(.5rem,env(safe-area-inset-bottom)); left:.5rem; justify-content:space-around; padding:.35rem;box-shadow:var(--shadow); }.app-header nav a { flex:1;flex-direction:column;gap:.15rem;padding:.48rem .2rem;text-align:center;font-size:0.72rem; }.app-header nav a .ph{font-size:1.18rem}.app-footer { padding-bottom:calc(6rem + env(safe-area-inset-bottom)); flex-direction:column;align-items:flex-start; gap:.5rem; } }

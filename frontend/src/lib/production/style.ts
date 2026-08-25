@@ -1,3 +1,4 @@
+import { formatTier } from '../format-label.ts';
 import type { RendererConfig } from '../presentation/types.ts';
 import type {
   BrandAsset,
@@ -190,25 +191,17 @@ export function accentFor(style: ProductionStyle, side: Side): string {
 }
 
 /** `Gen 9 · Random Battle`, never the raw `gen9randombattle` id. */
+/**
+ * Human-readable format name. The tier used to come from an exact-match table, so any id
+ * outside it fell through to title-casing the whole run — `gen9koalabattlecanonicalnatdexdraft`
+ * rendered as "Koalabattlecanonicalnatdexdraft", which is what this archive's own matches
+ * are. Word splitting now lives in `format-label`, which every surface shares.
+ */
 export function formatDisplayName(formatId: string, showGeneration = true): string {
   const normalized = formatId.toLowerCase().replaceAll('_', '').replaceAll('-', '');
   const parsed = normalized.match(/^gen(\d+)(.+)$/);
   if (!parsed) return titleCase(formatId.replaceAll('_', ' ').replaceAll('-', ' '));
-  const tiers: Record<string, string> = {
-    randombattle: 'Random Battle',
-    randomdoublesbattle: 'Random Doubles',
-    ou: 'OU',
-    uu: 'UU',
-    ru: 'RU',
-    nu: 'NU',
-    pu: 'PU',
-    lc: 'LC',
-    ubers: 'Ubers',
-    monotype: 'Monotype',
-    doublesou: 'Doubles OU',
-    vgc2024: 'VGC 2024'
-  };
-  const tier = tiers[parsed[2]] || titleCase(parsed[2]);
+  const tier = formatTier(normalized);
   return showGeneration ? `Gen ${parsed[1]} · ${tier}` : tier;
 }
 

@@ -718,7 +718,7 @@
   .scrub input{width:100%;accent-color:var(--accent)}
   .scrub output{font:.72rem var(--mono);min-width:4rem;text-align:right}
   .jumps{display:flex;gap:.35rem;flex-wrap:wrap}
-  .chip{font:.7rem var(--mono);padding:.35rem .6rem!important;min-height:32px!important}
+  .chip{font:0.72rem var(--mono);padding:.35rem .6rem!important;min-height:32px!important}
   .view-options{display:flex;gap:1.1rem;flex-wrap:wrap;font-size:.8rem}
   .view-options label{display:flex;align-items:center;gap:.4rem}
   .view-options input{width:16px;height:16px;accent-color:var(--accent)}
@@ -732,7 +732,7 @@
   .fields input[type=text],.fields input[type=number],.fields select{min-height:38px;padding:.4rem .5rem;border:1px solid var(--border);border-radius:.45rem;background:var(--panel-strong);color:var(--text)}
   .fields input[type=color]{width:100%;height:34px;padding:0;border:1px solid var(--border);border-radius:.45rem;background:none}
   .fields fieldset{border:1px solid var(--border);border-radius:.55rem;padding:.6rem;display:grid;gap:.5rem}
-  .fields legend{font:.7rem var(--mono);padding:0 .3rem}
+  .fields legend{font:0.72rem var(--mono);padding:0 .3rem}
   .fields .grid2{display:grid;grid-template-columns:1fr 1fr;gap:.5rem}
   .fields h3{margin:.6rem 0 0;font-size:.85rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
   .fields button{min-height:36px;padding:.4rem .7rem;border:1px solid var(--border);border-radius:.5rem;background:var(--panel-strong);color:var(--text);cursor:pointer}
@@ -743,10 +743,10 @@
   .hint{margin:0;color:var(--muted);font-size:.74rem;line-height:1.4}
   .asset-list,.siblings,.preflight{list-style:none;margin:0;padding:0 .9rem .9rem;display:grid;gap:.4rem;font-size:.78rem}
   .asset-list li,.siblings li{display:flex;align-items:center;gap:.5rem;justify-content:space-between}
-  .asset-list small,.siblings small{color:var(--muted);font:.68rem var(--mono)}
+  .asset-list small,.siblings small{color:var(--muted);font:0.72rem var(--mono)}
   .siblings li.current{font-weight:800}
   .preflight li{display:flex;justify-content:space-between;gap:.5rem}
-  .preflight code{font:.7rem var(--mono);color:var(--muted)}
+  .preflight code{font:0.72rem var(--mono);color:var(--muted)}
   .sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
   .notice{color:var(--accent)}
   @media(max-width:1180px){.studio{grid-template-columns:minmax(0,1fr)}.settings{position:static;max-height:none}}

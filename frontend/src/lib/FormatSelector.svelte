@@ -118,7 +118,7 @@
   .trigger:hover{border-color:color-mix(in srgb,var(--accent) 45%,var(--border))}
   .format-selector.open .trigger{border-color:var(--accent);box-shadow:var(--focus)}
   .trigger-name{grid-area:1/1;font-size:.95rem;font-weight:700}
-  .trigger-meta{grid-area:2/1;color:var(--muted);font:.62rem var(--mono);letter-spacing:.06em}
+  .trigger-meta{grid-area:2/1;color:var(--muted);font:0.72rem var(--mono);letter-spacing:.06em}
   .trigger .ph{grid-area:1/2/3/3;align-self:center;color:var(--muted);font-size:1.1rem;line-height:1;transition:transform .18s ease}
   .format-selector.open .trigger .ph{transform:rotate(180deg)}
   .panel{position:absolute;z-index:30;top:calc(100% + .35rem);right:0;left:0;overflow:hidden;border:1px solid var(--border);border-radius:.8rem;background:var(--panel);box-shadow:var(--shadow)}
@@ -128,14 +128,14 @@
   .search input:focus{box-shadow:none}
   .results{max-height:min(52vh,420px);overflow-y:auto;padding:.35rem}
   .group+.group{margin-top:.35rem;padding-top:.35rem;border-top:1px solid var(--border)}
-  .group-label{margin:.3rem .55rem .25rem;color:var(--accent);font:600 .62rem var(--mono);letter-spacing:.1em;text-transform:uppercase}
+  .group-label{margin:.3rem .55rem .25rem;color:var(--accent);font:600 0.72rem var(--mono);letter-spacing:.1em;text-transform:uppercase}
   .results button{display:grid;gap:.1rem;width:100%;padding:.45rem .55rem;border:0;border-radius:.5rem;background:transparent;color:var(--text);text-align:left;cursor:pointer}
   .results button:hover:not(:disabled){background:var(--surface)}
   .results button.selected{background:var(--surface);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--accent) 45%,transparent)}
   .results button.unsupported{cursor:not-allowed;opacity:.55}
   .option-name{font-size:.85rem;font-weight:650}
-  .option-meta{color:var(--muted);font:.58rem var(--mono);letter-spacing:.05em}
-  .option-note{color:var(--warning);font-size:.62rem}
+  .option-meta{color:var(--muted);font:0.72rem var(--mono);letter-spacing:.05em}
+  .option-note{color:var(--warning);font-size:0.72rem}
   .empty,.selector-error{margin:0;padding:.9rem;color:var(--muted);font-size:.78rem}
   .selector-error{color:var(--danger);border-top:1px solid var(--border)}
 </style>

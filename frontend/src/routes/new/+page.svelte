@@ -517,7 +517,7 @@
   .player::before{content:'';position:absolute;inset:0 auto 0 0;width:3px;background:var(--p1)}
   .player.second::before{background:var(--p2)}
   .player header{display:grid;gap:.3rem}
-  .slot{color:var(--muted);font:600 .6rem var(--mono);letter-spacing:.12em;text-transform:uppercase}
+  .slot{color:var(--muted);font:600 0.72rem var(--mono);letter-spacing:.12em;text-transform:uppercase}
   .name{min-height:40px;padding:.4rem .6rem;border-color:transparent;background:transparent;font-size:var(--step-1);font-weight:750;letter-spacing:-.02em}
   .name:hover{border-color:var(--border)}
   .mode-note{margin:0;color:var(--muted);font-size:.78rem;line-height:1.5}
@@ -537,7 +537,7 @@
   .team-result p{margin:.25rem 0 0;line-height:1.45}
   .link-button{justify-self:start;padding:.2rem 0;border:0;background:none;color:var(--accent);font-size:.75rem;font-weight:650;cursor:pointer}
   .link-button:disabled{color:var(--muted);cursor:default}
-  .optional{margin-left:.35rem;padding:.05rem .35rem;border-radius:999px;background:var(--surface);color:var(--muted);font-size:.62rem;font-weight:600}
+  .optional{margin-left:.35rem;padding:.05rem .35rem;border-radius:999px;background:var(--surface);color:var(--muted);font-size:0.72rem;font-weight:600}
   label:has(.optional){grid-template-columns:auto auto 1fr}
   label:has(.optional) input{grid-column:1/-1}
   .check-option{display:flex;align-items:flex-start;gap:.55rem;grid-template-columns:none}

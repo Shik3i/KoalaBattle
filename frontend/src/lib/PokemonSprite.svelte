@@ -44,7 +44,7 @@
   img{position:absolute;inset:0;display:block;width:auto;height:auto;max-width:min(100%,calc(var(--natural-w,96) * 2px));max-height:min(100%,calc(var(--natural-h,96) * 2px));margin:auto;object-fit:contain;image-rendering:crisp-edges;image-rendering:pixelated;filter:drop-shadow(0 8px 8px rgba(0,0,0,.25));animation:idle 2.4s ease-in-out infinite;transform-origin:50% 100%}
   .small{width:clamp(44px,4vw,50px);height:clamp(40px,3.7vw,46px)}.large{width:clamp(108px,11vw,148px);height:clamp(98px,9.8vw,132px)}
   .fallback{display:grid;place-items:center;width:70%;aspect-ratio:1;border:1px solid color-mix(in srgb,var(--accent) 35%,var(--border));border-radius:50%;background:color-mix(in srgb,var(--accent) 8%,var(--surface));color:var(--muted)}
-  .fallback i{font-size:1.7rem}.fallback b{position:absolute;font:.58rem var(--mono)}
+  .fallback i{font-size:1.7rem}.fallback b{position:absolute;font:0.72rem var(--mono)}
   @keyframes idle{0%,100%{transform:translateY(0) scale(1)}50%{transform:translateY(-5px) scale(1.018)}}
   @keyframes shadow{0%,100%{transform:scale(1);opacity:.8}50%{transform:scale(.88);opacity:.55}}
   @media(prefers-reduced-motion:reduce){img,.pokemon-sprite::before{animation:none}}
