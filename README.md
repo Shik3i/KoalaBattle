@@ -107,6 +107,18 @@ OpenAI-compatible `https://api.deepseek.com` endpoint, documented `json_object` 
 and V4 thinking controls. Provider calls remain explicit and paid; startup and status checks do
 not call DeepSeek.
 
+## Checks
+
+`make check` runs the same things CI does. `make setup` installs the pinned tooling.
+
+```bash
+make setup
+make check
+```
+
+See [Development](docs/DEVELOPMENT.md) for the individual targets and the slow
+`make integration-full`, which plays real battles against the pinned Showdown build.
+
 ## First run
 
 1. Open `/new` for a standalone match or `/tournaments/new` for the ten-step tournament

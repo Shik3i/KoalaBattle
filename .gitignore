@@ -7,6 +7,10 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 backend/.coverage
+# `make coverage` runs pytest from the repository root, so the data file lands here.
+.coverage
+.coverage.*
+coverage.xml
 backend/htmlcov/
 frontend/node_modules/
 frontend/.svelte-kit/

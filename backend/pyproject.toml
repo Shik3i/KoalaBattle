@@ -31,6 +31,7 @@ dev = [
   "mypy==1.17.1",
   "pytest==9.0.3",
   "pytest-asyncio==1.4.0",
+  "pytest-cov==7.0.0",
   "ruff==0.12.8",
 ]
 renderer = ["playwright==1.62.0"]
@@ -54,3 +55,26 @@ select = ["E", "F", "I", "UP", "B", "ASYNC"]
 python_version = "3.12"
 strict = true
 plugins = ["pydantic.mypy"]
+
+[tool.coverage.run]
+source = ["koalabattle"]
+branch = true
+
+[tool.coverage.report]
+# The floor is enforced with `--cov-fail-under=70` by CI and `make coverage`, not
+# here: pytest-cov does not act on this file's `fail_under`, so a value set here
+# alone reads like a gate while letting any coverage through. Verified by setting
+# it to 99 and watching the run still pass.
+#
+# 70 sits a little below the current ~74%: high enough to catch a module losing
+# its tests, low enough not to fail for noise. What is uncovered needs
+# infrastructure the unit job does not have — video export wants Chromium and
+# FFmpeg, providers want API keys, the Showdown engine wants a running server —
+# and the integration jobs exercise it instead.
+skip_covered = true
+show_missing = true
+exclude_also = [
+  "if TYPE_CHECKING:",
+  "raise NotImplementedError",
+  "@overload",
+]
