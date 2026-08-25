@@ -41,6 +41,7 @@ class CreateMatchRequest(BaseModel):
     format: str = Field(default="gen9randombattle", min_length=1, max_length=80)
     player1: PlayerInput
     player2: PlayerInput
+    #: Seeds Random agents only, not Showdown's battle RNG. See MatchConfig.
     random_seed: int | None = None
     fair_prompt_mode: bool = True
     prompt_profile: PromptProfileId = PromptProfileId.STANDARD_COMPETITIVE

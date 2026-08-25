@@ -71,6 +71,24 @@ constraint; insertion is serialized per match. Completed event rows are never up
 animation and inspection detail. Raw protocol logs remain archival evidence, not replay
 input.
 
+Snapshots are not merely a convenience: ordinary events only ever name the Pokemon on the
+field, so a benched Pokemon's HP, status and even its presence exist solely in snapshots.
+Measured on a real archive, five of nine Pokemon in one match appeared in no other event.
+Replay therefore cannot be reduced to the semantic event stream alone.
+
+Payloads are stored zlib-compressed and, except at keyframes, against the previous payload
+of the same event type as the dictionary — consecutive snapshots differ by a few values, so
+this measured about 14x losslessly. `koalabattle.storage.payloads` documents why chaining is
+safe against this schema.
+
+`MatchConfig.random_seed` seeds `RandomAgent` only. Showdown seeds its own battle RNG —
+damage rolls, criticals, accuracy, speed ties — and the battle protocol the engine connects
+through offers no way to set it: the sim accepts `options.seed`, but the challenge path that
+creates rooms never passes one, no configuration option exposes it, and the one command that
+can reseed a live battle (`/editbattle reseed`) needs a permission the engine's unregistered
+per-match account does not hold. A seeded match repeats its Random agents' choices, not its
+battle.
+
 Summary queries use `config_json` and grouped cost rows without loading event/decision
 relationships. Full archives explicitly eager-load those relationships. Queue position and
 tournament claims use short immediate/conditional transactions; one start lock owns dispatcher

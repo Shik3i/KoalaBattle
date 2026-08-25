@@ -485,8 +485,16 @@
       {/each}
 
       <section class="advanced-player">
-        <h3>Reproducibility</h3>
-        <label>Deterministic seed<input type="number" bind:value={seed} placeholder="Unseeded" /></label>
+        <h3>Random agent seed</h3>
+        <label>Seed<input type="number" bind:value={seed} placeholder="Unseeded" /></label>
+        <!-- This only reaches RandomAgent (see service.py). Calling it a
+             "deterministic seed" under a "Reproducibility" heading promised a
+             repeatable battle, which Showdown's own RNG makes impossible from here. -->
+        <small>
+          Makes <strong>Random</strong> agents choose the same actions again. Other agent types
+          ignore it. Showdown rolls damage, criticals, accuracy and speed ties itself and does not
+          accept a seed over the battle protocol, so a battle is never repeated move for move.
+        </small>
       </section>
     </div>
   </details>

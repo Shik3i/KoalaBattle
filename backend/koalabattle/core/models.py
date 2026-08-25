@@ -559,6 +559,11 @@ class MatchConfig(FrozenModel):
     format: str = Field(default="gen9randombattle", min_length=1, max_length=80)
     generation: int = Field(default=9, ge=1, le=9)
     players: tuple[PlayerConfig, PlayerConfig]
+    #: Seeds `RandomAgent` only, so Random players repeat their choices. Every other
+    #: agent type ignores it, and Showdown seeds its own battle RNG — damage rolls,
+    #: criticals, accuracy, speed ties — with no way to set it over the battle
+    #: protocol the engine connects through. A seeded match is therefore not a
+    #: reproducible battle; see docs/ARCHITECTURE.md.
     random_seed: int | None = None
     fair_prompt_mode: bool = True
     prompt_profile: PromptProfileId = PromptProfileId.STANDARD_COMPETITIVE
