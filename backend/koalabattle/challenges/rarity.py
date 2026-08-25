@@ -53,9 +53,13 @@ def rarity_for_candidate(
     if base_stat_total is not None and base_stat_total >= 600:
         return DraftRarity.ULTRA_RARE
     if base_stat_total is not None and base_stat_total >= 570:
-        rarity = max((rarity, DraftRarity.SUPER_RARE), key=lambda item: list(DraftRarity).index(item))
+        rarity = max(
+            (rarity, DraftRarity.SUPER_RARE), key=lambda item: list(DraftRarity).index(item)
+        )
     if is_legendary:
-        rarity = max((rarity, DraftRarity.SUPER_RARE), key=lambda item: list(DraftRarity).index(item))
+        rarity = max(
+            (rarity, DraftRarity.SUPER_RARE), key=lambda item: list(DraftRarity).index(item)
+        )
     return rarity
 
 

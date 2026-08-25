@@ -89,12 +89,11 @@ def _explicit_target_siblings(
         kept: list[SingleBattleOrder] = []
         siblings: list[SingleBattleOrder] = []
         for order in slot_orders:
-            is_ambiguous_random_normal = (
-                order.move_target == 0
-                and isinstance(order.order, Move)
-                and order.order.target is Target.RANDOM_NORMAL
-            )
-            if not is_ambiguous_random_normal:
+            if (
+                order.move_target != 0
+                or not isinstance(order.order, Move)
+                or order.order.target is not Target.RANDOM_NORMAL
+            ):
                 kept.append(order)
                 continue
             siblings.extend(replace(order, move_target=target) for target in live_targets)

@@ -5,12 +5,12 @@ from typing import Any
 
 from sqlalchemy import (
     Boolean,
-    LargeBinary,
     DateTime,
     Float,
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     String,
     Text,
     UniqueConstraint,
