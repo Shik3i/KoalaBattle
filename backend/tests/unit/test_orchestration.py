@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from uuid import UUID, uuid4
 
 import pytest
@@ -24,6 +24,9 @@ from koalabattle.storage import BattleRepository, Database
 class _ConcurrencyTracker:
     active: int = 0
     maximum: int = 0
+    #: Set once `active` first reaches `awaited_peak`; see `_DeterministicEngine.run`.
+    reached_peak: asyncio.Event = field(default_factory=asyncio.Event)
+    awaited_peak: int = 0
 
 
 class _DeterministicEngine:
@@ -36,11 +39,32 @@ class _DeterministicEngine:
     async def run(self, context: BattleEngineContext) -> EngineOutcome:
         self.tracker.active += 1
         self.tracker.maximum = max(self.tracker.maximum, self.tracker.active)
+        if self.tracker.awaited_peak and self.tracker.active >= self.tracker.awaited_peak:
+            self.tracker.reached_peak.set()
         try:
             await context.sink.emit("generic_started", 0, {"match": str(context.match_id)})
             if context.config.name == "failure":
                 raise RuntimeError("isolated engine failure")
-            await asyncio.sleep(0.15 if context.config.name == "slow" else 0.04)
+            if self.tracker.awaited_peak:
+                # Hold the match open until the peak this test is asserting on has actually
+                # been observed, rather than sleeping and hoping the supervisor dispatched
+                # a sibling within the nap. The sleep below used to be the only thing making
+                # two matches overlap, so a runner slow enough to finish one match in under
+                # 40ms recorded a peak of 1 and failed the assertion — which is how this
+                # went red in CI while passing locally 27 times in a row.
+                # `asyncio.wait` rather than `wait_for`, which would cancel the waiter from
+                # inside this coroutine. The gate is one-shot: whether the peak arrived or
+                # the wait expired, it is opened so later matches do not each pay the
+                # timeout again. `_wait_terminal` gives the whole test 5s, so three matches
+                # each waiting the full budget would blow that deadline first and report an
+                # asyncio timeout instead of the peak this test is actually about.
+                waiter = asyncio.ensure_future(self.tracker.reached_peak.wait())
+                _, pending = await asyncio.wait({waiter}, timeout=1.5)
+                for task in pending:
+                    task.cancel()
+                self.tracker.reached_peak.set()
+            else:
+                await asyncio.sleep(0.15 if context.config.name == "slow" else 0.04)
             await context.sink.emit("generic_finished", 1, {"match": str(context.match_id)})
             return EngineOutcome(BattleResult(winner=Side.P1, turns=1))
         finally:
@@ -106,7 +130,7 @@ async def test_supervisor_runs_isolated_matches_with_global_limit(tmp_path) -> N
     database = Database(f"sqlite+aiosqlite:///{tmp_path / 'orchestration.db'}")
     await database.create_schema()
     repository = BattleRepository(database)
-    tracker = _ConcurrencyTracker()
+    tracker = _ConcurrencyTracker(awaited_peak=2)
     supervisor = MatchSupervisor(
         repository,
         RealtimeHub(),
