@@ -53,9 +53,9 @@
 <svelte:window on:pointerdown={closeUtilityMenu} />
 
 {#if cleanRoute}
-  <!-- A landmark even here: /overlay and /render are machine surfaces where it does not
-       matter, but /watch is the spectator view and had nothing to navigate to. -->
-  <main class="overlay-shell"><slot /></main>
+  <!-- Deliberately not a <main>: /render supplies its own, and wrapping it in another
+       nests two main landmarks. Pages that need one declare it themselves. -->
+  <div class="overlay-shell"><slot /></div>
 {:else}
   <a class="skip-link" href="#main-content">Skip to main content</a>
   <header class:focus-route={focusRoute} class="app-header">

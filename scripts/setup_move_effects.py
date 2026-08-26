@@ -166,13 +166,18 @@ def verify(args: argparse.Namespace) -> tuple[bool, list[str]]:
     return not problems, problems
 
 
+# These packs are optional and supplied by the operator, because their sources carry
+# licences this repository cannot redistribute. "Nothing installed" is therefore a
+# normal resting state, not a fault, and saying "not installed or incomplete" for it
+# put a defect-shaped line in every `make check` run for a repository that is fine.
+# A manifest with missing or altered files is a real problem and still says so.
 def command_status(args: argparse.Namespace) -> int:
     path, manifest = manifest_for(args)
     valid, problems = verify(args)
     count = sum(len(pack.get("files", [])) for pack in manifest["packs"].values())
     print(f"Move-effect root: {args.asset_root.resolve() / ASSET_DIR}")
     print(f"Manifest: {'present' if path.is_file() else 'missing'} ({count} managed files)")
-    print(f"Managed installation: {'valid' if valid else 'not installed or incomplete'}")
+    print(f"Managed installation: {('valid' if valid else 'incomplete — see below' if path.is_file() else 'not installed (optional)')}")
     for problem in problems[:10]:
         print(f"- {problem}")
     return 0

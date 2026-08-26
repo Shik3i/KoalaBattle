@@ -144,4 +144,4 @@
 />
 {#if error}<div class="connection-state" role="status">{error}</div>{/if}
 
-<style>.connection-state{position:fixed;z-index:30;right:1rem;bottom:1rem;padding:.5rem .7rem;border:1px solid rgba(255,255,255,.2);border-radius:999px;background:rgba(8,16,11,.8);color:#ffd26a;font:0.68rem var(--mono)}</style>
+<style>.connection-state{position:fixed;z-index:30;right:1rem;bottom:1rem;padding:.5rem .7rem;border:1px solid rgba(255,255,255,.2);border-radius:999px;background:rgba(8,16,11,.8);color:#ffd26a;font:0.72rem var(--mono)}</style>

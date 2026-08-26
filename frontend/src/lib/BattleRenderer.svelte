@@ -621,14 +621,14 @@
 
   /* Level Badge: Lv. stacked above number in white */
   .gen5-lv-badge{display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1;font-family:var(--display);color:#fff}
-  .gen5-lv-badge .lv-text{font-size:calc(var(--hud-scale,1) * clamp(0.68rem,.72cqw,0.76rem));font-weight:700;color:#cde0e0;letter-spacing:-.02em}
+  .gen5-lv-badge .lv-text{font-size:calc(var(--hud-scale,1) * clamp(0.72rem,.72cqw,0.8rem));font-weight:700;color:#cde0e0;letter-spacing:-.02em}
   .gen5-lv-badge .lv-val{font-size:calc(var(--hud-scale,1) * clamp(.88rem,1.15cqw,1.15rem));font-weight:900}
 
   /* Gender Rhombus: Sky blue parallelogram */
   .gen5-gender-badge{display:flex;align-items:center;justify-content:center;padding:2px 9px;background:#5ba5f5;transform:skewX(-20deg);border-radius:2px;box-shadow:0 1px 3px rgba(0,0,0,.4)}
   .gen5-gender-badge.female{background:#f57ab5}
   .gen5-gender-badge span{transform:skewX(20deg);font-size:.95em;font-weight:900;color:#0b1928}
-  .gen5-status-badge{padding:1px 5px;border-radius:2px;background:#e69d24;color:#1a0f00;font-size:0.68rem;font-weight:900;letter-spacing:.05em;text-transform:uppercase}
+  .gen5-status-badge{padding:1px 5px;border-radius:2px;background:#e69d24;color:#1a0f00;font-size:0.72rem;font-weight:900;letter-spacing:.05em;text-transform:uppercase}
 
   /* Full-width HP bar groove with lime-green bar */
   .gen5-bar-row{position:relative;width:100%;margin-top:2px}
@@ -666,7 +666,7 @@
 
   /* Level Badge: Lv. stacked above number in white */
   .gen5-lv-badge{display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1;font-family:var(--display);color:#fff}
-  .gen5-lv-badge .lv-text{font-size:calc(var(--hud-scale,1) * clamp(0.68rem,.72cqw,0.76rem));font-weight:700;color:#cde0e0;letter-spacing:-.02em}
+  .gen5-lv-badge .lv-text{font-size:calc(var(--hud-scale,1) * clamp(0.72rem,.72cqw,0.8rem));font-weight:700;color:#cde0e0;letter-spacing:-.02em}
   .gen5-lv-badge .lv-val{font-size:calc(var(--hud-scale,1) * clamp(.92rem,1.2cqw,1.25rem));font-weight:900}
 
   /* Gender Rhombus */
@@ -676,10 +676,10 @@
 
   /* Prominent Type Badges */
   .gen5-types-row{display:flex;gap:5px;align-items:center}
-  .gen5-type-badge{display:inline-flex;align-items:center;padding:2px 8px;border-radius:4px;background:var(--type-bg,#788a80);color:var(--type-ink,#fff);font-family:var(--mono);font-size:calc(var(--hud-scale,1) * clamp(0.68rem,.8cqw,0.82rem));font-weight:900;text-transform:uppercase;letter-spacing:.06em;box-shadow:0 1px 3px rgba(0,0,0,.5)}
+  .gen5-type-badge{display:inline-flex;align-items:center;padding:2px 8px;border-radius:4px;background:var(--type-bg,#788a80);color:var(--type-ink,#fff);font-family:var(--mono);font-size:calc(var(--hud-scale,1) * clamp(0.72rem,.8cqw,0.82rem));font-weight:900;text-transform:uppercase;letter-spacing:.06em;box-shadow:0 1px 3px rgba(0,0,0,.5)}
 
   /* Distinct Status Badges */
-  .gen5-status-badge{padding:2px 7px;border-radius:3px;font-family:var(--mono);font-size:.68rem;font-weight:900;letter-spacing:.06em;text-transform:uppercase;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.85)}
+  .gen5-status-badge{padding:2px 7px;border-radius:3px;font-family:var(--mono);font-size:0.72rem;font-weight:900;letter-spacing:.06em;text-transform:uppercase;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.85)}
   .status-brn{background:#ff5733}
   .status-par{background:#f4bf23;color:#1c1400;text-shadow:none}
   .status-slp{background:#8e909a}
@@ -697,7 +697,7 @@
 
   /* Bottom Row: Exact HP Numbers & Readout on Both Plates */
   .gen5-bottom-row{display:flex;justify-content:space-between;align-items:baseline;margin-top:4px}
-  .gen5-hp-label{font-family:var(--mono);font-size:calc(var(--hud-scale,1) * clamp(0.68rem,.86cqw,0.88rem));font-weight:900;color:#ffd679;letter-spacing:.08em}
+  .gen5-hp-label{font-family:var(--mono);font-size:calc(var(--hud-scale,1) * clamp(0.72rem,.86cqw,0.88rem));font-weight:900;color:#ffd679;letter-spacing:.08em}
   .gen5-exact-hp-wrap{display:flex;align-items:baseline;gap:.35rem}
   .gen5-exact-hp{font-family:var(--display);font-size:calc(var(--hud-scale,1) * clamp(.98rem,1.3cqw,1.35rem));font-weight:900;color:#fff;letter-spacing:.02em;font-variant-numeric:tabular-nums;font-feature-settings:'tnum' 1;text-shadow:0 1px 3px rgba(0,0,0,.9)}
   .gen5-hp-pct{font-family:var(--mono);font-size:calc(var(--hud-scale,1) * clamp(.76rem,1cqw,1.02rem));font-weight:800;color:#8ef3a9;font-variant-numeric:tabular-nums;font-feature-settings:'tnum' 1;text-shadow:0 1px 2px rgba(0,0,0,.9)}
@@ -724,7 +724,7 @@
   .switch-outgoing{animation:switch-sequence-out .18s ease-in both}
   .switch-incoming{opacity:0;animation:switch-sequence-in .3s .16s cubic-bezier(.2,.8,.2,1) both}
   .sprite img{display:block;width:auto;max-width:100%;height:min(100%,calc(var(--natural-h,96) * var(--max-upscale) * var(--depth,1) * 1px));object-fit:contain;image-rendering:pixelated;filter:drop-shadow(0 8px 14px rgba(0,0,0,.45))}
-  .sprite-missing{display:grid;place-items:center;gap:.25rem;color:var(--r-dim);font:800 0.68rem var(--mono);letter-spacing:.12em}
+  .sprite-missing{display:grid;place-items:center;gap:.25rem;color:var(--r-dim);font:800 0.72rem var(--mono);letter-spacing:.12em}
   .sprite-missing .pokeball{width:clamp(28px,4cqw,52px)}
   .sprite-missing small{font:inherit}
   .hp-delta{position:absolute;top:4%;left:50%;z-index:4;transform:translateX(-50%);color:#ff9089;font:900 calc(var(--hud-scale,1) * clamp(1rem,2.3cqw,2.1rem)) var(--mono);text-shadow:0 2px 10px #000,0 0 22px rgba(0,0,0,.7);animation:value-pop .6s both}
@@ -732,7 +732,7 @@
 
   /* ── Effects ────────────────────────────────────────────────────────────── */
   .effect{position:absolute;z-index:9;inset:0;display:grid;place-items:center;pointer-events:none}
-  .effect span{padding:.4rem 1.1rem;border-radius:4px;background:#f7fff9;color:#05100b;font:900 calc(var(--hud-scale,1) * clamp(.7rem,1.3cqw,1.35rem)) var(--mono);letter-spacing:.08em;animation:effect-pop .6s both}
+  .effect span{padding:.4rem 1.1rem;border-radius:4px;background:#f7fff9;color:#05100b;font:900 calc(var(--hud-scale,1) * clamp(0.72rem,1.3cqw,1.35rem)) var(--mono);letter-spacing:.08em;animation:effect-pop .6s both}
   .effect-critical-hit span{background:#ffd262}
   .effect-healing span{background:#8ef3a9}
   .effect-miss span,.effect-immune span,.effect-resisted span{background:#c6d0c8}
@@ -791,9 +791,9 @@
   .effect[data-move-type='fairy'],.move-visual[data-move-type='fairy']{--type-color:#ff9bd1}
 
   .final-signal{position:absolute;z-index:21;top:8%;left:50%;display:grid;gap:.2rem;min-width:min(70%,520px);padding:.7rem 1.2rem;transform:translateX(-50%);border:1px solid color-mix(in srgb,#ffd262 72%,transparent);border-radius:8px;background:linear-gradient(90deg,rgba(65,28,8,.92),rgba(18,13,8,.96),rgba(65,28,8,.92));box-shadow:0 8px 30px rgba(0,0,0,.6),0 0 30px rgba(255,210,98,.18);text-align:center;animation:final-signal-in .55s both}
-  .final-signal small{color:#ffd262;font:900 calc(var(--hud-scale,1) * clamp(0.68rem,.76cqw,0.78rem)) var(--mono);letter-spacing:.24em}
+  .final-signal small{color:#ffd262;font:900 calc(var(--hud-scale,1) * clamp(0.72rem,.76cqw,0.8rem)) var(--mono);letter-spacing:.24em}
   .final-signal strong{color:#fff4c9;font:900 calc(var(--hud-scale,1) * clamp(1.15rem,2.5cqw,2.4rem)) var(--display);letter-spacing:.06em;text-shadow:0 0 16px rgba(255,210,98,.4)}
-  .final-signal span{color:#e4c990;font:600 calc(var(--hud-scale,1) * clamp(0.68rem,.72cqw,0.76rem)) var(--mono)}
+  .final-signal span{color:#e4c990;font:600 calc(var(--hud-scale,1) * clamp(0.72rem,.72cqw,0.8rem)) var(--mono)}
 
   /* ── Motion ─────────────────────────────────────────────────────────────── */
   .sprite.attacking{animation:attack-far .38s cubic-bezier(.2,.8,.2,1)}

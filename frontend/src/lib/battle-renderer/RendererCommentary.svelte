@@ -48,15 +48,15 @@
 
 <style>
   .battle-action-feed{position:absolute;z-index:18;top:10%;right:2.5%;display:grid;align-content:start;gap:.38rem;width:clamp(300px,30cqw,440px);max-height:58%;overflow:hidden;padding:.62rem .75rem .7rem;border-left:2px solid color-mix(in srgb,var(--r-accent) 72%,transparent);border-radius:3px 8px 8px 3px;background:linear-gradient(90deg,rgba(6,13,11,.94),rgba(6,13,11,.74));box-shadow:0 8px 24px rgba(0,0,0,.34);pointer-events:none;backdrop-filter:blur(5px)}
-  .action-feed-label{color:var(--r-accent);font:850 calc(var(--hud-scale,1) * clamp(0.68rem,.55cqw,0.76rem)) var(--mono);letter-spacing:.12em}
+  .action-feed-label{color:var(--r-accent);font:850 calc(var(--hud-scale,1) * clamp(0.72rem,.55cqw,0.8rem)) var(--mono);letter-spacing:.12em}
   .action-feed-turns,.action-feed-turn{display:grid;min-height:0}.action-feed-turns{gap:.34rem}.action-feed-turn{gap:.16rem}.action-feed-turn:not(.current){opacity:.58}
-  .action-feed-turn-label{color:#9ab0a2;font:750 calc(var(--hud-scale,1) * clamp(0.68rem,.48cqw,0.76rem)) var(--mono);letter-spacing:.1em}
+  .action-feed-turn-label{color:#9ab0a2;font:750 calc(var(--hud-scale,1) * clamp(0.72rem,.48cqw,0.8rem)) var(--mono);letter-spacing:.1em}
   .action-feed-turn.current .action-feed-turn-label{color:#d2e3d7}
   .battle-action-feed article{display:grid;gap:.08rem;min-width:0;padding:.24rem .34rem;border-radius:4px;background:rgba(255,255,255,.025);animation:action-feed-in .18s ease-out both}
   .battle-action-feed article:not(.latest){opacity:.78}
   .battle-action-feed strong,.battle-action-feed p{overflow-wrap:anywhere;margin:0;white-space:normal}
-  .battle-action-feed strong{color:#f7fff9;font:800 calc(var(--hud-scale,1) * clamp(.68rem,.84cqw,.88rem))/1.25 var(--display)}
-  .battle-action-feed p{color:#c1d1c7;font:650 calc(var(--hud-scale,1) * clamp(0.68rem,.72cqw,0.76rem))/1.35 var(--display)}
+  .battle-action-feed strong{color:#f7fff9;font:800 calc(var(--hud-scale,1) * clamp(0.72rem,.84cqw,0.88rem))/1.25 var(--display)}
+  .battle-action-feed p{color:#c1d1c7;font:650 calc(var(--hud-scale,1) * clamp(0.72rem,.72cqw,0.8rem))/1.35 var(--display)}
   .battle-action-feed article[data-emphasis='critical']{background:linear-gradient(90deg,rgba(255,196,72,.18),rgba(255,196,72,.03));box-shadow:inset 2px 0 #ffd262}
   .battle-action-feed article[data-emphasis='critical'] p{color:#ffe3a0}
   .battle-action-feed article[data-emphasis='negative']{box-shadow:inset 2px 0 rgba(255,111,105,.72)}

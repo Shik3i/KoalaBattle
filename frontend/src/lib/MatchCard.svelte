@@ -4,6 +4,12 @@
 
   export let match: MatchSummary;
   export let controls = false;
+  /**
+   * Heading level for the card title. The archive lists cards directly under its `h1`,
+   * where a fixed `h3` skipped a level; the operator dashboard puts them under an `h2`,
+   * where `h3` is right. The caller knows which, so the caller says.
+   */
+  export let headingLevel: 2 | 3 = 3;
   export let onAction: (action: 'pause' | 'resume' | 'cancel', match: MatchSummary) => void = () => {};
   let copied = false;
 
@@ -28,7 +34,7 @@
   <header>
     <div>
       <span class="eyebrow">{match.challenge_run_id ? `Draft · ${match.challenge_stage_id || 'stage'}` : match.tournament_id ? 'Tournament match' : 'Standalone match'}</span>
-      <h3>{title}</h3>
+      <svelte:element this={`h${headingLevel}`} class="card-title">{title}</svelte:element>
     </div>
     <span class={`status-pill ${match.status}`}>{statusLabel}</span>
   </header>
@@ -58,5 +64,5 @@
 
 <style>
   .match-card{transition:transform .2s cubic-bezier(.2,.8,.2,1),border-color .2s ease,box-shadow .2s ease}.match-card:hover{transform:translateY(-2px);border-color:color-mix(in srgb,var(--accent) 24%,var(--border));box-shadow:var(--shadow-sm)}.match-card footer a,.match-card footer button{display:inline-flex;align-items:center;justify-content:center;gap:.35rem}
-  .match-card{padding:1rem;box-shadow:none}.match-card header,.match-card footer{display:flex;align-items:center;justify-content:space-between;gap:.7rem}.match-card h3{margin:.25rem 0 0;font-size:1rem}.summary{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;margin:1rem 0;overflow:hidden;border:1px solid var(--border);border-radius:.6rem;background:var(--border)}.summary span{display:grid;gap:.15rem;padding:.7rem;background:var(--panel-strong);color:var(--muted);font:0.72rem var(--mono);line-height:1.35;overflow-wrap:anywhere}.summary strong{overflow:hidden;color:var(--text);font:700 .78rem var(--display);text-overflow:ellipsis;white-space:nowrap}.match-card footer{justify-content:flex-end;flex-wrap:wrap}.match-card footer a,.match-card footer button{min-height:38px;padding:.45rem .65rem;border:1px solid var(--border);border-radius:.55rem;background:var(--panel-strong);color:var(--text);font-size:.72rem;cursor:pointer}.match-card footer a:first-child,.match-card footer .challenge-link{border-color:var(--accent);color:var(--accent)}.match-card footer .danger,.failure{color:var(--danger)}.failure{font-size:.75rem}@media(max-width:680px){.summary{grid-template-columns:1fr 1fr}.match-card header{align-items:flex-start}.match-card footer{display:grid;grid-template-columns:1fr 1fr}.match-card footer>*{text-align:center}}
+  .match-card{padding:1rem;box-shadow:none}.match-card header,.match-card footer{display:flex;align-items:center;justify-content:space-between;gap:.7rem}.match-card .card-title{margin:.25rem 0 0;font-size:1rem;letter-spacing:-.02em}.summary{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;margin:1rem 0;overflow:hidden;border:1px solid var(--border);border-radius:.6rem;background:var(--border)}.summary span{display:grid;gap:.15rem;padding:.7rem;background:var(--panel-strong);color:var(--muted);font:0.72rem var(--mono);line-height:1.35;overflow-wrap:anywhere}.summary strong{overflow:hidden;color:var(--text);font:700 .78rem var(--display);text-overflow:ellipsis;white-space:nowrap}.match-card footer{justify-content:flex-end;flex-wrap:wrap}.match-card footer a,.match-card footer button{min-height:38px;padding:.45rem .65rem;border:1px solid var(--border);border-radius:.55rem;background:var(--panel-strong);color:var(--text);font-size:.72rem;cursor:pointer}.match-card footer a:first-child,.match-card footer .challenge-link{border-color:var(--accent);color:var(--accent)}.match-card footer .danger,.failure{color:var(--danger)}.failure{font-size:.75rem}@media(max-width:680px){.summary{grid-template-columns:1fr 1fr}.match-card header{align-items:flex-start}.match-card footer{display:grid;grid-template-columns:1fr 1fr}.match-card footer>*{text-align:center}}
 </style>

@@ -1,7 +1,7 @@
 @import '@fontsource-variable/inter';
 @import './phosphor.css';
 :root { color-scheme:dark; --bg:#0b100c; --panel:#111813; --panel-strong:#18211a; --surface:#202a22; --text:#f5f9f6; --muted:#a6b6ab; --border:#2d3a30; --accent:#7ee09a; --accent-strong:#a3f4ba; --accent-ink:#05180c; --p1:#79e098; --p2:#cfabf8; --hp-high:#62d283; --hp-mid:#f5c35f; --hp-low:#f87171; --warning:#f5c35f; --warning-soft:#382e18; --danger:#ff8b87; --danger-ink:#2b0707; --radius:.75rem; --radius-lg:1.2rem; --shadow-sm:0 8px 28px rgb(0 0 0 / .18); --shadow:0 24px 80px rgb(0 0 0 / .35); --focus:0 0 0 3px color-mix(in srgb,var(--accent) 35%,transparent); --display:'Inter Variable',Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; --mono:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,'Liberation Mono',monospace; -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;text-rendering:optimizeLegibility; }
-:root[data-theme='light'] { --accent-ink-mix:62%; color-scheme:light; --bg:#f3f6f2; --panel:#ffffff; --panel-strong:#f8faf7; --surface:#e9eee8; --text:#121a14; --muted:#556358; --border:#d0d8cf; --accent:#1e733d; --accent-strong:#145c2f; --accent-ink:#fff; --p1:#2e9e54; --p2:#834ec2; --warning:#7a4d00; --warning-soft:#fff2d6; --danger:#b42318; --danger-ink:#fff; --shadow:0 24px 70px rgb(39 59 43 / .14); }
+:root[data-theme='light'] { --accent-ink-mix:62%; --accent-gradient-partner:#1d4ed8; color-scheme:light; --bg:#f3f6f2; --panel:#ffffff; --panel-strong:#f8faf7; --surface:#e9eee8; --text:#121a14; --muted:#556358; --border:#d0d8cf; --accent:#1e733d; --accent-strong:#145c2f; --accent-ink:#fff; --p1:#2e9e54; --p2:#834ec2; --warning:#7a4d00; --warning-soft:#fff2d6; --danger:#b42318; --danger-ink:#fff; --shadow:0 24px 70px rgb(39 59 43 / .14); }
 :root {
   /* Intentional desktop content widths. Nothing is full-bleed unless it earns it. */
   --shell:1360px;          /* application shell */
@@ -18,6 +18,11 @@
      land around 1.3:1, so anything that colours text with an arbitrary accent mixes it
      toward --text by this amount first. 0% in dark leaves the accent exactly as authored. */
   --accent-ink-mix:0%;
+  /* Second stop of the primary-action gradient. The dark theme lightens the accent toward
+     a bright blue, which reads well behind that theme's dark ink. Reusing the same blue in
+     the light theme lightened a dark accent instead, and white ink on the far end of that
+     gradient measured 4.37:1 — under AA for text this size. */
+  --accent-gradient-partner:#58a6ff;
   --step--1:.78rem; --step-0:.92rem; --step-1:1.05rem;
   --step-2:clamp(1.25rem,1.9vw,1.6rem); --step-3:clamp(1.6rem,2.8vw,2.3rem);
   --step-4:clamp(2rem,3.8vw,3rem);
@@ -26,8 +31,8 @@
 html { scroll-behavior:smooth; font-family:var(--display); background:var(--bg); color:var(--text); -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;text-rendering:optimizeLegibility; }
 body { min-width:320px; margin:0; background:radial-gradient(circle at 90% -10%,color-mix(in srgb,var(--accent) 10%,transparent),transparent 31rem),radial-gradient(circle at -10% 38%,color-mix(in srgb,var(--p2) 5%,transparent),transparent 28rem),var(--bg); }
 :root[data-overlay='true'],:root[data-overlay='true'] body { min-width:0; overflow:hidden; background:transparent; }
-/* This is a <main>, so the global `main` rule below would give an OBS overlay the
-   ordinary page's centred column and 3.5rem of padding. Full bleed, explicitly. */
+/* Full bleed, explicitly: the overlay pages carry no chrome, and any inherited page
+   geometry shows up as letterboxing in an OBS capture or a rendered video frame. */
 .overlay-shell { width:100vw; max-width:none; height:100vh; min-height:0; margin:0; padding:0; overflow:hidden; background:transparent; }
 button,input,select,textarea { font:inherit; }
 button,a { -webkit-tap-highlight-color:transparent; }

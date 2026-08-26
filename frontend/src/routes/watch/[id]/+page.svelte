@@ -145,7 +145,7 @@
 <h1 class="visually-hidden">
   {match ? `${match.config.players[0].display_name} versus ${match.config.players[1].display_name}` : 'Battle view'}
 </h1>
-<div class="battle-view" bind:this={viewElement}>
+<main class="battle-view" bind:this={viewElement}>
   <BattleRenderer presentation={snapshot?.state || null} {config} overlay {speaking} campaign={match?.config.campaign || null} />
   <!-- Keeps narration audio available on the viewer tab; no battle controls are exposed. -->
   <ProductionConsole
@@ -167,11 +167,12 @@
   {#if connection !== 'live'}
     <p class="connection" role="status">{connection === 'connecting' ? 'Connecting…' : 'Reconnecting…'}</p>
   {/if}
-</div>
+</main>
 
 <style>
   /* Fills the viewport exactly; the battle must never require scrolling. */
-  .battle-view{position:fixed;inset:0;overflow:hidden;background:#050a08}
+  /* A <main>, so the global `main` rule applies: its padding would letterbox the battle. */
+  .battle-view{position:fixed;inset:0;width:100vw;max-width:none;min-height:0;margin:0;padding:0;overflow:hidden;background:#050a08}
   /* Sits over the arena, fades back until hovered so it never competes with the
      battle on a capture source. */
   .fullscreen-toggle{position:absolute;z-index:20;right:1rem;top:1rem;display:grid;place-items:center;width:40px;height:40px;border:1px solid rgba(255,255,255,.18);border-radius:.55rem;background:rgba(6,14,10,.7);color:#e9fff4;font-size:1.05rem;cursor:pointer;opacity:.35;transition:opacity .16s ease,background .16s ease}
